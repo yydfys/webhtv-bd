@@ -136,6 +136,17 @@
             android:theme="@style/Theme.App.Lab"
             android:windowSoftInputMode="adjustResize" />
 
+        <activity
+            android:name=".lab.LabVpnActivity"
+            android:exported="false"
+            android:theme="@style/Theme.App.Lab" />
+
+        <service
+            android:name=".lab.SystemVpnService"
+            android:exported="false"
+            android:permission="android.permission.BIND_VPN_SERVICE"
+            android:stopWithTask="false" />
+
         <receiver
             android:name=".receiver.ActionReceiver"
             android:exported="false">
