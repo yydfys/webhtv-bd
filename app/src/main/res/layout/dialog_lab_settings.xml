@@ -205,6 +205,39 @@
         <LinearLayout
             android:gravity="center_vertical"
             android:orientation="horizontal"
+            android:id="@+id/vpnRow"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp">
+            <LinearLayout
+                android:orientation="vertical"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1">
+                <TextView
+                    android:textSize="14sp"
+                    android:textColor="@color/lab_text_primary"
+                    android:id="@+id/vpnTitle"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/lab_system_vpn_title"/>
+                <TextView
+                    android:textSize="12sp"
+                    android:textColor="@color/lab_text_secondary"
+                    android:id="@+id/vpnHint"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="2dp"
+                    android:text="@string/lab_system_vpn_hint"/>
+            </LinearLayout>
+            <com.google.android.material.materialswitch.MaterialSwitch
+                android:id="@+id/vpnSwitch"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"/>
+        </LinearLayout>
+        <LinearLayout
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
             android:id="@+id/proxyRow"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
