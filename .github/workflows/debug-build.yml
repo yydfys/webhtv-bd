@@ -12,7 +12,7 @@ on:
         required: false
         default: '5.6.0'
       release_tag:
-        description: 'Release tag (如 v1.0.0)。留空则只构建不发布'
+        description: 'Release tag (如 v1.0.0)。留空则自动生成 v{versionName}-{时间}'
         required: false
         default: ''
       release:
@@ -94,7 +94,6 @@ jobs:
         run: |
           chmod +x ./gradlew
           rm -rf Release/apk dist
-          # No release keystore configured -> build.gradle falls back to debug signing
           ./gradlew \
             :app:assembleMobileArm64_v8aRelease \
             :app:assembleMobileArmeabi_v7aRelease \
@@ -138,43 +137,13 @@ jobs:
             TAG="v${VERSION_NAME}-$(date +%Y%m%d%H%M)"
           fi
           echo "release tag: $TAG"
-          # 若 tag 已存在则删除旧 release+tag（便于重跑）
           if gh release view "$TAG" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
             gh release delete "$TAG" --repo "${GITHUB_REPOSITORY}" --yes --cleanup-tag
           fi
-          # 计算 sha256 + 生成 manifest
-          python3 - <<'PYEOF'
-import hashlib, json, os, glob, sys
-tag = os.environ['TAG']
-repo = os.environ.get('GITHUB_REPOSITORY', 'yydfys/webhtv-bd')
-version_name = os.environ['VERSION_NAME']
-version_code = os.environ['VERSION_CODE']
-release_url = "https://github.com/%s/releases/download/%s" % (repo, tag)
-notes = "WebHTV 自动构建 Release (%s)" % tag
-for apk in sorted(glob.glob('dist/*.apk')):
-    name = os.path.basename(apk)
-    size = os.path.getsize(apk)
-    sha256 = hashlib.sha256(open(apk, 'rb').read()).hexdigest()
-    base = name[:-4]  # strip .apk
-    manifest = {
-        "name": tag,
-        "versionName": version_name,
-        "code": int(version_code),
-        "channel": "stable",
-        "apk": release_url + "/" + name,
-        "size": size,
-        "sha256": sha256,
-        "downloads": {"github": {"url": release_url + "/" + name}},
-        "notes": notes
-    }
-    mp = "dist/" + base + ".json"
-    with open(mp, 'w', encoding='utf-8') as f:
-        json.dump(manifest, f, ensure_ascii=False, indent=1)
-    print("manifest:", mp, manifest["apk"])
-PYEOF
+          export TAG
+          python3 .github/make_manifests.py
           gh release create "$TAG" dist/*.apk dist/*.json \
             --repo "${GITHUB_REPOSITORY}" \
             --title "WebHTV ${VERSION_NAME}" \
             --notes "自动构建 Release · code ${VERSION_CODE} · tag ${TAG}"
           echo "release created: $TAG"
-          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
