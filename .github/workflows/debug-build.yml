@@ -34,6 +34,11 @@ jobs:
           java-version: "21"
           cache: gradle
 
+      - name: Set up Python 3.10
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
 
