@@ -20,14 +20,14 @@ import com.fongmi.android.tv.R;
 import java.io.IOException;
 
 /**
- * 系统级 VPN 服务（最小闭环第一版）。
+ * 系统级 VPN 服务（完整版）。
  *
- * 授权链路：LabVpnActivity 弹系统授权窗 → 成功后 start 本服务。
- * 本版行为：建立 TUN 接口 + 前台通知（VPN 图标点亮），但不添加 0.0.0.0/0
- * 全流量路由，避免无内核消费时整机断网。
+ * 架构：VpnService 建立 TUN → 将 fd 交给内置 tun2socks 内核(libtun2socks.so)
+ * → 内核(gVisor netstack)消费 TUN 包 → 以 SOCKS5 连 mihomo 127.0.0.1:7890
+ * → 全机流量(0.0.0.0/0)进入隧道，实现真正的系统级代理。
  *
- * 完整版（下一版）：引入 tun2socks/gvisor 内核消费 TUN 包，桥接到 mihomo
- * SOCKS5 (127.0.0.1:7890)，再 addRoute 全流量，实现真正的系统级代理。
+ * 入口：增强功能 → 实验室 → mihomo → 启动代理 → 系统级VPN（lab_template.json
+ * 中 mihomo run_config 的 clicks "系统级VPN" action=vpn value=127.0.0.1:7890）。
  */
 public class SystemVpnService extends VpnService {
 
@@ -37,6 +37,18 @@ public class SystemVpnService extends VpnService {
     private static volatile boolean runningState = false;
 
     private ParcelFileDescriptor tunFd;
+
+    static {
+        try {
+            System.loadLibrary("tun2socks");
+        } catch (UnsatisfiedLinkError e) {
+            android.util.Log.e("SystemVpn", "libtun2socks.so 加载失败", e);
+        }
+    }
+
+    private static native int nativeStart(int fd);
+
+    private static native int nativeStop();
 
     public static void start(Context context) {
         Intent intent = new Intent(context, SystemVpnService.class);
@@ -54,8 +66,6 @@ public class SystemVpnService extends VpnService {
     public static boolean isRunning() {
         return runningState;
     }
-
-    private static volatile boolean stateCache = false;
 
     @Override
     public void onCreate() {
@@ -86,14 +96,34 @@ public class SystemVpnService extends VpnService {
         Builder builder = new Builder();
         builder.setSession("WebHTV 系统代理");
         builder.setMtu(1500);
-        // 仅加虚拟地址，不加全流量路由 —— 第一版防断网
+        // 虚拟地址（TUN 接口自身地址，/30 网络内 1 个地址即可，用 /32 亦常见）
         builder.addAddress("10.9.0.2", 32);
+        // 全流量进入 TUN —— 真正的系统级
+        builder.addRoute("0.0.0.0", 0);
+        builder.addRoute("::", 0);
+        // DNS 走隧道
+        builder.addDnsServer("8.8.8.8");
+        builder.addDnsServer("1.1.1.1");
+        // 允许本机回环(不路由回环避免内核自连 127.0.0.1:7890 陷入环路)
+        // VpnService 默认不回环路由 loopback，无需额外处理
+
         tunFd = builder.establish();
         if (tunFd == null) {
             throw new IOException("establish failed (user revoked?)");
         }
+
+        // 把底层 fd 所有权交给 tun2socks 内核（detach 后由 native 负责 close）
+        int fd = tunFd.detachFd();
+        int rc = nativeStart(fd);
+        if (rc != 0) {
+            android.util.Log.e("SystemVpn", "nativeStart failed rc=" + rc);
+            tunFd = null;
+            throw new IOException("tun2socks nativeStart failed rc=" + rc);
+        }
+        tunFd = null;
+
         runningState = true;
-        startForeground(NOTIFY_ID, buildNotification("系统级VPN已开启（等待流量内核）"));
+        startForeground(NOTIFY_ID, buildNotification("系统级VPN运行中"));
     }
 
     private void updateNotification() {
@@ -124,6 +154,7 @@ public class SystemVpnService extends VpnService {
 
     private void shutdown() {
         runningState = false;
+        nativeStop();
         if (tunFd != null) {
             try {
                 tunFd.close();
@@ -134,7 +165,6 @@ public class SystemVpnService extends VpnService {
         stopForeground(true);
         stopSelf();
     }
-
     @Override
     public void onDestroy() {
         shutdown();
