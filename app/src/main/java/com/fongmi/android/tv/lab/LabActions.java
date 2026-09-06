@@ -539,9 +539,6 @@ public final class LabActions {
                 share.putExtra(Intent.EXTRA_TEXT, value);
                 activity.startActivity(Intent.createChooser(share, "分享"));
                 break;
-            case "vpn":
-                LabVpnActivity.start(activity);
-                break;
             default:
                 Toast.makeText(activity, "暂不支持: " + click.action, Toast.LENGTH_SHORT).show();
                 break;
