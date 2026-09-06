@@ -41,6 +41,7 @@ public final class LabConfig {
     private static final String KEY_FOREGROUND = "foreground";
     private static final String KEY_BATTERY = "battery";
     private static final String KEY_GLOBAL_PROXY = "global_proxy";
+    private static final String KEY_SYSTEM_VPN = "system_vpn";
     private static final String KEY_GLOBAL_PROXY_PORT = "global_proxy_port";
     private static final String KEY_GLOBAL_PROXY_NO_PROXY = "global_proxy_no_proxy";
     private static final String KEY_NAV_ENTRY = "nav_entry";
@@ -145,6 +146,14 @@ public final class LabConfig {
 
     public void setGlobalProxy(boolean value) {
         sp().edit().putBoolean(KEY_GLOBAL_PROXY, value).apply();
+    }
+
+    public boolean getSystemVpn() {
+        return sp().getBoolean(KEY_SYSTEM_VPN, false);
+    }
+
+    public void setSystemVpn(boolean value) {
+        sp().edit().putBoolean(KEY_SYSTEM_VPN, value).apply();
     }
 
     public int getGlobalProxyPort() {
