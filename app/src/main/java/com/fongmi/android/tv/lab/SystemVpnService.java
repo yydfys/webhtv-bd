@@ -104,8 +104,18 @@ public class SystemVpnService extends VpnService {
         // DNS 走隧道
         builder.addDnsServer("8.8.8.8");
         builder.addDnsServer("1.1.1.1");
-        // 允许本机回环(不路由回环避免内核自连 127.0.0.1:7890 陷入环路)
-        // VpnService 默认不回环路由 loopback，无需额外处理
+
+        // 🔴 关键：把自身 app 排除出 VPN 隧道，防止环路！
+        // mihomo（跑在 lab/proot，与 app 同 uid）出站连接机场节点时，
+        // 若自身没被排除，出站流量也会被 TUN 截获 → 转回 tun2socks → 又转给
+        // mihomo → 再出站 → 又进 TUN → 无限循环 = 代理不通 + CPU 空转发热。
+        // 标准 VPN 实现（v2rayNG/sing-box）都会 addDisallowedApplication 排除自己，
+        // 让 mihomo 能直连出站；telegram 等其他 app 流量照常进隧道。
+        try {
+            builder.addDisallowedApplication(getPackageName());
+        } catch (Exception e) {
+            android.util.Log.e("SystemVpn", "addDisallowedApplication failed", e);
+        }
 
         tunFd = builder.establish();
         if (tunFd == null) {
