@@ -16,6 +16,10 @@ def buildTimestamp = new Date().format('yyyyMMddHHmm', TimeZone.getTimeZone('Asi
 def buildTime = fastRelease ? "fast-${buildTimestamp}" : buildTimestamp
 def releaseTag = (System.getenv('WEBHTV_RELEASE_TAG') ?: '').replace('\\', '\\\\').replace('"', '\\"')
 def apkSuffix = (System.getenv('WEBHTV_APK_SUFFIX') ?: '').replaceAll('[^A-Za-z0-9._-]', '')
+def versionCodeEnv = (System.getenv('WEBHTV_VERSION_CODE') ?: '').trim()
+def versionNameEnv = (System.getenv('WEBHTV_VERSION_NAME') ?: '').trim()
+def appVersionCode = versionCodeEnv.isInteger() ? versionCodeEnv.toInteger() : 560
+def appVersionName = versionNameEnv.isEmpty() ? '5.6.0' : versionNameEnv
 
 android {
     namespace = 'com.fongmi.android.tv'
@@ -27,8 +31,8 @@ android {
         applicationId "com.silent.android.webhtv"
         minSdk libs.versions.minSdk.get().toInteger()
         targetSdk libs.versions.targetSdk.get().toInteger()
-        versionCode 560
-        versionName "5.6.0"
+        versionCode appVersionCode
+        versionName appVersionName
         buildConfigField "String", "BUILD_TIME", "\"${buildTime}\""
         buildConfigField "String", "BUILD_TAG", "\"${releaseTag}\""
         buildConfigField "String", "MEDIA3_VERSION", "\"${libs.versions.media3.get()}\""
