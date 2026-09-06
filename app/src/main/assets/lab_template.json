@@ -627,12 +627,6 @@
        "style": "dialog"
       },
       {
-       "title": "系统级VPN",
-       "action": "vpn",
-       "value": "127.0.0.1:7890",
-       "style": "dialog"
-      },
-      {
        "title": "复制代理",
        "action": "copy",
        "value": "0.0.0.0:7890"
