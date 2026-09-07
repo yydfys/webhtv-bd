@@ -78,20 +78,26 @@ jobs:
           ls -la "$HOME/.android/"
 
       - name: Configure release signing (fixed keystore)
-        if: ${{ secrets.RELEASE_KEYSTORE_BASE64 != '' && secrets.RELEASE_KEYSTORE_PASSWORD != '' && secrets.RELEASE_KEY_ALIAS != '' }}
+        env:
+          KS_B64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
+          KS_PASS: ${{ secrets.RELEASE_KEYSTORE_PASSWORD }}
+          KS_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
         shell: bash
         run: |
           set -e
-          echo "${{ secrets.RELEASE_KEYSTORE_BASE64 }}" | base64 -d > "$GITHUB_WORKSPACE/.github/release.keystore"
+          if [ -z "$KS_B64" ] || [ -z "$KS_PASS" ] || [ -z "$KS_ALIAS" ]; then
+            echo "no release signing secrets -> fallback to debug signature"
+            exit 0
+          fi
+          echo "$KS_B64" | base64 -d > "$GITHUB_WORKSPACE/.github/release.keystore"
           chmod 600 "$GITHUB_WORKSPACE/.github/release.keystore"
           {
             echo "storeFile=$GITHUB_WORKSPACE/.github/release.keystore"
-            echo "keyAlias=${{ secrets.RELEASE_KEY_ALIAS }}"
-            echo "storePassword=${{ secrets.RELEASE_KEYSTORE_PASSWORD }}"
-            echo "keyPassword=${{ secrets.RELEASE_KEYSTORE_PASSWORD }}"
+            echo "keyAlias=$KS_ALIAS"
+            echo "storePassword=$KS_PASS"
+            echo "keyPassword=$KS_PASS"
           } > local.properties
-          cat local.properties | sed 's/PASSWORD/***/'
-          echo "release signing configured"
+          echo "release signing configured: alias=$KS_ALIAS store=$GITHUB_WORKSPACE/.github/release.keystore"
 
       - name: Resolve version inputs
         id: version
