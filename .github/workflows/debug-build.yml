@@ -77,6 +77,24 @@ jobs:
           chmod 600 "$HOME/.android/debug.keystore"
           ls -la "$HOME/.android/"
 
+      - name: Configure release signing (fixed keystore)
+        if: ${{ secrets.RELEASE_KEYSTORE_BASE64 != '' && secrets.RELEASE_KEYSTORE_PASSWORD != '' && secrets.RELEASE_KEY_ALIAS != '' }}
+        shell: bash
+        run: |
+          set -e
+          echo "${{ secrets.RELEASE_KEYSTORE_BASE64 }}" | base64 -d > "$GITHUB_WORKSPACE/.github/release.keystore"
+          chmod 600 "$GITHUB_WORKSPACE/.github/release.keystore"
+          {
+            echo "storeFile=$GITHUB_WORKSPACE/.github/release.keystore"
+            echo "keyAlias=${{ secrets.RELEASE_KEY_ALIAS }}"
+            echo "storePassword=${{ secrets.RELEASE_KEYSTORE_PASSWORD }}"
+            echo "keyPassword=${{ secrets.RELEASE_KEYSTORE_PASSWORD }}"
+          } > local.properties
+          cat local.properties | sed 's/PASSWORD/***/'
+          echo "release signing configured"
+
+      - name: Build four APKs (release or debug signed)
+
       - name: Resolve version inputs
         id: version
         shell: bash
@@ -86,7 +104,7 @@ jobs:
           echo "code=$VER_CODE" >> "$GITHUB_OUTPUT"
           echo "name=$VER_NAME" >> "$GITHUB_OUTPUT"
 
-      - name: Build four APKs (debug-signed fallback)
+      - name: Build four APKs (debug-signed fallback, unless release signing above)
         env:
           WEBHTV_APK_SUFFIX: ""
           WEBHTV_VERSION_CODE: ${{ steps.version.outputs.code }}
