@@ -17,17 +17,23 @@ import androidx.core.content.ContextCompat;
 
 import com.fongmi.android.tv.R;
 
+import java.io.File;
 import java.io.IOException;
 
 /**
- * 系统级 VPN 服务（完整版）。
+ * 系统级 VPN 服务（内嵌 mihomo 内核版）。
  *
- * 架构：VpnService 建立 TUN → 将 fd 交给内置 tun2socks 内核(libtun2socks.so)
- * → 内核(gVisor netstack)消费 TUN 包 → 以 SOCKS5 连 mihomo 127.0.0.1:7890
- * → 全机流量(0.0.0.0/0)进入隧道，实现真正的系统级代理。
+ * 架构（= ClashMetaForAndroid 正统实现）：
+ *   VpnService 建立 TUN → detachFd() → nativeStart(fd, configPath)
+ *   → libmihomo.so（c-shared 内嵌同进程）hub.ApplyConfig 加载完整 config
+ *   → sing_tun.New(LC.Tun{FileDescriptor: fd, DNSHijack: ...}) 接管 fd
+ *   → mihomo 自己劫持 DNS + fake-ip → 域名级分流全部生效
+ *
+ * 配置来源（本阶段）：读 {sdcard}/WebHTV/mihomo/config.yaml（与 lab CLI 版
+ * 同一路径，用户在 NAS 生成后同步/订阅下载到此处）。三模式配置面板后续阶段加。
  *
  * 入口：增强功能 → 实验室 → mihomo → 启动代理 → 系统级VPN（lab_template.json
- * 中 mihomo run_config 的 clicks "系统级VPN" action=vpn value=127.0.0.1:7890）。
+ * 中 mihomo run_config 的 clicks "系统级VPN" action=vpn）。
  */
 public class SystemVpnService extends VpnService {
 
@@ -36,19 +42,27 @@ public class SystemVpnService extends VpnService {
     private static final String ACTION_STOP = "vpn_stop";
     private static volatile boolean runningState = false;
 
+    /** 与 lab CLI 版共用同一份配置，用户在 NAS 维护 / 订阅下载到这里 */
+    private static final String CONFIG_PATH =
+            "/storage/emulated/0/WebHTV/mihomo/config.yaml";
+
     private ParcelFileDescriptor tunFd;
 
     static {
         try {
-            System.loadLibrary("tun2socks");
+            System.loadLibrary("mihomo");
         } catch (UnsatisfiedLinkError e) {
-            android.util.Log.e("SystemVpn", "libtun2socks.so 加载失败", e);
+            android.util.Log.e("SystemVpn", "libmihomo.so 加载失败", e);
         }
     }
 
-    private static native int nativeStart(int fd);
+    private static native int nativeLoadConfig(String path);
+
+    private static native int nativeStart(int fd, String configPath);
 
     private static native int nativeStop();
+
+    private static native int nativeIsRunning();
 
     public static void start(Context context) {
         Intent intent = new Intent(context, SystemVpnService.class);
@@ -65,6 +79,10 @@ public class SystemVpnService extends VpnService {
 
     public static boolean isRunning() {
         return runningState;
+    }
+
+    public static String getConfigPath() {
+        return CONFIG_PATH;
     }
 
     @Override
@@ -93,24 +111,23 @@ public class SystemVpnService extends VpnService {
     }
 
     private void startVpn() throws IOException {
+        // 配置存在性检查（读不到时给明确提示，而不是静默空跑）
+        File cfg = new File(CONFIG_PATH);
+        if (!cfg.exists() || cfg.length() == 0) {
+            throw new IOException("config not found: " + CONFIG_PATH);
+        }
+
         Builder builder = new Builder();
         builder.setSession("WebHTV 系统代理");
         builder.setMtu(1500);
-        // 虚拟地址（TUN 接口自身地址，/30 网络内 1 个地址即可，用 /32 亦常见）
+        // 虚拟地址 + 全流量进 TUN（真正的系统级）
         builder.addAddress("10.9.0.2", 32);
-        // 全流量进入 TUN —— 真正的系统级
         builder.addRoute("0.0.0.0", 0);
         builder.addRoute("::", 0);
-        // DNS 走隧道
-        builder.addDnsServer("8.8.8.8");
-        builder.addDnsServer("1.1.1.1");
 
-        // 🔴 关键：把自身 app 排除出 VPN 隧道，防止环路！
-        // mihomo（跑在 lab/proot，与 app 同 uid）出站连接机场节点时，
-        // 若自身没被排除，出站流量也会被 TUN 截获 → 转回 tun2socks → 又转给
-        // mihomo → 再出站 → 又进 TUN → 无限循环 = 代理不通 + CPU 空转发热。
-        // 标准 VPN 实现（v2rayNG/sing-box）都会 addDisallowedApplication 排除自己，
-        // 让 mihomo 能直连出站；telegram 等其他 app 流量照常进隧道。
+        // 🔴 关键：排除自身 app，防止出站环路！
+        // 内嵌 mihomo 出站连机场节点时若也被 TUN 截获 → 无限循环。
+        // 标准 VPN 实现（v2rayNG/sing-box/CMFA）都排除自己。
         try {
             builder.addDisallowedApplication(getPackageName());
         } catch (Exception e) {
@@ -122,13 +139,13 @@ public class SystemVpnService extends VpnService {
             throw new IOException("establish failed (user revoked?)");
         }
 
-        // 把底层 fd 所有权交给 tun2socks 内核（detach 后由 native 负责 close）
+        // fd 所有权交给内嵌 mihomo 内核（detach 后由 native 负责 close）
         int fd = tunFd.detachFd();
-        int rc = nativeStart(fd);
+        int rc = nativeStart(fd, CONFIG_PATH);
         if (rc != 0) {
             android.util.Log.e("SystemVpn", "nativeStart failed rc=" + rc);
             tunFd = null;
-            throw new IOException("tun2socks nativeStart failed rc=" + rc);
+            throw new IOException("mihomo nativeStart failed rc=" + rc);
         }
         tunFd = null;
 
@@ -175,6 +192,7 @@ public class SystemVpnService extends VpnService {
         stopForeground(true);
         stopSelf();
     }
+
     @Override
     public void onDestroy() {
         shutdown();
