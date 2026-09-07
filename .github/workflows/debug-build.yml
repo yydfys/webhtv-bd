@@ -93,8 +93,6 @@ jobs:
           cat local.properties | sed 's/PASSWORD/***/'
           echo "release signing configured"
 
-      - name: Build four APKs (release or debug signed)
-
       - name: Resolve version inputs
         id: version
         shell: bash
