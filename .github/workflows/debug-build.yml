@@ -20,7 +20,7 @@ on:
         required: false
         default: 'false'
   push:
-    branches: [vpn-dev]
+    branches: [vpn-dev, vpn-mihomo-tun]
 
 permissions:
   contents: write
