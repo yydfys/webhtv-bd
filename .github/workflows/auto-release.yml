@@ -1,0 +1,109 @@
+name: Auto Upstream Merge & Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version_code:
+        description: 'versionCode（自增，需大于手机已装版本）'
+        required: false
+        default: '561'
+      version_name:
+        description: 'versionName'
+        required: false
+        default: '5.6.0'
+      release_tag:
+        description: 'Release tag，留空自动生成 v{versionName}-{时间}'
+        required: false
+        default: ''
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: webhtv-auto-release
+  cancel-in-progress: false
+
+env:
+  TZ: Asia/Shanghai
+
+jobs:
+  merge-and-release:
+    name: Merge main -> vpn-dev & build release
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout vpn-dev (full history)
+        uses: actions/checkout@v4
+        with:
+          ref: vpn-dev
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure git
+        run: |
+          git config user.name "webhtv-auto-bot"
+          git config user.email "actions@github.com"
+
+      - name: Merge origin/main into vpn-dev
+        run: |
+          set -e
+          git fetch origin main
+          if git merge origin/main --no-edit --no-ff > /tmp/merge.log 2>&1; then
+            echo "MERGE_OK"
+            tail -5 /tmp/merge.log
+          else
+            echo "MERGE_CONFLICT"
+            echo "----- conflict files -----"
+            git diff --name-only --diff-filter=U || true
+            echo "----- merge log tail -----"
+            tail -30 /tmp/merge.log
+            exit 1
+          fi
+
+      - name: Push merged vpn-dev
+        run: |
+          git push origin HEAD:vpn-dev
+          echo "PUSH_OK $(git rev-parse --short HEAD)"
+
+      - name: Dispatch release build (debug-build.yml release=true)
+        id: dispatch
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION_CODE: ${{ github.event.inputs.version_code || '561' }}
+          VERSION_NAME: ${{ github.event.inputs.version_name || '5.6.0' }}
+          RELEASE_TAG: ${{ github.event.inputs.release_tag }}
+        run: |
+          ARGS=(-f version_code="$VERSION_CODE" -f version_name="$VERSION_NAME" -f release=true)
+          if [ -n "$RELEASE_TAG" ]; then
+            ARGS+=(-f release_tag="$RELEASE_TAG")
+          fi
+          gh workflow run debug-build.yml --ref vpn-dev "${ARGS[@]}"
+          echo "dispatched debug-build"
+
+      - name: Wait for release build and mirror its result
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -e
+          for i in $(seq 1 180); do
+            LINE=$(gh run list --workflow debug-build.yml --event workflow_dispatch --limit 1 \
+              --json databaseId,status,conclusion 2>/dev/null || echo "")
+            RUN_ID=$(echo "$LINE" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d[0]['databaseId'] if d else '')" 2>/dev/null || echo "")
+            STATUS=$(echo "$LINE" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d[0]['status'] if d else '')" 2>/dev/null || echo "")
+            CONC=$(echo "$LINE" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d[0].get('conclusion') or '' if d else '')" 2>/dev/null || echo "")
+            echo "try $i: run=$RUN_ID status=$STATUS conclusion=$CONC"
+            if [ "$STATUS" = "completed" ]; then
+              if [ "$CONC" = "success" ]; then
+                echo "RELEASE_BUILD_SUCCESS run=$RUN_ID"
+                exit 0
+              else
+                echo "RELEASE_BUILD_FAILED run=$RUN_ID conclusion=$CONC"
+                exit 1
+              fi
+            fi
+            sleep 30
+          done
+          echo "TIMEOUT waiting for release build"
+          exit 1
