@@ -344,9 +344,10 @@ public class SystemVpnService extends VpnService {
         }
         Builder builder = new Builder();
         builder.setSession("WebHTV 系统代理");
-        builder.setMtu(1500);
+        builder.setMtu(9000);
         // 虚拟地址 + 全流量进 TUN（真正的系统级）
-        builder.addAddress("10.9.0.2", 32);
+        // 与 CMFA 对齐：/30 子网 gateway=172.19.0.1，portal/dns=172.19.0.2（sing-tun system stack 必需）
+        builder.addAddress("172.19.0.1", 30);
         builder.addRoute("0.0.0.0", 0);
         builder.addRoute("::", 0);
 
