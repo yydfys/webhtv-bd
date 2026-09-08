@@ -53,6 +53,7 @@ public class SystemVpnService extends VpnService {
 
     private static final String CHANNEL_ID = "system_vpn";
     private static final int NOTIFY_ID = 100;
+    private static final int NOTIFY_FAIL_ID = 101;
     private static final String ACTION_STOP = "vpn_stop";
     private static final String ACTION_START_PROXY = "start_proxy";
     private static final String ACTION_START_VPN = "start_vpn";
@@ -437,11 +438,25 @@ public class SystemVpnService extends VpnService {
             }
             tunFd = null;
         }
+        android.util.Log.e("SystemVpn", "fail: " + message);
+        try {
+            // 失败原因用独立 ID 发一条非 ongoing、可清除的通知，保留在通知栏让用户/老大
+            // 看得到错误码（rc=-2 内核配置加载失败 / rc=-3 sing_tun 挂载失败 / establish 失败…），
+            // 之后才撤掉前台服务主通知，避免"点了没反应 / 不知道为啥失败"。
+            NotificationManager manager = getSystemService(NotificationManager.class);
+            if (manager != null) {
+                Notification fail = new NotificationCompat.Builder(this, CHANNEL_ID)
+                        .setSmallIcon(R.mipmap.ic_launcher)
+                        .setContentTitle("WebHTV 系统代理")
+                        .setContentText("启动失败：" + message)
+                        .setAutoCancel(true)
+                        .build();
+                manager.notify(NOTIFY_FAIL_ID, fail);
+            }
+        } catch (Throwable ignored) {
+        }
         // 失败也先前台化再停，避免二次崩溃
         startForeground(NOTIFY_ID, buildNotification("系统代理启动失败"));
-        NotificationManager manager = getSystemService(NotificationManager.class);
-        if (manager != null) manager.notify(NOTIFY_ID, buildNotification("启动失败：" + message));
-        android.util.Log.e("SystemVpn", "fail: " + message);
         stopForeground(true);
         stopSelf();
     }
@@ -534,9 +549,17 @@ public class SystemVpnService extends VpnService {
     // ---------------- 通知 ----------------
 
     private void updateNotification(String text) {
-        NotificationManager manager = getSystemService(NotificationManager.class);
-        if (manager != null) {
-            manager.notify(NOTIFY_ID, buildNotification(text));
+        Notification noti = buildNotification(text);
+        // 🔴 前台服务通知必须用 startForeground() 更新内容：
+        //   manager.notify() 对已 startForeground 的服务在 MIUI/ColorOS 等 ROM
+        //   上不刷新通知栏，表现为"点了 VPN 通知不切换"。startForeground 幂等，
+        //   重复调用只是更新内容，不会重新触发 5 秒前台时限。
+        try {
+            startForeground(NOTIFY_ID, noti);
+        } catch (Throwable t) {
+            android.util.Log.e("SystemVpn", "updateNotification startForeground failed", t);
+            NotificationManager manager = getSystemService(NotificationManager.class);
+            if (manager != null) manager.notify(NOTIFY_ID, noti);
         }
     }
 

@@ -44,13 +44,16 @@ proxy-providers:
     health-check:
       enable: true
       url: https://www.gstatic.com/generate_204
-      interval: 300
+      interval: 60
+      timeout: 5000
 
 proxy-groups:
   - name: 自动选择
     type: url-test
     url: https://www.gstatic.com/generate_204
-    interval: 300
+    interval: 60
+    timeout: 5000
+    lazy: false
     use:
       - sub
   - name: 手动选择
