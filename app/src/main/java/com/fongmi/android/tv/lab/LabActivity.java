@@ -365,8 +365,10 @@ public class LabActivity extends AppCompatActivity implements LabPackageAdapter.
         View navEntryRow = root.findViewById(R.id.navEntryRow);
         MaterialSwitch navEntry = root.findViewById(R.id.navEntrySwitch);
         navEntryRow.setVisibility(Util.isMobile() ? View.VISIBLE : View.GONE);
+        MaterialSwitch mihomo = root.findViewById(R.id.mihomoSwitch);
+        EditText subUrl = root.findViewById(R.id.subUrl);
         MaterialSwitch vpn = root.findViewById(R.id.vpnSwitch);
-        vpn.setChecked(SystemVpnService.isRunning() || LabConfig.get().getSystemVpn());
+        vpn.setChecked(SystemVpnService.isVpnRunning() || LabConfig.get().getSystemVpn());
         String[] items = {getString(R.string.lab_source_local), getString(R.string.lab_source_url)};
         dropdown.setAdapter(new ArrayAdapter<>(this, android.R.layout.simple_dropdown_item_1line, items));
         int source = LabConfig.get().getSource();
@@ -381,6 +383,11 @@ public class LabActivity extends AppCompatActivity implements LabPackageAdapter.
         proxy.setChecked(LabConfig.get().getGlobalProxy());
         proxyPort.setText(String.valueOf(LabConfig.get().getGlobalProxyPort()));
         proxyNoProxy.setText(LabConfig.get().getGlobalProxyNoProxy());
+        // mihomo 总开关 + 系统级 VPN 两级联动
+        mihomo.setChecked(LabConfig.get().getMihomo() || SystemVpnService.isProxyRunning());
+        subUrl.setText(LabConfig.get().getSubUrl());
+        applyVpnDependency(mihomo, vpn);
+        mihomo.setOnCheckedChangeListener((buttonView, isChecked) -> applyVpnDependency(mihomo, vpn));
         settingsDialog = new MaterialAlertDialogBuilder(this, R.style.Theme_App_Lab_DayNight_Dialog)
                 .setTitle(R.string.lab_source_title)
                 .setView(root)
@@ -403,7 +410,13 @@ public class LabActivity extends AppCompatActivity implements LabPackageAdapter.
                     LabConfig.get().setBattery(battery.isChecked());
                     LabConfig.get().setNavEntry(navEntry.isChecked());
                     LabConfig.get().setGlobalProxy(proxy.isChecked());
-                    LabConfig.get().setSystemVpn(vpn.isChecked());
+                    // mihomo 总开关：关掉时强制级联关 VPN
+                    boolean mihomoOn = mihomo.isChecked();
+                    boolean vpnOn = vpn.isChecked() && mihomoOn;
+                    LabConfig.get().setMihomo(mihomoOn);
+                    LabConfig.get().setSystemVpn(vpnOn);
+                    String sub = subUrl.getText() == null ? "" : subUrl.getText().toString().trim();
+                    LabConfig.get().setSubUrl(sub);
                     int port = 7890;
                     if (proxyPort.getText() != null) {
                         try {
@@ -421,15 +434,30 @@ public class LabActivity extends AppCompatActivity implements LabPackageAdapter.
                         }
                     }
                     settingsDialog.dismiss();
-                    if (vpn.isChecked()) {
-                        if (!SystemVpnService.isRunning()) LabVpnActivity.start(this);
+                    // 状态机：mihomo 开 → 起内核(7890)；VPN 开 → 系统授权后起 TUN
+                    if (mihomoOn) {
+                        if (!SystemVpnService.isProxyRunning()) {
+                            SystemVpnService.startProxy(this);
+                        }
+                        if (vpnOn && !SystemVpnService.isVpnRunning()) {
+                            LabVpnActivity.start(this);
+                        }
                     } else {
-                        SystemVpnService.stop(this);
+                        SystemVpnService.stopAll(this);
                     }
                     LabProcManager.updateService();
                     reload();
                 }));
         settingsDialog.show();
+    }
+
+    /** 系统级 VPN 开关依赖 mihomo 总开关：mihomo 关 → vpn 置灰并关闭 */
+    private void applyVpnDependency(MaterialSwitch mihomo, MaterialSwitch vpn) {
+        boolean enabled = mihomo.isChecked();
+        vpn.setEnabled(enabled);
+        if (!enabled) {
+            vpn.setChecked(false);
+        }
     }
 
     private void openLocalPicker() {
@@ -467,3 +495,4 @@ public class LabActivity extends AppCompatActivity implements LabPackageAdapter.
         input.setFocusableInTouchMode(url);
     }
 }
+

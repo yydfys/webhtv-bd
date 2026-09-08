@@ -42,6 +42,8 @@ public final class LabConfig {
     private static final String KEY_BATTERY = "battery";
     private static final String KEY_GLOBAL_PROXY = "global_proxy";
     private static final String KEY_SYSTEM_VPN = "system_vpn";
+    private static final String KEY_MIHOMO = "mihomo";
+    private static final String KEY_SUB_URL = "mihomo_sub_url";
     private static final String KEY_GLOBAL_PROXY_PORT = "global_proxy_port";
     private static final String KEY_GLOBAL_PROXY_NO_PROXY = "global_proxy_no_proxy";
     private static final String KEY_NAV_ENTRY = "nav_entry";
@@ -154,6 +156,24 @@ public final class LabConfig {
 
     public void setSystemVpn(boolean value) {
         sp().edit().putBoolean(KEY_SYSTEM_VPN, value).apply();
+    }
+
+    /** mihomo 代理总开关（系统级 VPN 的前置开关） */
+    public boolean getMihomo() {
+        return sp().getBoolean(KEY_MIHOMO, false);
+    }
+
+    public void setMihomo(boolean value) {
+        sp().edit().putBoolean(KEY_MIHOMO, value).apply();
+    }
+
+    /** mihomo 订阅地址（config.yaml 缺失时用内置模板生成） */
+    public String getSubUrl() {
+        return sp().getString(KEY_SUB_URL, "");
+    }
+
+    public void setSubUrl(String value) {
+        sp().edit().putString(KEY_SUB_URL, value == null ? "" : value.trim()).apply();
     }
 
     public int getGlobalProxyPort() {
@@ -615,3 +635,4 @@ public final class LabConfig {
         return out.toString(StandardCharsets.UTF_8.name());
     }
 }
+

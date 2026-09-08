@@ -1,0 +1,45 @@
+# WebHTV 内置 mihomo 配置模板 —— 直连兜底版（无订阅、无手动 config 时的保底）
+# 无任何节点，规则全部直连：保证 7890 能启动，但不会代理任何流量。
+# 请手动放置 /storage/emulated/0/WebHTV/mihomo/config.yaml 或填写订阅地址。
+mixed-port: 7890
+socks-port: 7891
+allow-lan: false
+mode: rule
+log-level: silent
+ipv6: false
+geodata-mode: true
+unified-delay: true
+tcp-concurrent: true
+
+dns:
+  enable: true
+  listen: 0.0.0.0:53
+  ipv6: false
+  default-nameserver:
+    - 223.5.5.5
+    - 119.29.29.29
+  enhanced-mode: fake-ip
+  fake-ip-range: 198.18.0.1/16
+  fake-ip-filter:
+    - "*.lan"
+    - "*.local"
+    - "+.msftconnecttest.com"
+    - "+.msftncsi.com"
+    - "+.mihomo.app"
+  nameserver:
+    - 223.5.5.5
+    - 119.29.29.29
+
+proxy-groups:
+  - name: 直连
+    type: select
+    proxies:
+      - DIRECT
+
+rules:
+  - GEOSITE,private,直连
+  - GEOIP,lan,直连,no-resolve
+  - GEOSITE,category-ads-all,REJECT
+  - GEOSITE,cn,直连
+  - GEOIP,CN,直连,no-resolve
+  - MATCH,直连

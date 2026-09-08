@@ -1,0 +1,75 @@
+# WebHTV 内置 mihomo 配置模板 —— 订阅版（config.yaml 缺失时由 App 生成）
+# 规则骨架 + proxy-providers 订阅节点。无节点也能启动（全部直连），
+# 填好订阅后 mihomo 自动拉取节点，域名级分流生效。
+mixed-port: 7890
+socks-port: 7891
+allow-lan: false
+mode: rule
+log-level: silent
+ipv6: false
+geodata-mode: true
+unified-delay: true
+tcp-concurrent: true
+
+# DNS（配合 SystemVpnService native 侧 DNSHijack any:53；fake-ip 域名分流）
+dns:
+  enable: true
+  listen: 0.0.0.0:53
+  ipv6: false
+  default-nameserver:
+    - 223.5.5.5
+    - 119.29.29.29
+  enhanced-mode: fake-ip
+  fake-ip-range: 198.18.0.1/16
+  fake-ip-filter:
+    - "*.lan"
+    - "*.local"
+    - "+.msftconnecttest.com"
+    - "+.msftncsi.com"
+    - "+.mihomo.app"
+  nameserver:
+    - 223.5.5.5
+    - 119.29.29.29
+  fallback:
+    - 8.8.8.8
+    - 1.1.1.1
+
+# 订阅（用户填写的订阅地址由 App 写入下方 url）
+proxy-providers:
+  sub:
+    type: http
+    url: "__SUB_URL__"
+    interval: 3600
+    health-check:
+      enable: true
+      url: https://www.gstatic.com/generate_204
+      interval: 300
+
+proxy-groups:
+  - name: 自动选择
+    type: url-test
+    url: https://www.gstatic.com/generate_204
+    interval: 300
+    use:
+      - sub
+  - name: 手动选择
+    type: select
+    use:
+      - sub
+  - name: 直连
+    type: select
+    proxies:
+      - DIRECT
+  - name: 广告拦截
+    type: select
+    proxies:
+      - REJECT
+      - DIRECT
+
+rules:
+  - GEOSITE,private,直连
+  - GEOIP,lan,直连,no-resolve
+  - GEOSITE,category-ads-all,广告拦截
+  - GEOSITE,cn,直连
+  - GEOIP,CN,直连,no-resolve
+  - MATCH,自动选择
