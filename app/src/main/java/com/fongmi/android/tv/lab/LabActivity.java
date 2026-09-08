@@ -416,6 +416,7 @@ public class LabActivity extends AppCompatActivity implements LabPackageAdapter.
                     LabConfig.get().setMihomo(mihomoOn);
                     LabConfig.get().setSystemVpn(vpnOn);
                     String sub = subUrl.getText() == null ? "" : subUrl.getText().toString().trim();
+                    String prevSub = LabConfig.get().getSubUrl();
                     LabConfig.get().setSubUrl(sub);
                     int port = 7890;
                     if (proxyPort.getText() != null) {
@@ -435,11 +436,46 @@ public class LabActivity extends AppCompatActivity implements LabPackageAdapter.
                     }
                     settingsDialog.dismiss();
                     // 状态机：mihomo 开 → 起内核(7890)；VPN 开 → 系统授权后起 TUN
+                    // 🔴 2026-09-08 幂等修复：订阅没变 + config 已存在 → 不重启不重拉，
+                    //   避免"再次点确定"重复解析订阅把节点覆盖成空。
                     if (mihomoOn) {
-                        if (!SystemVpnService.isProxyRunning()) {
-                            SystemVpnService.startProxy(this);
+                        boolean cfgExists = SystemVpnService.isConfigExists();
+                        boolean cfgApp = SystemVpnService.isAppGeneratedConfig();
+                        boolean needRestart = false;
+                        // 订阅地址非空且与之前不同：
+                        //   app 生成的 config → 删旧重生成（换新订阅）
+                        //   手动 config → 提示忽略订阅（永不覆盖手动配置）
+                        if (!sub.isEmpty() && !sub.equals(prevSub) && cfgExists) {
+                            if (cfgApp) {
+                                SystemVpnService.deleteAppGeneratedConfig();
+                                needRestart = true;
+                            } else {
+                                Notify.show("检测到手动 config.yaml，订阅地址已被忽略");
+                            }
                         }
-                        if (vpnOn && !SystemVpnService.isVpnRunning()) {
+                        // config 缺失但有订阅 → 首次生成
+                        if (!cfgExists && !sub.isEmpty() && !SystemVpnService.isAppGeneratedConfig()) {
+                            needRestart = true;
+                        }
+                        // 手动 config：即使没变也要确保代理在跑（config 在文件系统里，不是 app 生成的）
+                        if (SystemVpnService.isConfigExists() && !SystemVpnService.isAppGeneratedConfig()) {
+                            if (!SystemVpnService.isProxyRunning()) {
+                                SystemVpnService.startProxy(this);
+                            }
+                        } else if (!SystemVpnService.isProxyRunning()) {
+                            SystemVpnService.startProxy(this);
+                        } else if (needRestart) {
+                            // 代理已在跑且订阅变了 → 重启内核应用新订阅
+                            android.util.Log.i("SystemVpn", "subscription changed, restart proxy kernel");
+                            SystemVpnService.stopAll(this);
+                            App.post(() -> {
+                                SystemVpnService.startProxy(this);
+                                if (vpnOn && !SystemVpnService.isVpnRunning()) {
+                                    LabVpnActivity.start(this);
+                                }
+                            }, 600);
+                        }
+                        if (vpnOn && !SystemVpnService.isVpnRunning() && !needRestart) {
                             LabVpnActivity.start(this);
                         }
                     } else {

@@ -62,6 +62,9 @@ public class SystemVpnService extends VpnService {
     /** 与 lab CLI 版共用同一份配置：用户在 NAS 维护 / 订阅生成后放这里 */
     private static final String HOME_DIR = "/storage/emulated/0/WebHTV/mihomo";
     private static final String CONFIG_PATH = HOME_DIR + "/config.yaml";
+    /** App 自动生成 config.yaml 的旁写标记：存在 = app 生成（可被订阅重生成覆盖）；
+     *  不存在且 config.yaml 存在 = 用户手动放入（永不覆盖，订阅地址被忽略）。 */
+    private static final String APP_GENERATED_MARKER = HOME_DIR + "/config.yaml.app_generated";
     private static final String GEOIP_PATH = HOME_DIR + "/GeoIP.dat";
     private static final String GEOSITE_PATH = HOME_DIR + "/GeoSite.dat";
 
@@ -150,6 +153,27 @@ public class SystemVpnService extends VpnService {
         return CONFIG_PATH;
     }
 
+    // ---------------- config 来源判断（供 LabActivity 保存订阅时使用） ----------------
+
+    /** config.yaml 是否已存在 */
+    public static boolean isConfigExists() {
+        File cfg = new File(CONFIG_PATH);
+        return cfg.exists() && cfg.length() > 0;
+    }
+
+    /** config.yaml 是否由 App 自动生成（有旁写标记） */
+    public static boolean isAppGeneratedConfig() {
+        return new File(APP_GENERATED_MARKER).exists();
+    }
+
+    /** 删除 App 生成的 config.yaml + 标记。仅限 app 生成；手动 config 永不删除。 */
+    public static void deleteAppGeneratedConfig() {
+        if (!isAppGeneratedConfig()) return;
+        new File(CONFIG_PATH).delete();
+        new File(APP_GENERATED_MARKER).delete();
+        android.util.Log.i("SystemVpn", "app generated config deleted for resubscribe");
+    }
+
     @Override
     public void onCreate() {
         super.onCreate();
@@ -209,6 +233,7 @@ public class SystemVpnService extends VpnService {
     }
 
     private void startVpnInBackground() {
+        boolean proxyWasRunning = proxyState;
         Thread worker = new Thread(() -> {
             try {
                 ensureConfigAssets();
@@ -221,9 +246,23 @@ public class SystemVpnService extends VpnService {
                 startVpnInternal();
             } catch (Exception e) {
                 android.util.Log.e("SystemVpn", "vpn start failed", e);
-                proxyState = false;
                 vpnState = false;
-                failStop(e.getMessage());
+                if (proxyWasRunning) {
+                    // 🔴 proxy 原本就在跑：VPN 失败只回滚 VPN，保留 mihomo 7890，
+                    // 不连带杀掉可用代理（2026-09-08 修复：点 VPN 后 7890 也消失）
+                    nativeStopTun();
+                    if (tunFd != null) {
+                        try {
+                            tunFd.close();
+                        } catch (IOException ignored) {
+                        }
+                        tunFd = null;
+                    }
+                    updateNotification("mihomo 代理运行中 · 127.0.0.1:7890");
+                } else {
+                    proxyState = false;
+                    failStop(e.getMessage());
+                }
             }
         }, "system-vpn-start");
         worker.start();
@@ -261,6 +300,12 @@ public class SystemVpnService extends VpnService {
         int rc = nativeStartTun(fd);
         if (rc != 0) {
             android.util.Log.e("SystemVpn", "nativeStartTun failed rc=" + rc);
+            // 🔴 挂载失败时 fd 已 detach，必须主动 close，否则 TUN 路由残留成黑洞
+            //（全流量进 TUN 但内核没接管 → 其它 app 全断网）
+            try {
+                ParcelFileDescriptor.adoptFd(fd).close();
+            } catch (Exception ignored) {
+            }
             tunFd = null;
             throw new IOException("mihomo TUN 挂载失败 rc=" + rc);
         }
@@ -272,6 +317,7 @@ public class SystemVpnService extends VpnService {
 
     private void stopVpnInternal() {
         vpnState = false;
+        LabConfig.get().setSystemVpn(false);
         nativeStopTun();
         if (tunFd != null) {
             try {
@@ -292,6 +338,9 @@ public class SystemVpnService extends VpnService {
     private void stopAllInternal() {
         vpnState = false;
         proxyState = false;
+        // 🔴 同步持久化开关：通知栏关闭/全停后，App 内 mihomo/VPN 开关跟随关闭
+        LabConfig.get().setMihomo(false);
+        LabConfig.get().setSystemVpn(false);
         nativeStopAll();
         if (tunFd != null) {
             try {
@@ -308,6 +357,8 @@ public class SystemVpnService extends VpnService {
         try {
             vpnState = false;
             proxyState = false;
+            LabConfig.get().setMihomo(false);
+            LabConfig.get().setSystemVpn(false);
             nativeStopAll();
         } catch (Throwable ignored) {
         }
@@ -343,10 +394,16 @@ public class SystemVpnService extends VpnService {
     }
 
     /**
-     * config.yaml 缺失时生成内置模板。生成策略：
-     *   1) 用户填了订阅 URL → 复制订阅版模板并替换 __SUB_URL__ 占位符
-     *   2) 没填订阅 → 复制直连兜底模板（7890 能启动，规则全直连，提示补配置）
-     * 已存在（用户手动放置 / NAS 同步）→ 不覆盖，保留用户配置优先。
+     * 确保 config.yaml 就绪（订阅优先，手动 config 永不覆盖）。
+     *
+     * 策略（2026-09-08 老大定稿）：
+     *   - config.yaml 已存在：
+     *       · 用户手动放入（无 app 标记）→ 保留，订阅地址被忽略（UI 层提示）
+     *       · App 生成（有标记）→ 保留；订阅变化时由 LabActivity 删旧重生成，
+     *         这里绝不重复覆盖/重复解析
+     *   - config.yaml 不存在：
+     *       · 填了订阅 → 用订阅模板生成 + 旁写 app_generated 标记
+     *       · 没填订阅 → 不自动生成直连模板（等用户在 UI 填订阅；UI 层已阻止无订阅启动）
      */
     private void ensureConfigAssets() {
         File dir = new File(HOME_DIR);
@@ -356,20 +413,21 @@ public class SystemVpnService extends VpnService {
         File cfg = new File(CONFIG_PATH);
         if (cfg.exists() && cfg.length() > 0) return;
         String sub = LabConfig.get().getSubUrl();
+        if (TextUtils.isEmpty(sub)) {
+            android.util.Log.w("SystemVpn", "no config.yaml and no subscription, skip generating");
+            return;
+        }
         try {
-            if (!TextUtils.isEmpty(sub)) {
-                String template = readAsset("mihomo/config_sub_template.yaml");
-                if (template != null) {
-                    template = template.replace("__SUB_URL__", sub.trim());
-                    writeText(new File(CONFIG_PATH), template);
-                    android.util.Log.i("SystemVpn", "config generated from subscription template");
-                    return;
-                }
+            String template = readAsset("mihomo/config_sub_template.yaml");
+            if (template == null) {
+                throw new IOException("read config_sub_template.yaml failed");
             }
-            copyAssetIfMissing("mihomo/config_direct_template.yaml", CONFIG_PATH);
+            template = template.replace("__SUB_URL__", sub.trim());
+            writeText(new File(CONFIG_PATH), template);
+            writeText(new File(APP_GENERATED_MARKER), "");
+            android.util.Log.i("SystemVpn", "config generated from subscription template + app_generated marker");
         } catch (Exception e) {
-            android.util.Log.w("SystemVpn", "config generate failed, fallback direct template", e);
-            copyAssetIfMissing("mihomo/config_direct_template.yaml", CONFIG_PATH);
+            android.util.Log.w("SystemVpn", "config generate failed: " + e.getMessage(), e);
         }
     }
 
