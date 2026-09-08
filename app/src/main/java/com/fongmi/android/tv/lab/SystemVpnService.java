@@ -34,6 +34,13 @@ import java.io.IOException;
  *
  * 入口：增强功能 → 实验室 → mihomo → 启动代理 → 系统级VPN（lab_template.json
  * 中 mihomo run_config 的 clicks "系统级VPN" action=vpn）。
+ *
+ * 🔴 Android 8.0+ 前台服务时限（崩溃修复，2026-09-08）：
+ *   startForegroundService() 之后必须在 5 秒内调用 startForeground()，
+ *   否则系统抛 RemoteServiceException 杀进程。此前 startForeground 放在
+ *   establish/nativeStart（耗时初始化）之后，5 秒必然超时 → 崩溃。
+ *   修复：onStartCommand 最先 startForeground 占位（"正在启动"），
+ *   耗时初始化放子线程，成功后再把通知更新为"运行中"。
  */
 public class SystemVpnService extends VpnService {
 
@@ -97,15 +104,31 @@ public class SystemVpnService extends VpnService {
             shutdown();
             return START_NOT_STICKY;
         }
-        if (tunFd != null) {
+
+        // 🔴 必须最先前台化：startForegroundService() 后 5 秒内不调
+        // startForeground() 会被系统判死（RemoteServiceException）。
+        // 先占位通知，再异步做耗时的 establish + nativeStart。
+        startForeground(NOTIFY_ID, buildNotification("正在启动系统代理…"));
+
+        if (tunFd == null && !runningState) {
+            // 耗时初始化放子线程，避免阻塞主线程 & 拖垮前台化时限
+            Thread worker = new Thread(new Runnable() {
+                @Override
+                public void run() {
+                    try {
+                        startVpn();
+                        updateNotification();
+                    } catch (Exception e) {
+                        android.util.Log.e("SystemVpn", "start failed", e);
+                        runningState = false;
+                        stopSelf();
+                    }
+                }
+            }, "system-vpn-start");
+            worker.start();
+        } else {
+            // 已在运行：只刷新通知即可
             updateNotification();
-            return START_STICKY;
-        }
-        try {
-            startVpn();
-        } catch (Exception e) {
-            android.util.Log.e("SystemVpn", "start failed", e);
-            stopSelf();
         }
         return START_STICKY;
     }
@@ -150,12 +173,13 @@ public class SystemVpnService extends VpnService {
         tunFd = null;
 
         runningState = true;
-        startForeground(NOTIFY_ID, buildNotification("系统级VPN运行中"));
     }
 
     private void updateNotification() {
         NotificationManager manager = getSystemService(NotificationManager.class);
-        if (manager != null) manager.notify(NOTIFY_ID, buildNotification("系统级VPN运行中"));
+        if (manager != null) {
+            manager.notify(NOTIFY_ID, buildNotification(runningState ? "系统级VPN运行中" : "正在启动系统代理…"));
+        }
     }
 
     private Notification buildNotification(String text) {
