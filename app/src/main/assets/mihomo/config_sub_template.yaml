@@ -5,7 +5,7 @@ mixed-port: 7890
 socks-port: 7891
 allow-lan: false
 mode: rule
-log-level: silent
+log-level: debug
 ipv6: false
 geodata-mode: true
 unified-delay: true
@@ -14,7 +14,6 @@ tcp-concurrent: true
 # DNS（配合 SystemVpnService native 侧 DNSHijack any:53；fake-ip 域名分流）
 dns:
   enable: true
-  listen: 0.0.0.0:53
   ipv6: false
   default-nameserver:
     - 223.5.5.5

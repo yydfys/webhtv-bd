@@ -24,6 +24,7 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.net.InetAddress;
 import java.nio.charset.StandardCharsets;
 
 /**
@@ -348,6 +349,10 @@ public class SystemVpnService extends VpnService {
         // 虚拟地址 + 全流量进 TUN（真正的系统级）
         // 与 CMFA 对齐：/30 子网 gateway=172.19.0.1，portal/dns=172.19.0.2（sing-tun system stack 必需）
         builder.addAddress("172.19.0.1", 30);
+        // 🔴 系统 DNS 指向 TUN 内 portal 172.19.0.2：app 的 DNS 查询进 TUN →
+        // sing_tun 的 any:53 hijack 接管 → mihomo fake-ip 解析，形成完整闭环。
+        // 缺这行 → app 仍用原 WiFi/运营商 DNS，DNS 包不进 TUN，所有域名解析失败。
+        builder.addDnsServer(InetAddress.getByName("172.19.0.2"));
         builder.addRoute("0.0.0.0", 0);
         builder.addRoute("::", 0);
 
