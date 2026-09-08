@@ -12,12 +12,17 @@ tag = os.environ.get("TAG", "")
 repo = os.environ.get("GITHUB_REPOSITORY", "yydfys/webhtv-bd")
 version_name = os.environ.get("VERSION_NAME", "5.6.0")
 version_code = os.environ.get("VERSION_CODE", "560")
+release_notes = os.environ.get("RELEASE_NOTES", "").strip()
 
 if not tag:
     raise SystemExit("TAG env required")
 
 release_url = "https://github.com/%s/releases/download/%s" % (repo, tag)
-notes = "WebHTV 自动构建 Release (%s)" % tag
+# notes 优先用 workflow_dispatch 填写的更新日志（app 检查更新弹窗显示此字段）
+if release_notes:
+    notes = release_notes
+else:
+    notes = "WebHTV 自动构建 Release (%s)" % tag
 
 apks = sorted(glob.glob("dist/*.apk"))
 if not apks:

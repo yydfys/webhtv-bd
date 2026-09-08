@@ -19,6 +19,10 @@ on:
         description: '是否创建 GitHub Release (true/false)'
         required: false
         default: 'false'
+      release_notes:
+        description: '本版本更新日志（app 检查更新弹窗 + Release 页显示，多行用 %0A 分隔）'
+        required: false
+        default: ''
   push:
     branches: [vpn-dev, vpn-mihomo-tun]
 
@@ -153,6 +157,7 @@ jobs:
           VERSION_NAME: ${{ steps.version.outputs.name }}
           VERSION_CODE: ${{ steps.version.outputs.code }}
           TAG: ${{ steps.relflag.outputs.tag }}
+          RELEASE_NOTES: ${{ github.event.inputs.release_notes || '' }}
         run: |
           set -e
           if [ -z "$TAG" ]; then
@@ -163,9 +168,17 @@ jobs:
             gh release delete "$TAG" --repo "${GITHUB_REPOSITORY}" --yes --cleanup-tag
           fi
           export TAG
+          export RELEASE_NOTES
           python3 .github/make_manifests.py
+          if [ -n "$RELEASE_NOTES" ]; then
+            NOTES="$RELEASE_NOTES"
+            echo "--- release notes ---"
+            printf '%s\n' "$NOTES"
+          else
+            NOTES="自动构建 Release · code ${VERSION_CODE} · tag ${TAG}"
+          fi
           gh release create "$TAG" dist/*.apk dist/*.json \
             --repo "${GITHUB_REPOSITORY}" \
             --title "WebHTV ${VERSION_NAME}" \
-            --notes "自动构建 Release · code ${VERSION_CODE} · tag ${TAG}"
+            --notes "$NOTES"
           echo "release created: $TAG"
