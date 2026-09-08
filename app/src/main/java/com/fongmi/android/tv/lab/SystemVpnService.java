@@ -58,6 +58,7 @@ public class SystemVpnService extends VpnService {
     private static final String ACTION_START_VPN = "start_vpn";
     private static final String ACTION_STOP_VPN = "stop_vpn";
     private static final String ACTION_STOP_ALL = "stop_all";
+    private static final String ACTION_RESTART_PROXY = "restart_proxy";
 
     /** 与 lab CLI 版共用同一份配置：用户在 NAS 维护 / 订阅生成后放这里 */
     private static final String HOME_DIR = "/storage/emulated/0/WebHTV/mihomo";
@@ -121,6 +122,19 @@ public class SystemVpnService extends VpnService {
     /** 全停：TUN + mihomo 内核 */
     public static void stopAll(Context context) {
         context.startService(new Intent(context, SystemVpnService.class).setAction(ACTION_STOP_ALL));
+    }
+
+    /** 订阅变更后重启内核：不碰持久化开关，仅 native 全停再拉起 7890。
+     *  restoreVpn=true 时在同一 worker 内顺序恢复 TUN（proxy 就绪 → 挂 TUN）。 */
+    public static void restartProxy(Context context, boolean restoreVpn) {
+        Intent intent = new Intent(context, SystemVpnService.class)
+                .setAction(ACTION_RESTART_PROXY)
+                .putExtra("restore_vpn", restoreVpn);
+        if (Build.VERSION.SDK_INT >= 26) {
+            ContextCompat.startForegroundService(context, intent);
+        } else {
+            context.startService(intent);
+        }
     }
 
     /** 兼容旧调用（原 start/stop 语义 = 全开/全停） */
@@ -201,6 +215,10 @@ public class SystemVpnService extends VpnService {
             case ACTION_STOP_ALL:
                 stopAllInternal();
                 break;
+            case ACTION_RESTART_PROXY:
+                startForeground(NOTIFY_ID, buildNotification("正在应用新订阅…"));
+                restartProxyInternal(intent.getBooleanExtra("restore_vpn", false));
+                break;
             case ACTION_STOP:
                 stopAllInternal();
                 break;
@@ -211,6 +229,56 @@ public class SystemVpnService extends VpnService {
     }
 
     // ---------------- 后台启动 ----------------
+
+    /** 订阅变更重启：native 全停 → 重新 ensureConfigAssets（新订阅会删旧重生成）→ 起 7890。
+     *  不写 LabConfig 开关（开关状态由 UI 保持），只重载内核配置。
+     *  restoreVpn=true 时顺序恢复 TUN（VpnService 已授权过则 establish 无需再弹窗）。 */
+    private void restartProxyInternal(boolean restoreVpn) {
+        Thread worker = new Thread(() -> {
+            try {
+                vpnState = false;
+                proxyState = false;
+                nativeStopAll();
+                if (tunFd != null) {
+                    try {
+                        tunFd.close();
+                    } catch (IOException ignored) {
+                    }
+                    tunFd = null;
+                }
+                // 订阅变更时 LabActivity 已调用 deleteAppGeneratedConfig()，
+                // ensureConfigAssets 会用新订阅重新生成 config + app 标记
+                ensureConfigAssets();
+                ensureGeoAssets();
+                int rc = nativeStartProxy(CONFIG_PATH);
+                if (rc != 0) throw new IOException("mihomo 内核重启失败 rc=" + rc);
+                proxyState = true;
+                updateNotification("mihomo 代理运行中 · 127.0.0.1:7890");
+                if (restoreVpn) {
+                    // VPN 未授权时 establish 抛异常：只回滚 VPN，不连坐杀掉 7890
+                    try {
+                        startVpnInternal();
+                    } catch (Exception vpnErr) {
+                        android.util.Log.e("SystemVpn", "vpn restore failed after resubscribe: " + vpnErr.getMessage());
+                        vpnState = false;
+                        if (tunFd != null) {
+                            try {
+                                tunFd.close();
+                            } catch (IOException ignored) {
+                            }
+                            tunFd = null;
+                        }
+                        updateNotification("mihomo 代理运行中 · 127.0.0.1:7890");
+                    }
+                }
+            } catch (Exception e) {
+                android.util.Log.e("SystemVpn", "proxy restart failed", e);
+                proxyState = false;
+                failStop(e.getMessage());
+            }
+        }, "mihomo-proxy-restart");
+        worker.start();
+    }
 
     private void startProxyInBackground() {
         Thread worker = new Thread(() -> {
