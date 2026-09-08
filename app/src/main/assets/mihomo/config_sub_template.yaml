@@ -39,6 +39,7 @@ proxy-providers:
   sub:
     type: http
     url: "__SUB_URL__"
+    path: ./providers/sub.yaml
     interval: 3600
     health-check:
       enable: true
