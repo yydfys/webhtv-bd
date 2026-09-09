@@ -1,0 +1,142 @@
+name: Auto Upstream Merge & Release (tun)
+
+on:
+  workflow_dispatch:
+    inputs:
+      version_code:
+        description: 'versionCode（自增，需大于手机已装版本）'
+        required: false
+        default: '561'
+      version_name:
+        description: 'versionName'
+        required: false
+        default: '5.6.0'
+      release_tag:
+        description: 'Release tag，留空自动生成 v{versionName}-{时间}'
+        required: false
+        default: ''
+      release_notes:
+        description: '更新日志（多行用 %0A 分隔），留空用默认文案'
+        required: false
+        default: ''
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: webhtv-auto-release-tun
+  cancel-in-progress: false
+
+env:
+  TZ: Asia/Shanghai
+
+jobs:
+  merge-and-release:
+    name: Merge main -> vpn-mihomo-tun & build release
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout vpn-mihomo-tun (full history)
+        uses: actions/checkout@v4
+        with:
+          ref: vpn-mihomo-tun
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure git
+        run: |
+          git config user.name "webhtv-auto-bot"
+          git config user.email "actions@github.com"
+
+      - name: Merge origin/main into vpn-mihomo-tun
+        run: |
+          set -e
+          git fetch origin main
+          echo "=== try merge ==="
+          if git merge origin/main --no-edit --no-ff > /tmp/merge.log 2>&1; then
+            echo "MERGE_OK"
+            tail -5 /tmp/merge.log
+          else
+            echo "MERGE_CONFLICT"
+            echo "----- conflict files -----"
+            git diff --name-only --diff-filter=U || true
+            echo "----- merge log tail -----"
+            tail -30 /tmp/merge.log
+            exit 1
+          fi
+
+      - name: Push merged vpn-mihomo-tun
+        run: |
+          git push origin HEAD:vpn-mihomo-tun
+          echo "PUSH_OK $(git rev-parse --short HEAD)"
+
+      - name: Dispatch release build (debug-build.yml release=true)
+        id: dispatch
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION_CODE: ${{ github.event.inputs.version_code || '561' }}
+          VERSION_NAME: ${{ github.event.inputs.version_name || '5.6.0' }}
+          RELEASE_TAG: ${{ github.event.inputs.release_tag }}
+          RELEASE_NOTES: ${{ github.event.inputs.release_notes }}
+        run: |
+          BEFORE_TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          echo "before_ts=$BEFORE_TS" >> "$GITHUB_ENV"
+          ARGS=(-f version_code="$VERSION_CODE" -f version_name="$VERSION_NAME" -f release=true)
+          if [ -n "$RELEASE_TAG" ]; then
+            ARGS+=(-f release_tag="$RELEASE_TAG")
+          fi
+          if [ -n "$RELEASE_NOTES" ]; then
+            ARGS+=(-f release_notes="$RELEASE_NOTES")
+          fi
+          gh workflow run debug-build.yml --ref vpn-mihomo-tun "${ARGS[@]}"
+          echo "dispatched debug-build at $BEFORE_TS"
+
+      - name: Wait for release build and mirror its result
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -e
+          BEFORE_TS="${{ env.before_ts }}"
+          # 只认 dispatch 之后创建的最新 debug-build workflow_dispatch run
+          for i in $(seq 1 120); do
+            FOUND=""
+            # per_page=10 拉最近的 workflow_dispatch run，用 python 精确筛选
+            RUNS=$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs?event=workflow_dispatch&per_page=10" --jq '.workflow_runs' 2>/dev/null || echo "[]")
+            LINE=$(echo "$RUNS" | python3 -c "
+import json,sys
+try:
+    runs=json.load(sys.stdin)
+except Exception:
+    sys.exit(0)
+for r in runs:
+    if not (r.get('path') or '').endswith('debug-build.yml'):
+        continue
+    created=r.get('created_at','')
+    if created and created >= '$BEFORE_TS':
+        print(json.dumps({'id':r.get('databaseId'),'status':r.get('status'),'conclusion':r.get('conclusion')}))
+        sys.exit(0)
+" 2>/dev/null || true)
+            if [ -n "$LINE" ]; then
+                FOUND="$LINE"
+                RUN_ID=$(echo "$LINE" | python3 -c "import json,sys; print(json.load(sys.stdin)['id'])")
+                STATUS=$(echo "$LINE" | python3 -c "import json,sys; print(json.load(sys.stdin)['status'])")
+                CONC=$(echo "$LINE" | python3 -c "import json,sys; print(json.load(sys.stdin).get('conclusion') or '')")
+                echo "try $i: run=$RUN_ID status=$STATUS conclusion=$CONC"
+                if [ "$STATUS" = "completed" ]; then
+                  if [ "$CONC" = "success" ]; then
+                    echo "RELEASE_BUILD_SUCCESS run=$RUN_ID"
+                    exit 0
+                  else
+                    echo "RELEASE_BUILD_FAILED run=$RUN_ID conclusion=$CONC"
+                    exit 1
+                  fi
+                fi
+            else
+                echo "try $i: release run not visible yet"
+            fi
+            sleep 30
+          done
+          echo "TIMEOUT waiting for release build"
+          exit 1
