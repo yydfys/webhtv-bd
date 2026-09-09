@@ -863,6 +863,15 @@
     <string name="setting_proxy_test_failed">代理测试失败：%1$s</string>
     <string name="setting_one_key_sync">一键同步</string>
     <string name="setting_incognito">无痕模式</string>
+    <string name="setting_vpn">VPN 代理</string>
+    <string name="vpn_state_off">未开启</string>
+    <string name="vpn_state_proxy">代理运行中</string>
+    <string name="vpn_state_vpn">VPN 运行中</string>
+    <string name="vpn_dialog_title">VPN 代理</string>
+    <string name="vpn_dialog_hint">配置 mihomo 代理与系统级 VPN</string>
+    <string name="vpn_scan_title">扫码推送订阅地址</string>
+    <string name="vpn_scan_hint">手机连接同一局域网扫码打开页面，粘贴 mihomo 订阅地址后提交，会自动填入订阅输入框。
+（提示：手机上直接输入不方便时用此方式）</string>
     <string name="setting_drive_check">网盘检测</string>
     <string name="setting_audio_source">音频源配置</string>
     <string name="setting_novel_source">小说源配置</string>

@@ -365,10 +365,6 @@ public class LabActivity extends AppCompatActivity implements LabPackageAdapter.
         View navEntryRow = root.findViewById(R.id.navEntryRow);
         MaterialSwitch navEntry = root.findViewById(R.id.navEntrySwitch);
         navEntryRow.setVisibility(Util.isMobile() ? View.VISIBLE : View.GONE);
-        MaterialSwitch mihomo = root.findViewById(R.id.mihomoSwitch);
-        EditText subUrl = root.findViewById(R.id.subUrl);
-        MaterialSwitch vpn = root.findViewById(R.id.vpnSwitch);
-        vpn.setChecked(SystemVpnService.isVpnRunning() || LabConfig.get().getSystemVpn());
         String[] items = {getString(R.string.lab_source_local), getString(R.string.lab_source_url)};
         dropdown.setAdapter(new ArrayAdapter<>(this, android.R.layout.simple_dropdown_item_1line, items));
         int source = LabConfig.get().getSource();
@@ -383,11 +379,6 @@ public class LabActivity extends AppCompatActivity implements LabPackageAdapter.
         proxy.setChecked(LabConfig.get().getGlobalProxy());
         proxyPort.setText(String.valueOf(LabConfig.get().getGlobalProxyPort()));
         proxyNoProxy.setText(LabConfig.get().getGlobalProxyNoProxy());
-        // mihomo 总开关 + 系统级 VPN 两级联动
-        mihomo.setChecked(LabConfig.get().getMihomo() || SystemVpnService.isProxyRunning());
-        subUrl.setText(LabConfig.get().getSubUrl());
-        applyVpnDependency(mihomo, vpn);
-        mihomo.setOnCheckedChangeListener((buttonView, isChecked) -> applyVpnDependency(mihomo, vpn));
         settingsDialog = new MaterialAlertDialogBuilder(this, R.style.Theme_App_Lab_DayNight_Dialog)
                 .setTitle(R.string.lab_source_title)
                 .setView(root)
@@ -410,14 +401,6 @@ public class LabActivity extends AppCompatActivity implements LabPackageAdapter.
                     LabConfig.get().setBattery(battery.isChecked());
                     LabConfig.get().setNavEntry(navEntry.isChecked());
                     LabConfig.get().setGlobalProxy(proxy.isChecked());
-                    // mihomo 总开关：关掉时强制级联关 VPN
-                    boolean mihomoOn = mihomo.isChecked();
-                    boolean vpnOn = vpn.isChecked() && mihomoOn;
-                    LabConfig.get().setMihomo(mihomoOn);
-                    LabConfig.get().setSystemVpn(vpnOn);
-                    String sub = subUrl.getText() == null ? "" : subUrl.getText().toString().trim();
-                    String prevSub = LabConfig.get().getSubUrl();
-                    LabConfig.get().setSubUrl(sub);
                     int port = 7890;
                     if (proxyPort.getText() != null) {
                         try {
@@ -435,62 +418,10 @@ public class LabActivity extends AppCompatActivity implements LabPackageAdapter.
                         }
                     }
                     settingsDialog.dismiss();
-                    // 状态机：mihomo 开 → 起内核(7890)；VPN 开 → 系统授权后起 TUN
-                    // 🔴 2026-09-08 幂等修复：订阅没变 + config 已存在 → 不重启不重拉，
-                    //   避免"再次点确定"重复解析订阅把节点覆盖成空。
-                    if (mihomoOn) {
-                        boolean cfgExists = SystemVpnService.isConfigExists();
-                        boolean cfgApp = SystemVpnService.isAppGeneratedConfig();
-                        boolean subChanged = !sub.isEmpty() && !sub.equals(prevSub);
-                        boolean needRestart = false;
-                        // 订阅地址非空且与之前不同：
-                        //   app 生成的 config → 删旧重生成（换新订阅）
-                        //   手动 config → 提示忽略订阅（永不覆盖手动配置）
-                        if (subChanged && cfgExists) {
-                            if (cfgApp) {
-                                SystemVpnService.deleteAppGeneratedConfig();
-                                needRestart = true;
-                            } else {
-                                Notify.show("检测到手动 config.yaml，订阅地址已被忽略");
-                            }
-                        }
-                        // config 缺失但有订阅 → 首次生成（标记为 app 生成）
-                        if (!cfgExists && !sub.isEmpty() && !SystemVpnService.isAppGeneratedConfig()) {
-                            needRestart = true;
-                        }
-                        // 空订阅且无 config → 无法启动，提示并保持关闭
-                        if (!cfgExists && sub.isEmpty() && !cfgApp) {
-                            LabConfig.get().setMihomo(false);
-                            LabConfig.get().setSystemVpn(false);
-                            Notify.show("请先填写订阅地址，或手动放置 config.yaml");
-                        }
-                        boolean proxyRunning = SystemVpnService.isProxyRunning();
-                        if (needRestart) {
-                            // 订阅变了/config 缺失 → 重启内核应用新订阅（不碰持久化开关）
-                            android.util.Log.i("SystemVpn", "subscription changed, restart proxy kernel");
-                            SystemVpnService.restartProxy(this, vpnOn);
-                        } else if (!proxyRunning) {
-                            SystemVpnService.startProxy(this);
-                            if (vpnOn) LabVpnActivity.start(this);
-                        } else if (vpnOn && !SystemVpnService.isVpnRunning()) {
-                            LabVpnActivity.start(this);
-                        }
-                    } else {
-                        SystemVpnService.stopAll(this);
-                    }
                     LabProcManager.updateService();
                     reload();
                 }));
         settingsDialog.show();
-    }
-
-    /** 系统级 VPN 开关依赖 mihomo 总开关：mihomo 关 → vpn 置灰并关闭 */
-    private void applyVpnDependency(MaterialSwitch mihomo, MaterialSwitch vpn) {
-        boolean enabled = mihomo.isChecked();
-        vpn.setEnabled(enabled);
-        if (!enabled) {
-            vpn.setChecked(false);
-        }
     }
 
     private void openLocalPicker() {

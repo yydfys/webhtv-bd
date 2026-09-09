@@ -38,11 +38,13 @@ import com.fongmi.android.tv.ui.dialog.RestoreDialog;
 import com.fongmi.android.tv.ui.dialog.BackupProgressDialog;
 import com.fongmi.android.tv.ui.dialog.SiteDialog;
 import com.fongmi.android.tv.ui.dialog.ThemeDialog;
+import com.fongmi.android.tv.ui.dialog.VpnSettingsDialog;
 import com.fongmi.android.tv.utils.AppVersion;
 import com.fongmi.android.tv.utils.FileUtil;
 import com.fongmi.android.tv.utils.Notify;
 import com.fongmi.android.tv.utils.PermissionUtil;
 import com.fongmi.android.tv.utils.ResUtil;
+import com.fongmi.android.tv.lab.SystemVpnService;
 import com.github.catvod.bean.Doh;
 import com.github.catvod.net.OkHttp;
 
@@ -111,6 +113,17 @@ public class SettingFragment extends BaseFragment implements ConfigListener, Sit
         mBinding.languageText.setText((language = ResUtil.getStringArray(R.array.select_language))[Setting.getLanguageIndex()]);
         mBinding.sizeText.setText((size = ResUtil.getStringArray(R.array.select_size))[PlayerSetting.getSize()]);
         mBinding.uiScaleText.setText((uiScale = ResUtil.getStringArray(R.array.select_ui_scale))[Setting.getUiScaleIndex()]);
+        setVpnText();
+    }
+
+    private void setVpnText() {
+        if (SystemVpnService.isVpnRunning()) {
+            mBinding.vpnText.setText(R.string.vpn_state_vpn);
+        } else if (SystemVpnService.isProxyRunning()) {
+            mBinding.vpnText.setText(R.string.vpn_state_proxy);
+        } else {
+            mBinding.vpnText.setText(R.string.vpn_state_off);
+        }
     }
 
     private void setCacheText() {
@@ -126,6 +139,7 @@ public class SettingFragment extends BaseFragment implements ConfigListener, Sit
     protected void initEvent() {
         mBinding.vod.setOnClickListener(this::onVod);
         mBinding.doh.setOnClickListener(this::setDoh);
+        mBinding.vpn.setOnClickListener(this::onVpn);
         mBinding.live.setOnClickListener(this::onLive);
         mBinding.wall.setOnClickListener(this::onWall);
         mBinding.size.setOnClickListener(this::setSize);
@@ -355,6 +369,16 @@ public class SettingFragment extends BaseFragment implements ConfigListener, Sit
         ChoiceDialog.showSingle(this, R.string.setting_doh, getDohList(), getDohIndex(), which -> {
             setDoh(VodConfig.get().getDoh().get(which));
         });
+    }
+
+    private void onVpn(View view) {
+        VpnSettingsDialog.show(this);
+    }
+
+    @Override
+    public void onResume() {
+        super.onResume();
+        if (mBinding != null) setVpnText();
     }
 
     private void setDoh(Doh doh) {

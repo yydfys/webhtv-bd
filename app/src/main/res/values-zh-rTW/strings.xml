@@ -822,6 +822,15 @@
     <string name="setting_proxy_test_failed">代理測試失敗：%1$s</string>
     <string name="setting_one_key_sync">一鍵同步</string>
     <string name="setting_incognito">無痕模式</string>
+    <string name="setting_vpn">VPN 代理</string>
+    <string name="vpn_state_off">未開啟</string>
+    <string name="vpn_state_proxy">代理執行中</string>
+    <string name="vpn_state_vpn">VPN 執行中</string>
+    <string name="vpn_dialog_title">VPN 代理</string>
+    <string name="vpn_dialog_hint">設定 mihomo 代理與系統級 VPN</string>
+    <string name="vpn_scan_title">掃碼推送訂閱位址</string>
+    <string name="vpn_scan_hint">手機連接同一區域網路掃碼開啟頁面，貼上 mihomo 訂閱位址後送出，會自動填入訂閱輸入框。
+（提示：手機上直接輸入不方便時用此方式）</string>
     <string name="setting_drive_check">網盤檢測</string>
     <string name="setting_audio_source">音訊源配置</string>
     <string name="setting_novel_source">小說源配置</string>
