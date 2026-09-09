@@ -136,7 +136,11 @@ public class NodeManageDialog extends BaseAlertDialog {
             App.post(() -> {
                 loading = false;
                 if (err != null || out == null || out.isEmpty()) {
-                    binding.status.setText(err == null ? R.string.node_manage_empty : err);
+                    if (err != null) {
+                        binding.status.setText(err);
+                    } else {
+                        binding.status.setText(R.string.node_manage_empty);
+                    }
                     return;
                 }
                 try {
