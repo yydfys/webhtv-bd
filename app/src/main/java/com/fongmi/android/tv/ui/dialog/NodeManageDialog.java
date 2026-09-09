@@ -325,7 +325,7 @@ public class NodeManageDialog extends BaseAlertDialog {
         long delay = -1;
     }
 
-    private class NodeAdapter extends RecyclerView.Adapter<NodeAdapter.VH> {
+    private class NodeAdapter extends RecyclerView.Adapter<VH> {
 
         @NonNull
         @Override
