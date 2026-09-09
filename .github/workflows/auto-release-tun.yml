@@ -33,7 +33,7 @@ env:
 
 jobs:
   merge-and-release:
-    name: Merge main -> vpn-mihomo-tun & build release
+    name: Merge main into vpn-mihomo-tun and build release
     runs-on: ubuntu-latest
     timeout-minutes: 90
 
@@ -99,42 +99,25 @@ jobs:
         run: |
           set -e
           BEFORE_TS="${{ env.before_ts }}"
-          # 只认 dispatch 之后创建的最新 debug-build workflow_dispatch run
           for i in $(seq 1 120); do
-            FOUND=""
-            # per_page=10 拉最近的 workflow_dispatch run，用 python 精确筛选
             RUNS=$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs?event=workflow_dispatch&per_page=10" --jq '.workflow_runs' 2>/dev/null || echo "[]")
-            LINE=$(echo "$RUNS" | python3 -c "
-import json,sys
-try:
-    runs=json.load(sys.stdin)
-except Exception:
-    sys.exit(0)
-for r in runs:
-    if not (r.get('path') or '').endswith('debug-build.yml'):
-        continue
-    created=r.get('created_at','')
-    if created and created >= '$BEFORE_TS':
-        print(json.dumps({'id':r.get('databaseId'),'status':r.get('status'),'conclusion':r.get('conclusion')}))
-        sys.exit(0)
-" 2>/dev/null || true)
+            LINE=$(echo "$RUNS" | python3 .github/scripts/pick_debug_run.py "$BEFORE_TS")
             if [ -n "$LINE" ]; then
-                FOUND="$LINE"
-                RUN_ID=$(echo "$LINE" | python3 -c "import json,sys; print(json.load(sys.stdin)['id'])")
-                STATUS=$(echo "$LINE" | python3 -c "import json,sys; print(json.load(sys.stdin)['status'])")
-                CONC=$(echo "$LINE" | python3 -c "import json,sys; print(json.load(sys.stdin).get('conclusion') or '')")
-                echo "try $i: run=$RUN_ID status=$STATUS conclusion=$CONC"
-                if [ "$STATUS" = "completed" ]; then
-                  if [ "$CONC" = "success" ]; then
-                    echo "RELEASE_BUILD_SUCCESS run=$RUN_ID"
-                    exit 0
-                  else
-                    echo "RELEASE_BUILD_FAILED run=$RUN_ID conclusion=$CONC"
-                    exit 1
-                  fi
+              RUN_ID=$(echo "$LINE" | python3 -c "import json,sys; print(json.load(sys.stdin)['id'])")
+              STATUS=$(echo "$LINE" | python3 -c "import json,sys; print(json.load(sys.stdin)['status'])")
+              CONC=$(echo "$LINE" | python3 -c "import json,sys; print(json.load(sys.stdin).get('conclusion') or '')")
+              echo "try $i: run=$RUN_ID status=$STATUS conclusion=$CONC"
+              if [ "$STATUS" = "completed" ]; then
+                if [ "$CONC" = "success" ]; then
+                  echo "RELEASE_BUILD_SUCCESS run=$RUN_ID"
+                  exit 0
+                else
+                  echo "RELEASE_BUILD_FAILED run=$RUN_ID conclusion=$CONC"
+                  exit 1
                 fi
+              fi
             else
-                echo "try $i: release run not visible yet"
+              echo "try $i: release run not visible yet"
             fi
             sleep 30
           done
