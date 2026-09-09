@@ -49,6 +49,7 @@ public class VpnSettingsDialog extends BaseAlertDialog {
     private MaterialSwitch vpn;
     private EditText subUrl;
     private int vpnStartingType = 0;
+    private AlertDialog qrDialog;
 
     public static void show(Fragment fragment) {
         new VpnSettingsDialog().show(fragment.getChildFragmentManager(), null);
@@ -131,6 +132,7 @@ public class VpnSettingsDialog extends BaseAlertDialog {
 
     /** 扫码推送订阅地址：显示局域网二维码，手机扫码后用网页推订阅地址回来 */
     private void onQr(View view) {
+        if (qrDialog != null && qrDialog.isShowing()) qrDialog.dismiss();
         final String value = Server.get().getAddress(4);
         Bitmap bitmap = QRCode.getLightBitmap(value, 480, 0);
         View root = getLayoutInflater().inflate(R.layout.dialog_lab_qrcode, null, false);
@@ -141,11 +143,12 @@ public class VpnSettingsDialog extends BaseAlertDialog {
         text.setText(value);
         content.setText(R.string.vpn_scan_hint);
         content.setVisibility(View.VISIBLE);
-        new MaterialAlertDialogBuilder(requireActivity(), R.style.ThemeOverlay_WebHTV_LightDialog)
+        qrDialog = new MaterialAlertDialogBuilder(requireActivity(), R.style.ThemeOverlay_WebHTV_LightDialog)
                 .setTitle(R.string.vpn_scan_title)
                 .setView(root)
                 .setNegativeButton(R.string.dialog_negative, null)
                 .show();
+        qrDialog.setOnDismissListener(d -> qrDialog = null);
     }
 
     private void onPositive(View view) {
@@ -200,13 +203,15 @@ public class VpnSettingsDialog extends BaseAlertDialog {
         dismiss();
     }
 
-    /** 手机扫码推订阅地址 → ServerEvent.setting 广播 → 自动填入输入框 */
+    /** 手机扫码推订阅地址 → ServerEvent.setting 广播 → 自动填入输入框 + 自动关闭二维码弹窗 */
     @Subscribe(threadMode = ThreadMode.MAIN)
     public void onServerEvent(ServerEvent event) {
         if (event.type() != ServerEvent.Type.SETTING) return;
         if (event.text() == null || event.text().trim().isEmpty()) return;
         subUrl.setText(event.text().trim());
         subUrl.setSelection(subUrl.getText().length());
+        // 扫码方已确认设定订阅地址 → 二维码弹窗自动退去，无需手动点取消
+        if (qrDialog != null && qrDialog.isShowing()) qrDialog.dismiss();
     }
 
     @Override
