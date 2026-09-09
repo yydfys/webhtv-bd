@@ -18,8 +18,10 @@ import androidx.core.content.ContextCompat;
 
 import com.fongmi.android.tv.App;
 import com.fongmi.android.tv.R;
+import com.fongmi.android.tv.event.VpnStateEvent;
 
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -161,6 +163,17 @@ public class SystemVpnService extends VpnService {
         return vpnState;
     }
 
+    /** 当前运行态对应的字符串资源（设置页 / VPN 弹窗共用）。
+     *  startingType：1=mihomo 正在启动，2=VPN 正在启动，0=无启动中态。
+     *  实时布尔优先：启动完成一瞬间布尔置 true，即使事件尚未送达也显示正确态。 */
+    public static int getStateTextRes(int startingType) {
+        if (isVpnRunning()) return R.string.vpn_state_vpn;
+        if (isProxyRunning()) return R.string.vpn_state_proxy;
+        if (startingType == 1) return R.string.vpn_state_proxy_starting;
+        if (startingType == 2) return R.string.vpn_state_vpn_starting;
+        return R.string.vpn_state_off;
+    }
+
     public static String getHomeDir() {
         return HOME_DIR;
     }
@@ -205,10 +218,12 @@ public class SystemVpnService extends VpnService {
         switch (action) {
             case ACTION_START_PROXY:
                 startForeground(NOTIFY_ID, buildNotification("正在启动 mihomo 代理…"));
+                VpnStateEvent.proxyStarting();
                 startProxyInBackground();
                 break;
             case ACTION_START_VPN:
                 startForeground(NOTIFY_ID, buildNotification("正在启动系统代理…"));
+                VpnStateEvent.vpnStarting();
                 startVpnInBackground();
                 break;
             case ACTION_STOP_VPN:
@@ -219,6 +234,7 @@ public class SystemVpnService extends VpnService {
                 break;
             case ACTION_RESTART_PROXY:
                 startForeground(NOTIFY_ID, buildNotification("正在应用新订阅…"));
+                VpnStateEvent.proxyStarting();
                 restartProxyInternal(intent.getBooleanExtra("restore_vpn", false));
                 break;
             case ACTION_STOP:
@@ -255,6 +271,7 @@ public class SystemVpnService extends VpnService {
                 int rc = nativeStartProxy(CONFIG_PATH);
                 if (rc != 0) throw new IOException("mihomo 内核重启失败 rc=" + rc);
                 proxyState = true;
+                VpnStateEvent.proxy();
                 updateNotification("mihomo 代理运行中 · 127.0.0.1:7890");
                 if (restoreVpn) {
                     // VPN 未授权时 establish 抛异常：只回滚 VPN，不连坐杀掉 7890
@@ -263,6 +280,7 @@ public class SystemVpnService extends VpnService {
                     } catch (Exception vpnErr) {
                         android.util.Log.e("SystemVpn", "vpn restore failed after resubscribe: " + vpnErr.getMessage());
                         vpnState = false;
+                        VpnStateEvent.proxy();
                         if (tunFd != null) {
                             try {
                                 tunFd.close();
@@ -291,6 +309,7 @@ public class SystemVpnService extends VpnService {
                     int rc = nativeStartProxy(CONFIG_PATH);
                     if (rc != 0) throw new IOException("mihomo 内核启动失败 rc=" + rc);
                     proxyState = true;
+                    VpnStateEvent.proxy();
                 }
                 updateNotification("mihomo 代理运行中 · 127.0.0.1:7890");
             } catch (Exception e) {
@@ -312,6 +331,7 @@ public class SystemVpnService extends VpnService {
                     int rc = nativeStartProxy(CONFIG_PATH);
                     if (rc != 0) throw new IOException("mihomo 内核启动失败 rc=" + rc);
                     proxyState = true;
+                    VpnStateEvent.proxy();
                 }
                 startVpnInternal();
             } catch (Exception e) {
@@ -328,6 +348,7 @@ public class SystemVpnService extends VpnService {
                         }
                         tunFd = null;
                     }
+                    VpnStateEvent.proxy();
                     updateNotification("mihomo 代理运行中 · 127.0.0.1:7890");
                 } else {
                     proxyState = false;
@@ -387,6 +408,7 @@ public class SystemVpnService extends VpnService {
         tunFd = null;
 
         vpnState = true;
+        VpnStateEvent.vpn();
         updateNotification("系统级 VPN 运行中 · 全流量已代理");
     }
 
@@ -403,8 +425,10 @@ public class SystemVpnService extends VpnService {
         }
         if (proxyState) {
             // 只撤 VPN，mihomo 7890 继续服务
+            VpnStateEvent.proxy();
             updateNotification("mihomo 代理运行中 · 127.0.0.1:7890");
         } else {
+            VpnStateEvent.off();
             stopForeground(true);
             stopSelf();
         }
@@ -424,6 +448,7 @@ public class SystemVpnService extends VpnService {
             }
             tunFd = null;
         }
+        VpnStateEvent.off();
         stopForeground(true);
         stopSelf();
     }
@@ -444,6 +469,7 @@ public class SystemVpnService extends VpnService {
             }
             tunFd = null;
         }
+        VpnStateEvent.off();
         android.util.Log.e("SystemVpn", "fail: " + message);
         try {
             // 失败原因用独立 ID 发一条非 ongoing、可清除的通知，保留在通知栏让用户/老大
@@ -500,7 +526,22 @@ public class SystemVpnService extends VpnService {
             android.util.Log.w("SystemVpn", "mkdirs failed: " + HOME_DIR);
         }
         File cfg = new File(CONFIG_PATH);
-        if (cfg.exists() && cfg.length() > 0) return;
+        if (cfg.exists() && cfg.length() > 0) {
+            // 🔴 2026-09-09：App 生成的旧版模板 config（无 external-controller）自动重生成，
+            // 让节点管理 UI（9090 API）、allow-lan、节点总组等新字段生效。
+            // 手动 config（无 app 标记）永不覆盖。
+            if (isAppGeneratedConfig()) {
+                String content = readText(cfg);
+                if (content == null || !content.contains("external-controller")) {
+                    android.util.Log.i("SystemVpn", "app config is legacy template, deleting for regenerate");
+                    cfg.delete();
+                } else {
+                    return;
+                }
+            } else {
+                return;
+            }
+        }
         String sub = LabConfig.get().getSubUrl();
         if (TextUtils.isEmpty(sub)) {
             android.util.Log.w("SystemVpn", "no config.yaml and no subscription, skip generating");
@@ -549,6 +590,18 @@ public class SystemVpnService extends VpnService {
     private void writeText(File file, String text) throws IOException {
         try (OutputStream out = new FileOutputStream(file)) {
             out.write(text.getBytes(StandardCharsets.UTF_8));
+        }
+    }
+
+    private String readText(File file) {
+        try (InputStream in = new FileInputStream(file)) {
+            java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+            byte[] buf = new byte[65536];
+            int len;
+            while ((len = in.read(buf)) != -1) out.write(buf, 0, len);
+            return out.toString("UTF-8");
+        } catch (Exception e) {
+            return null;
         }
     }
 

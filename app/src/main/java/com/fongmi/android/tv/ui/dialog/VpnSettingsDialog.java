@@ -23,6 +23,7 @@ import androidx.viewbinding.ViewBinding;
 import com.fongmi.android.tv.R;
 import com.fongmi.android.tv.databinding.DialogVpnSettingsBinding;
 import com.fongmi.android.tv.event.ServerEvent;
+import com.fongmi.android.tv.event.VpnStateEvent;
 import com.fongmi.android.tv.lab.LabConfig;
 import com.fongmi.android.tv.lab.LabVpnActivity;
 import com.fongmi.android.tv.lab.SystemVpnService;
@@ -47,6 +48,7 @@ public class VpnSettingsDialog extends BaseAlertDialog {
     private MaterialSwitch mihomo;
     private MaterialSwitch vpn;
     private EditText subUrl;
+    private int vpnStartingType = 0;
 
     public static void show(Fragment fragment) {
         new VpnSettingsDialog().show(fragment.getChildFragmentManager(), null);
@@ -87,6 +89,7 @@ public class VpnSettingsDialog extends BaseAlertDialog {
         binding.positive.setOnClickListener(this::onPositive);
         binding.negative.setOnClickListener(this::onNegative);
         binding.qrBtn.setOnClickListener(this::onQr);
+        binding.nodeRow.setOnClickListener(this::onNode);
         mihomo.setOnCheckedChangeListener((buttonView, isChecked) -> {
             applyVpnDependency();
             refreshStatus();
@@ -102,13 +105,28 @@ public class VpnSettingsDialog extends BaseAlertDialog {
     }
 
     private void refreshStatus() {
-        if (SystemVpnService.isVpnRunning()) {
-            binding.status.setText(R.string.vpn_state_vpn);
-        } else if (SystemVpnService.isProxyRunning()) {
-            binding.status.setText(R.string.vpn_state_proxy);
-        } else {
-            binding.status.setText(R.string.vpn_state_off);
+        binding.status.setText(SystemVpnService.getStateTextRes(vpnStartingType));
+    }
+
+    /** 节点管理：浏览订阅节点、看延迟、手动切换 select 组 */
+    private void onNode(View view) {
+        NodeManageDialog.show(this);
+    }
+
+    @Subscribe(threadMode = ThreadMode.MAIN)
+    public void onVpnStateEvent(VpnStateEvent event) {
+        switch (event.type()) {
+            case STARTING_PROXY:
+                vpnStartingType = 1;
+                break;
+            case STARTING_VPN:
+                vpnStartingType = 2;
+                break;
+            default:
+                vpnStartingType = 0;
+                break;
         }
+        refreshStatus();
     }
 
     /** 扫码推送订阅地址：显示局域网二维码，手机扫码后用网页推订阅地址回来 */

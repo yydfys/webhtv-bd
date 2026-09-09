@@ -20,6 +20,7 @@ import com.fongmi.android.tv.databinding.ActivitySettingBinding;
 import com.fongmi.android.tv.db.AppDatabase;
 import com.fongmi.android.tv.event.ConfigEvent;
 import com.fongmi.android.tv.event.RefreshEvent;
+import com.fongmi.android.tv.event.VpnStateEvent;
 import com.fongmi.android.tv.impl.Callback;
 import com.fongmi.android.tv.impl.ConfigListener;
 import com.fongmi.android.tv.impl.LiveListener;
@@ -99,14 +100,10 @@ public class SettingActivity extends BaseActivity implements ConfigListener, Sit
         setVpnText();
     }
 
+    private int vpnStartingType = 0;
+
     private void setVpnText() {
-        if (SystemVpnService.isVpnRunning()) {
-            mBinding.vpnText.setText(R.string.vpn_state_vpn);
-        } else if (SystemVpnService.isProxyRunning()) {
-            mBinding.vpnText.setText(R.string.vpn_state_proxy);
-        } else {
-            mBinding.vpnText.setText(R.string.vpn_state_off);
-        }
+        mBinding.vpnText.setText(SystemVpnService.getStateTextRes(vpnStartingType));
     }
 
     private void setCacheText() {
@@ -413,6 +410,22 @@ public class SettingActivity extends BaseActivity implements ConfigListener, Sit
         mBinding.vodUrl.setText(VodConfig.getDesc());
         mBinding.liveUrl.setText(LiveConfig.getDesc());
         setWallText();
+    }
+
+    @Subscribe(threadMode = ThreadMode.MAIN)
+    public void onVpnStateEvent(VpnStateEvent event) {
+        switch (event.type()) {
+            case STARTING_PROXY:
+                vpnStartingType = 1;
+                break;
+            case STARTING_VPN:
+                vpnStartingType = 2;
+                break;
+            default:
+                vpnStartingType = 0;
+                break;
+        }
+        if (mBinding != null) setVpnText();
     }
 
     private void setWallText() {

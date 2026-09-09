@@ -3,17 +3,21 @@
 # 请手动放置 /storage/emulated/0/WebHTV/mihomo/config.yaml 或填写订阅地址。
 mixed-port: 7890
 socks-port: 7891
-allow-lan: false
+allow-lan: true
 mode: rule
-log-level: debug
+log-level: info
 ipv6: false
 geodata-mode: true
 unified-delay: true
 tcp-concurrent: true
+external-controller: 127.0.0.1:9090
+secret: WEBHTV_MIHOMO_2026
 
 dns:
   enable: true
   ipv6: false
+  use-hosts: true
+  respect-rules: true
   default-nameserver:
     - 223.5.5.5
     - 119.29.29.29
@@ -22,10 +26,16 @@ dns:
   fake-ip-filter:
     - "*.lan"
     - "*.local"
+    - "localhost"
+    - "+.localhost"
     - "+.msftconnecttest.com"
     - "+.msftncsi.com"
     - "+.mihomo.app"
+    - "+.ntp.org"
   nameserver:
+    - 223.5.5.5
+    - 119.29.29.29
+  proxy-server-nameserver:
     - 223.5.5.5
     - 119.29.29.29
 

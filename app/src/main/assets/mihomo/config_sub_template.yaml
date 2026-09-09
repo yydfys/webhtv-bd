@@ -1,20 +1,32 @@
 # WebHTV 内置 mihomo 配置模板 —— 订阅版（config.yaml 缺失时由 App 生成）
 # 规则骨架 + proxy-providers 订阅节点。无节点也能启动（全部直连），
 # 填好订阅后 mihomo 自动拉取节点，域名级分流生效。
+#
+# 2026-09-09 优化：
+#  - external-controller 127.0.0.1:9090 + secret：节点管理 UI（NodeManageDialog）经
+#    mihomo RESTful API 读取 /proxies 并切换手动节点。
+#  - allow-lan: true：允许局域网设备（手机/电脑）把电视 7890 当共享代理。
+#    局域网 IP 段（RFC1918）由 rules 里 GEOSITE,private / GEOIP,lan 直连兜底，
+#    不依赖 fake-ip-filter（它只匹配域名，加不了 IP 网段）。
+#  - 「节点选择」总组：默认=自动选择(url-test 测速)，可在节点管理 UI 切到手动/直连。
 mixed-port: 7890
 socks-port: 7891
-allow-lan: false
+allow-lan: true
 mode: rule
-log-level: debug
+log-level: info
 ipv6: false
 geodata-mode: true
 unified-delay: true
 tcp-concurrent: true
+external-controller: 127.0.0.1:9090
+secret: WEBHTV_MIHOMO_2026
 
 # DNS（配合 SystemVpnService native 侧 DNSHijack any:53；fake-ip 域名分流）
 dns:
   enable: true
   ipv6: false
+  use-hosts: true
+  respect-rules: true
   default-nameserver:
     - 223.5.5.5
     - 119.29.29.29
@@ -23,15 +35,28 @@ dns:
   fake-ip-filter:
     - "*.lan"
     - "*.local"
+    - "localhost"
+    - "+.localhost"
     - "+.msftconnecttest.com"
     - "+.msftncsi.com"
     - "+.mihomo.app"
+    - "+.ntp.org"
   nameserver:
+    - 223.5.5.5
+    - 119.29.29.29
+  proxy-server-nameserver:
     - 223.5.5.5
     - 119.29.29.29
   fallback:
     - 8.8.8.8
     - 1.1.1.1
+  fallback-filter:
+    geoip: true
+    geoip-code: CN
+    geosite:
+      - gfw
+    ipcidr:
+      - 240.0.0.0/4
 
 # 订阅（用户填写的订阅地址由 App 写入下方 url）
 proxy-providers:
@@ -43,16 +68,22 @@ proxy-providers:
     health-check:
       enable: true
       url: https://www.gstatic.com/generate_204
-      interval: 60
+      interval: 300
       timeout: 5000
 
 proxy-groups:
+  - name: 节点选择
+    type: select
+    proxies:
+      - 自动选择
+      - 手动选择
+      - DIRECT
   - name: 自动选择
     type: url-test
     url: https://www.gstatic.com/generate_204
-    interval: 60
-    timeout: 5000
-    lazy: false
+    interval: 300
+    tolerance: 100
+    lazy: true
     use:
       - sub
   - name: 手动选择
@@ -75,4 +106,4 @@ rules:
   - GEOSITE,category-ads-all,广告拦截
   - GEOSITE,cn,直连
   - GEOIP,CN,直连,no-resolve
-  - MATCH,自动选择
+  - MATCH,节点选择
