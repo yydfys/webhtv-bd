@@ -190,8 +190,8 @@ public class NodeManageDialog extends BaseAlertDialog {
         }
         // select 组优先，其余按名称稳定排序
         groups.sort((a, b) -> {
-            boolean sa = "Select".equalsIgnoreCase(nodes.get(a).type);
-            boolean sb = "Select".equalsIgnoreCase(nodes.get(b).type);
+            boolean sa = isSelectGroup(nodes.get(a).type);
+            boolean sb = isSelectGroup(nodes.get(b).type);
             if (sa != sb) return sa ? -1 : 1;
             return a.compareTo(b);
         });
@@ -204,7 +204,7 @@ public class NodeManageDialog extends BaseAlertDialog {
             row.type = info.type;
             row.now = info.now;
             // 默认只展开第一个 select 组（最常用：手动切换），其余收起
-            boolean expand = "Select".equalsIgnoreCase(info.type) && !firstSelectExpanded;
+            boolean expand = isSelectGroup(info.type) && !firstSelectExpanded;
             if (expand) firstSelectExpanded = true;
             row.expanded = expand;
             rows.add(row);
@@ -229,14 +229,20 @@ public class NodeManageDialog extends BaseAlertDialog {
         return info == null ? -1 : info.delay;
     }
 
+    // mihomo API 组 type：新版(>=1.19) Select 组返回 "Selector"，旧版返回 "Select"
+    private static boolean isSelectGroup(String type) {
+        String t = type.toLowerCase();
+        return t.equals("select") || t.equals("selector");
+    }
+
     private static boolean isGroup(String type) {
         String t = type.toLowerCase();
-        return t.equals("select") || t.equals("urltest") || t.equals("url-test") || t.equals("fallback") || t.equals("loadbalance");
+        return t.equals("select") || t.equals("selector") || t.equals("urltest") || t.equals("url-test") || t.equals("fallback") || t.equals("loadbalance");
     }
 
     private static String typeText(String type) {
         String t = type.toLowerCase();
-        if (t.equals("select")) return "Select";
+        if (isSelectGroup(type)) return "Select";
         if (t.equals("urltest") || t.equals("url-test")) return "URLTest";
         if (t.equals("fallback")) return "Fallback";
         if (t.equals("loadbalance")) return "LoadBalance";
@@ -247,7 +253,7 @@ public class NodeManageDialog extends BaseAlertDialog {
 
     private void switchNode(String group, String node) {
         NodeInfo info = nodes.get(group);
-        boolean selectable = info != null && "Select".equalsIgnoreCase(info.type);
+        boolean selectable = info != null && isSelectGroup(info.type);
         if (!selectable) {
             Notify.show(ResUtil.getString(R.string.node_manage_type_not_select, info == null ? "" : typeText(info.type)));
             return;
