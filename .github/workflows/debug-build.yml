@@ -111,12 +111,22 @@ jobs:
           VER_NAME="${{ github.event.inputs.version_name || '5.6.0' }}"
           echo "code=$VER_CODE" >> "$GITHUB_OUTPUT"
           echo "name=$VER_NAME" >> "$GITHUB_OUTPUT"
+      - name: Resolve release tag
+        id: reltag
+        shell: bash
+        run: |
+          RT="${{ github.event.inputs.release_tag }}"
+          if [ -z "$RT" ]; then
+            RT="v${{ steps.version.outputs.name }}-$(date +%Y%m%d%H%M)"
+          fi
+          echo "tag=$RT" >> "$GITHUB_OUTPUT"
 
       - name: Build four APKs (debug-signed fallback, unless release signing above)
         env:
           WEBHTV_APK_SUFFIX: ""
           WEBHTV_VERSION_CODE: ${{ steps.version.outputs.code }}
           WEBHTV_VERSION_NAME: ${{ steps.version.outputs.name }}
+          WEBHTV_RELEASE_TAG: ${{ steps.reltag.outputs.tag }}
         run: |
           chmod +x ./gradlew
           rm -rf Release/apk dist
@@ -147,7 +157,7 @@ jobs:
             echo "tag=" >> "$GITHUB_OUTPUT"
           else
             echo "do_release=${{ github.event.inputs.release || 'false' }}" >> "$GITHUB_OUTPUT"
-            echo "tag=${{ github.event.inputs.release_tag }}" >> "$GITHUB_OUTPUT"
+            echo "tag=${{ steps.reltag.outputs.tag }}" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Create GitHub Release
