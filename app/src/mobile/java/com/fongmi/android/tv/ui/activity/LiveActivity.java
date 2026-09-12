@@ -72,6 +72,7 @@ import com.fongmi.android.tv.setting.LiveEpgSetting;
 import com.fongmi.android.tv.setting.LiveSetting;
 import com.fongmi.android.tv.setting.PlayerSetting;
 import com.fongmi.android.tv.setting.CustomCspSetting;
+import com.fongmi.android.tv.setting.Setting;
 import com.fongmi.android.tv.ui.adapter.ChannelAdapter;
 import com.fongmi.android.tv.ui.helper.PipExitDecision;
 import com.fongmi.android.tv.ui.adapter.EpgDataAdapter;
@@ -80,6 +81,7 @@ import com.fongmi.android.tv.ui.custom.CustomKeyDown;
 import com.fongmi.android.tv.ui.custom.CustomSeekView;
 import com.fongmi.android.tv.ui.custom.PlayerOsdController;
 import com.fongmi.android.tv.ui.dialog.CastDialog;
+import com.fongmi.android.tv.ui.dialog.PlaybackSpeedDialog;
 import com.fongmi.android.tv.ui.dialog.HistoryDialog;
 import com.fongmi.android.tv.ui.dialog.InfoDialog;
 import com.fongmi.android.tv.ui.dialog.LiveControlDialog;
@@ -238,6 +240,11 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
     }
 
     @Override
+    protected boolean shouldAutoPlay() {
+        return true;
+    }
+
+    @Override
     protected void onCreate(Bundle savedInstanceState) {
         requestOrientation("launch", getLaunchOrient());
         super.onCreate(savedInstanceState);
@@ -247,6 +254,7 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
     @Override
     protected void initView(Bundle savedInstanceState) {
         super.initView(savedInstanceState);
+        applyPlaybackOverlay();
         mKeyDown = CustomKeyDown.create(this, mBinding.exo);
         captureLiveListBasePadding();
         setupWindowInsets();
@@ -277,6 +285,11 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
         setViewModel();
         applyPadLiveMode();
         mBinding.exo.post(() -> applyLiveResizeMode(LiveSetting.getScale()));
+    }
+
+    private void applyPlaybackOverlay() {
+        mBinding.control.getRoot().setBackgroundResource(R.color.transparent);
+        mBinding.control.bottom.setBackgroundResource(Setting.isPlaybackOverlayEnabled() ? R.drawable.shape_controller_scrim : R.color.transparent);
     }
 
     @Override
@@ -761,9 +774,12 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
 
     private void onSpeed() {
         if (!player().isVod()) return;
-        mBinding.control.action.speed.setText(player().addSpeed());
-        PlayerSetting.putDefaultSpeed(player().getSpeed());
-        setR1Callback();
+        PlaybackSpeedDialog.show(this, player().getSpeed(), speed -> {
+            if (!isServiceReady() || !isOwner() || !player().isVod()) return;
+            mBinding.control.action.speed.setText(player().setSpeed(speed));
+            PlayerSetting.putDefaultSpeed(player().getSpeed());
+            setR1Callback();
+        });
     }
 
     private boolean onSpeedLong() {
