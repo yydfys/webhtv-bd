@@ -115,6 +115,9 @@ public class App extends Application implements Application.ActivityLifecycleCal
         }
         Notify.createChannel();
         ProxySetting.apply();
+        // 🔴 进程重启对账：本服务与 app 同进程，新进程里 mihomo/VPN 必然都没在跑，
+        // 清掉上次进程被杀时残留的开关值，避免设置弹窗显示与真实状态不符。
+        com.fongmi.android.tv.lab.SystemVpnService.reconcileSwitches();
         registerActivityLifecycleCallbacks(this);
         registerContentHandlers();
         resumeBackgroundServices();

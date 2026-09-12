@@ -163,6 +163,20 @@ public class SystemVpnService extends VpnService {
         return vpnState;
     }
 
+    /** 🔴 开关状态对账（进程重启/打开弹窗时调用）：
+     *  运行时状态 proxyState/vpnState 是进程内静态值 —— 进程被杀（壳子中途退出/清后台）后必为 false，
+     *  但持久化开关只在本服务的「主动停止」路径里被清，进程被杀时来不及清 → SharedPreferences 残留 true，
+     *  导致设置弹窗把残留值当状态显示（外面写"未开启"、点进去开关还亮着）。
+     *  这里按真实运行态逐项纠正持久化开关，消灭残留。 */
+    public static void reconcileSwitches() {
+        try {
+            LabConfig config = LabConfig.get();
+            if (!proxyState && config.getMihomo()) config.setMihomo(false);
+            if (!vpnState && config.getSystemVpn()) config.setSystemVpn(false);
+        } catch (Throwable ignored) {
+        }
+    }
+
     /** 当前运行态对应的字符串资源（设置页 / VPN 弹窗共用）。
      *  startingType：1=mihomo 正在启动，2=VPN 正在启动，0=无启动中态。
      *  实时布尔优先：启动完成一瞬间布尔置 true，即使事件尚未送达也显示正确态。 */

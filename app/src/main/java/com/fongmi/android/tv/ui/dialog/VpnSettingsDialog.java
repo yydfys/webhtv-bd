@@ -76,8 +76,11 @@ public class VpnSettingsDialog extends BaseAlertDialog {
         mihomo = binding.mihomoSwitch;
         vpn = binding.vpnSwitch;
         subUrl = binding.subUrl;
-        boolean vpnRunning = SystemVpnService.isVpnRunning() || LabConfig.get().getSystemVpn();
-        boolean mihomoOn = LabConfig.get().getMihomo() || SystemVpnService.isProxyRunning();
+        // 🔴 显示只认运行时状态：进程被杀后 mihomo 内核 / VPN 其实都已退出，
+        // 不能再用持久化开关 OR 运行时状态（会把上次残留的 true 显示成"还开着"）。
+        boolean mihomoOn = SystemVpnService.isProxyRunning();
+        boolean vpnRunning = SystemVpnService.isVpnRunning();
+        SystemVpnService.reconcileSwitches();   // 顺手清掉与真实状态不符的残留开关值
         vpn.setChecked(vpnRunning);
         mihomo.setChecked(mihomoOn);
         subUrl.setText(LabConfig.get().getSubUrl());
