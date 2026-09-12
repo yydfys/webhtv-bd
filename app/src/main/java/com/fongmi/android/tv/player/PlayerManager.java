@@ -63,7 +63,6 @@ import com.fongmi.android.tv.player.audio.PlaybackMediaSessionController;
 import com.fongmi.android.tv.player.audio.PlaybackMediaSignalHub;
 import com.fongmi.android.tv.player.cache.PlaybackDiskBufferStore;
 import com.fongmi.android.tv.player.exo.TrackUtil;
-import com.fongmi.android.tv.player.exo.ExoBufferingStallWatchdog;
 import com.fongmi.android.tv.player.exo.ExoDecoderResourceRecoveryLimiter;
 import com.fongmi.android.tv.player.exo.ExoNetworkGuardBufferPolicy;
 import com.fongmi.android.tv.player.exo.ExoNetworkGuardController;
@@ -194,25 +193,23 @@ public class PlayerManager implements ParseCallback {
     private static final int MAX_AD_AUDIO_PIPELINE_REBUILDS = 2;
     private static final long MPV_FRAME_TIMING_LOG_INTERVAL_MS = 5000L;
     private static final long DISK_RANGE_GAP_TOLERANCE_MS = 2000L;
-    private static final long BUFFERING_STALL_POLL_INTERVAL_MS = 1000L;
     private static final long LUT_PREVIEW_FRAME_INTERVAL_MS = 16L;
-    private static final float[] SPEED_PRESETS = new float[]{0.5f, 0.75f, 1f, 1.2f, 1.25f, 1.5f, 1.75f, 2f, 2.5f, 3f, 5f};
+    private static final float[] SPEED_PRESETS = new float[]{0.5f, 0.75f, 1f, 1.25f, 1.5f, 1.75f, 2f, 2.5f, 3f, 5f};
     private static final DecimalFormat SPEED_FORMAT = new DecimalFormat("0.##x");
     private static final Pattern HTTP_STATUS = Pattern.compile("(?i)(?:response code|http status|http error)\\D+(\\d{3})");
 
     private final Runnable runnable;
-    private final Runnable bufferingStallRunnable;
     private final Runnable liveDanmakuMetricsRunnable;
     private final Runnable networkProtectionRunnable;
     private final Runnable playbackTelemetryRunnable;
-    private final ExoBufferingStallWatchdog bufferingStallWatchdog =
-            new ExoBufferingStallWatchdog();
     private final Callback callback;
     private final PlaybackMediaSignalHub mediaSignals = new PlaybackMediaSignalHub(8);
     private final PlaybackMediaClock mediaClock = new PlaybackMediaClock(500L);
     private final PlaybackMediaSessionController mediaSession =
             new PlaybackMediaSessionController(mediaSignals, mediaClock);
     private final AdAudioRuntimeController adAudioRuntime;
+    private final AdAudioRuntimeController.SpeechAdPlaybackHealth speechAdPlaybackHealth =
+            new AdAudioRuntimeController.SpeechAdPlaybackHealth();
     private final DynamicLutEffect dynamicLutEffect;
     private final AudioManager.OnAudioFocusChangeListener audioFocusChangeListener;
     private final BroadcastReceiver noisyReceiver;
@@ -276,6 +273,13 @@ public class PlayerManager implements ParseCallback {
     private volatile boolean liveDanmakuPlaybackActive;
     private long pendingSwitchPositionMs = C.TIME_UNSET;
     private long pendingInitialStartPositionMs = C.TIME_UNSET;
+    /**
+     * 宿主从 History 里恢复出来的外挂字幕，等本次起播前注入。
+     *
+     * <p>不让宿主直接改 spec：spec 在 {@code parse()} 路径里是 PlayerManager 自己
+     * 构造的，宿主拿不到。取用一次即清，避免换集时复用上一集的字幕。
+     */
+    private Sub pendingRestoreSub;
     private float pendingSwitchSpeed = 1f;
     private boolean danmakuLoadInProgress;
     private boolean danmakuForeground = true;
@@ -354,7 +358,6 @@ public class PlayerManager implements ParseCallback {
                 playbackExperimentCoordinator.addListener(update ->
                         App.post(() -> onPlaybackExperimentPolicyChanged(update)));
         this.runnable = this::onPlaybackTimeout;
-        this.bufferingStallRunnable = this::checkBufferingStall;
         this.liveDanmakuMetricsRunnable = () -> logLiveDanmakuMetrics("periodic", true);
         this.networkProtectionRunnable = this::evaluateNetworkProtection;
         this.playbackTelemetryRunnable = this::publishPlaybackTelemetryTick;
@@ -438,7 +441,6 @@ public class PlayerManager implements ParseCallback {
         clearExoDecoderResourceRecovery(true);
         player.removeListener(listener);
         App.removeCallbacks(runnable);
-        cancelBufferingStallWatchdog();
         App.removeCallbacks(networkProtectionRunnable);
         App.removeCallbacks(playbackTelemetryRunnable);
         mpvResourceMemoryRegistration.close();
@@ -896,6 +898,12 @@ public class PlayerManager implements ParseCallback {
                 : engine.getVideoPlaybackDetails();
     }
 
+    public AudioPlaybackDiagnostics.Snapshot getAudioPlaybackDiagnostics() {
+        return engine == null
+                ? AudioPlaybackDiagnostics.Snapshot.empty()
+                : engine.getAudioPlaybackDiagnostics();
+    }
+
     public long getDroppedFrames() {
         return engine == null ? 0 : engine.getDroppedFrames();
     }
@@ -1130,6 +1138,11 @@ public class PlayerManager implements ParseCallback {
         return playerType == PlayerSetting.MPV;
     }
 
+    public boolean sendMpvCustomButton(String id, boolean longPress) {
+        if (!isMpv() || TextUtils.isEmpty(id) || !(engine instanceof MpvPlayerEngine mpv)) return false;
+        return mpv.sendScriptMessage(MpvConfigStore.CUSTOM_BUTTON_MESSAGE, id, longPress ? "long" : "short");
+    }
+
     public boolean isMpvSurfaceDirect() {
         return engine instanceof MpvPlayerEngine mpv && mpv.isSurfaceDirect();
     }
@@ -1199,6 +1212,10 @@ public class PlayerManager implements ParseCallback {
         Track.delete(getKey(), C.TRACK_TYPE_TEXT);
         engine.resetTrack(C.TRACK_TYPE_TEXT);
         spec.setSub(sub);
+        // 这里是本地文件、在线搜索、AI 翻译、局域网推送四条路径的唯一收口，
+        // 一处上报就够，不需要在各 UI 入口分别接线。集地址由宿主从自己的
+        // History 里取，PlayerManager 不掺和历史记录的事。
+        callback.onSubtitleSelected(sub);
         boolean automaticOutput = MpvPerformanceSetting.getOutputMode() == MpvPerformanceSetting.OUTPUT_AUTO;
         if (MpvAutoOutputPolicy.shouldLeaveSurfaceDirectForSubtitle(automaticOutput, isMpvSurfaceDirect(), true, false)) {
             resetMpvOutputEvaluationState();
@@ -1206,6 +1223,16 @@ public class PlayerManager implements ParseCallback {
         } else {
             restartCurrentItemWithState();
         }
+    }
+
+    /**
+     * 登记一条待恢复的外挂字幕，下一次起播时注入。
+     *
+     * <p>必须在 {@code start()} / {@code parse()} 之前调用。是否该恢复由宿主用
+     * {@code SubtitleRestorePolicy} 判定，这里只负责搬运。
+     */
+    public void setPendingRestoreSub(Sub sub) {
+        pendingRestoreSub = sub;
     }
 
     public void setFormat(String format) {
@@ -1376,6 +1403,8 @@ public class PlayerManager implements ParseCallback {
     }
 
     private ExoNetworkGuardEligibility.Decision getNetworkProtectionEligibility() {
+        AudioPlaybackDiagnostics.OutputMode audioOutputMode = getAudioPlaybackDiagnostics()
+                .outputMode();
         return ExoNetworkGuardEligibility.resolve(new ExoNetworkGuardEligibility.Request(
                 ExoPerformanceSetting.isNetworkProtectionEnabled()
                         && experimentAllowed(
@@ -1385,16 +1414,19 @@ public class PlayerManager implements ParseCallback {
                 Math.abs(userPlaybackSpeed - 1f) < 0.001f,
                 player != null && player.isCommandAvailable(Player.COMMAND_SET_SPEED_AND_PITCH),
                 PlayerSetting.isTunnel(),
-                PlayerSetting.isAudioPassThrough(PlayerSetting.EXO)));
+                audioOutputMode));
     }
 
     private void scheduleNetworkProtection(long delayMs) {
         App.removeCallbacks(networkProtectionRunnable);
         ExoNetworkGuardEligibility.Decision eligibility = getNetworkProtectionEligibility();
+        AudioPlaybackDiagnostics.OutputMode audioOutputMode = getAudioPlaybackDiagnostics()
+                .outputMode();
         logNetworkGuard("schedule delay=" + delayMs + " eligible=" + eligibility.eligible()
                 + " reason=" + eligibility.reason() + " exo=" + isExo() + " vod=" + isVod()
                 + " userSpeed=" + userPlaybackSpeed + " tunnel=" + PlayerSetting.isTunnel()
-                + " passthrough=" + PlayerSetting.isAudioPassThrough(PlayerSetting.EXO)
+                + " configuredPassthrough=" + PlayerSetting.isAudioPassThrough(PlayerSetting.EXO)
+                + " audioOutput=" + audioOutputMode
                 + " state=" + (player == null ? -1 : player.getPlaybackState())
                 + " playing=" + (player != null && player.isPlaying()));
         if (!eligibility.eligible()) {
@@ -1702,7 +1734,8 @@ public class PlayerManager implements ParseCallback {
         ijkRealtimeRecoveryController.onUserSeek(playbackAutoSession, now);
         ijkDecodePressureController.onUserSeek(playbackAutoSession, now);
         resetNetworkProtectionSession("user-seek");
-        if (isExo()) {
+        if (isExo() && adAudioRuntime.isSpeechConfigured()
+                && !adAudioRuntime.isSpeechSuppressed()) {
             PlaybackAnalyticsListener.onUserSeekRequested(
                     player.getCurrentPosition(),
                     time,
@@ -1713,11 +1746,6 @@ public class PlayerManager implements ParseCallback {
                     player.isPlaying());
         }
         player.seekTo(time);
-        // A seek has no timeout of its own; without this the session can sit in
-        // BUFFERING indefinitely waiting on the rebuffer threshold. Arm after the
-        // seek so the baseline is the new position, not the old one.
-        cancelBufferingStallWatchdog();
-        armBufferingStallWatchdog();
     }
 
     public long getTextOffsetMs() {
@@ -1740,7 +1768,6 @@ public class PlayerManager implements ParseCallback {
 
     public void reset() {
         App.removeCallbacks(runnable);
-        cancelBufferingStallWatchdog();
         boolean activePlayback = player != null
                 && player.getPlaybackState() == Player.STATE_READY
                 && player.getPlayWhenReady();
@@ -1762,6 +1789,10 @@ public class PlayerManager implements ParseCallback {
         resetMpvOutputRuntime();
         closeMultiThreadProxyRegistration();
         spec = null;
+        // 待恢复字幕是绑定「下一次起播」的一次性登记。若那次起播被提前拦下
+        // （DRM 不支持、阅读器路由、地址为空），登记会留在这里；不清掉的话
+        // 会被后续某次无关起播（例如音频迷你播放器）取走并挂上。
+        pendingRestoreSub = null;
         clearPendingSwitchRestore();
         clearDanmaku("clear");
         lutAppliedForItem = false;
@@ -5273,6 +5304,7 @@ public void resetTrack(int type) {
         mpv.clearHwdecOverride();
         mpv.setVulkanRenderOverride(null);
         mpv.resetDv7HandlingForNewItem();
+        mpv.resetDv8HandlingForNewItem();
         rebuildAndRestartMpv(null, "performance-settings-changed");
     }
 
@@ -5337,6 +5369,10 @@ public void resetTrack(int type) {
 
     private void prepareMpvOutputForNewItem() {
         resetMpvOutputEvaluationState();
+        // 必须在 instanceof 早退之前注入：Exo 和 IJK 也要恢复外挂字幕。
+        // 也必须在下面算 externalSubtitleActive 之前，否则 MPV 的输出模式判定
+        // 会漏掉这条刚挂上的字幕。
+        restorePendingSubtitle();
         List<Track> persistedTracks = Track.find(getKey());
         Track persistedSubtitle = findRequestedSubtitle(persistedTracks);
         mpvExplicitSubtitlePreference = persistedSubtitle != null;
@@ -5344,6 +5380,7 @@ public void resetTrack(int type) {
         boolean hwdecOverrideCleared = mpv.clearHwdecOverride();
         mpv.prepareSubtitleForNewItem(persistedSubtitle);
         boolean dv7HandlingChanged = mpv.resetDv7HandlingForNewItem();
+        boolean dv8HandlingChanged = mpv.resetDv8HandlingForNewItem();
         boolean clearAutoVulkanRenderer = mpvAutoVulkanPinnedForItem;
         mpvAutoVulkanPinnedForItem = false;
         mpvAutoVulkanDisabledForItem = false;
@@ -5374,10 +5411,26 @@ public void resetTrack(int type) {
         }
         if (mpv.isSurfaceDirect() == shouldStartDirect
                 && !hwdecOverrideCleared
-                && !clearAutoVulkanRenderer && !dv7HandlingChanged) return;
-        if (SpiderDebug.isEnabled()) SpiderDebug.log("mpv-output", "prepare new item rebuild currentDirect=%s desiredDirect=%s mode=%s hwdecOverrideCleared=%s clearAutoVulkan=%s dv7HandlingChanged=%s", mpv.isSurfaceDirect(), shouldStartDirect, MpvPerformanceSetting.getOutputModeText(), hwdecOverrideCleared, clearAutoVulkanRenderer, dv7HandlingChanged);
+                && !clearAutoVulkanRenderer && !dv7HandlingChanged && !dv8HandlingChanged) return;
+        if (SpiderDebug.isEnabled()) SpiderDebug.log("mpv-output", "prepare new item rebuild currentDirect=%s desiredDirect=%s mode=%s hwdecOverrideCleared=%s clearAutoVulkan=%s dv7HandlingChanged=%s dv8HandlingChanged=%s", mpv.isSurfaceDirect(), shouldStartDirect, MpvPerformanceSetting.getOutputModeText(), hwdecOverrideCleared, clearAutoVulkanRenderer, dv7HandlingChanged, dv8HandlingChanged);
         mpv.setSurfaceDirectOverride(shouldStartDirect);
         rebuildPlayer();
+    }
+
+    /**
+     * 把宿主放在 spec 上的待恢复字幕挂进字幕列表。
+     *
+     * <p>发生在 {@code setMediaItem} 之前，所以走的是正常起播路径——不会触发
+     * {@link #setSub(Sub)} 里的重启分支，用户也就看不到画面闪一下。三个内核
+     * 统一从 {@code PlaySpec.subs} 取字幕，因此这里不区分内核。
+     */
+    private void restorePendingSubtitle() {
+        Sub sub = pendingRestoreSub;
+        pendingRestoreSub = null;
+        if (spec == null || sub == null) return;
+        // setSub() 内部会先 remove 再插首位，源站自带同一个 url 时天然幂等。
+        spec.setSub(sub);
+        if (SpiderDebug.isEnabled()) SpiderDebug.log("subtitle-restore", "inject persisted subtitle name=%s key=%s", sub.getName(), getKey());
     }
 
     private void resetMpvOutputRuntime() {
@@ -5479,6 +5532,14 @@ public void resetTrack(int type) {
         boolean dv7HandlingChanged = dolbyVision
                 && videoDetails.dolbyVisionProfile() == 7
                 && mpv.updateDv7Handling(dolbyVisionSupport, profile81Support);
+        MpvAutoOutputPolicy.DolbyVisionSupport hevcHdr10Support =
+                dolbyVision && videoDetails.dolbyVisionProfile() == 8
+                        ? CodecCapabilityInspector.hevcHdr10Support(
+                        App.get(), format, width, height)
+                        : MpvAutoOutputPolicy.DolbyVisionSupport.UNKNOWN;
+        boolean dv8HandlingChanged = dolbyVision
+                && videoDetails.dolbyVisionProfile() == 8
+                && mpv.updateDv8Handling(dolbyVisionSupport, hevcHdr10Support);
         dv7Hdr10FallbackEnabled = dolbyVision
                 && videoDetails.dolbyVisionProfile() == 7
                 && mpv.isDv7Hdr10Active();
@@ -5487,7 +5548,8 @@ public void resetTrack(int type) {
                 Util.isLeanback(), lutOrFilterActive, customGpuProcessing,
                 dolbyVisionSupport,
                 dolbyVision ? videoDetails.dolbyVisionProfile() : C.INDEX_UNSET,
-                dv7Hdr10FallbackEnabled);
+                dv7Hdr10FallbackEnabled,
+                hevcHdr10Support);
         int dolbyVisionProfile = dolbyVision
                 ? videoDetails.dolbyVisionProfile() : C.INDEX_UNSET;
         boolean currentlyVulkan = mpv.isVulkanRenderer();
@@ -5511,19 +5573,21 @@ public void resetTrack(int type) {
         boolean currentlyDirect = isMpvSurfaceDirect();
         boolean effectiveEligible = MpvPerformanceSetting.isAutoSurfaceDirectEnabled() && decision.eligible();
         MpvAutoOutputPolicy.Transition transition = MpvAutoOutputPolicy.transition(effectiveEligible, currentlyDirect);
-        if (SpiderDebug.isEnabled()) SpiderDebug.log("mpv-output", "auto decision eligible=%s effectiveEligible=%s transition=%s reason=%s size=%dx%d tracksReady=%s early=%s subtitle=%s lutOrFilter=%s customGpu=%s dvProfile=%d dvSupport=%s direct=%s gpuPinned=%s attempts=%d", decision.eligible(), effectiveEligible, transition, decision.reason(), width, height, tracksReady, earlyEvaluation, subtitleActive, lutOrFilterActive, customGpuProcessing, dolbyVision ? videoDetails.dolbyVisionProfile() : C.INDEX_UNSET, dolbyVisionSupport, currentlyDirect, mpvAutoGpuPinnedForSession, mpvAutoOutputProbeAttempts);
-        boolean transitionRequested = dv7HandlingChanged || enableAutoVulkan
+        if (SpiderDebug.isEnabled()) SpiderDebug.log("mpv-output", "auto decision eligible=%s effectiveEligible=%s transition=%s reason=%s renderAction=%s renderReason=%s size=%dx%d tracksReady=%s early=%s subtitle=%s lutOrFilter=%s customGpu=%s dvProfile=%d dvSupport=%s direct=%s gpuPinned=%s autoVulkan=%s attempts=%d", decision.eligible(), effectiveEligible, transition, decision.reason(), renderDecision.action(), renderDecision.reason(), width, height, tracksReady, earlyEvaluation, subtitleActive, lutOrFilterActive, customGpuProcessing, dolbyVisionProfile, dolbyVisionSupport, currentlyDirect, mpvAutoGpuPinnedForSession, mpvAutoVulkanPinnedForItem, mpvAutoOutputProbeAttempts);
+        boolean transitionRequested = dv7HandlingChanged || dv8HandlingChanged || enableAutoVulkan
                 || transition == MpvAutoOutputPolicy.Transition.ENTER_SURFACE_DIRECT
                 || transition == MpvAutoOutputPolicy.Transition.LEAVE_SURFACE_DIRECT;
         boolean requestAccepted = true;
-        if (dv7HandlingChanged) {
+        if (dv7HandlingChanged || dv8HandlingChanged) {
             Boolean outputOverride = enableAutoVulkan
                     || transition == MpvAutoOutputPolicy.Transition.LEAVE_SURFACE_DIRECT
-                    ? false
+                    ? Boolean.FALSE
                     : transition == MpvAutoOutputPolicy.Transition.ENTER_SURFACE_DIRECT
-                    ? true : null;
-            requestAccepted = rebuildAndRestartMpv(outputOverride,
-                    "auto-dv7-" + mpv.getDv7HandlingOption());
+                    ? Boolean.TRUE : null;
+            String reason = dv7HandlingChanged
+                    ? "auto-dv7-" + mpv.getDv7HandlingOption()
+                    : "auto-dv8-" + mpv.getDv8HandlingOption();
+            requestAccepted = rebuildAndRestartMpv(outputOverride, reason);
         } else if (enableAutoVulkan) {
             requestAccepted = rebuildAndRestartMpv(false,
                     "auto-" + renderDecision.reason());
@@ -5780,22 +5844,7 @@ public void resetTrack(int type) {
             case PlayerSetting.IJK -> new IjkPlayerEngine(decode, listener);
             case PlayerSetting.SYSTEM -> new SystemPlayerEngine(decode, listener);
             case PlayerSetting.MPV -> new MpvPlayerEngine(decode, lutAllowed, listener, this::onMpvVideoSizeProbed);
-            default -> new ExoPlayerEngine(decode, listener, new ExoPlayerEngine.PrepareListener() {
-                @Override
-                public void onPrepareStarted(int generation) {
-                    prepareExoSpeedForMediaItem(generation);
-                }
-
-                @Override
-                public void onPrepareReady(int generation) {
-                    restoreExoSpeedAfterPrepare(generation);
-                }
-
-                @Override
-                public void onPrepareCanceled(int generation) {
-                    cancelExoSpeedPrepare(generation);
-                }
-            }, mediaSignals, mediaClock);
+            default -> new ExoPlayerEngine(decode, listener);
         };
         ffmpegModeEngine = type == PlayerSetting.EXO ? PlayerSetting.getEffectiveFFmpegMode() : PlayerSetting.NONE;
         ffmpegModeEngineRefreshPending = false;
@@ -6109,10 +6158,6 @@ public void resetTrack(int type) {
         if (SpiderDebug.isEnabled()) SpiderDebug.log("player", "setMediaItem timeout=%d notify=%s spec=%s", timeout, notifyPrepare, debugSpec());
         resetNetworkProtectionSession("new-media");
         App.removeCallbacks(runnable);
-        // Same responsibility as the line above: a new media item invalidates the previous
-        // episode's baseline. This is the funnel every start path reaches, including the async
-        // awaitLocalProxyAndSetMediaItem route, so cancelling once here is sufficient.
-        cancelBufferingStallWatchdog();
         setDanmakus(spec.getDanmakus());
         prepareLutPipeline();
         initTrack = false;
@@ -7079,6 +7124,7 @@ public void resetTrack(int type) {
         clearExoDecoderResourceRecovery(true);
         lastIjkTimelinePublicationKey = null;
         playbackTrace.begin();
+        speechAdPlaybackHealth.reset();
         long now = SystemClock.elapsedRealtime();
         playbackAutoSession = playbackAutoContextStore.beginSession(playbackTrace.current(), now);
         rtspLiveLagController.beginSession(playbackAutoSession);
@@ -8355,6 +8401,13 @@ public void resetTrack(int type) {
         default void onExoFirstFrame() {
         }
 
+        /**
+         * 用户选中了一个外挂字幕。宿主负责写进自己的 History——PlayerManager
+         * 不持有 History 引用，也不该持有。
+         */
+        default void onSubtitleSelected(Sub sub) {
+        }
+
         void onPlayerRebuild(Player newPlayer, boolean resetVideoSurface);
     }
 
@@ -8388,15 +8441,6 @@ public void resetTrack(int type) {
         @Override
         public void onPlaybackStateChanged(int state) {
             if (state != Player.STATE_IDLE) App.removeCallbacks(runnable);
-            // Entering BUFFERING disarms the startup timeout above, which would
-            // otherwise leave a stalled session with no guard at all. Hand it to
-            // the stall watchdog, which only fires when neither the position nor
-            // the buffered end advances, so a slow-but-progressing source is safe.
-            if (state == Player.STATE_BUFFERING) {
-                if (!bufferingStallWatchdog.isArmed()) armBufferingStallWatchdog();
-            } else {
-                cancelBufferingStallWatchdog();
-            }
             if (SpiderDebug.isEnabled()) SpiderDebug.log("player", "state=%s spec=%s", stateName(state), debugSpec());
             publishPlaybackAutoContext(state != Player.STATE_IDLE);
             if (state == Player.STATE_READY) {
@@ -8505,10 +8549,7 @@ public void resetTrack(int type) {
             if (isExo()) scheduleNetworkProtection(0);
             if (!tracks.isEmpty() && !initTrack) {
                 playbackTrace.mark(PlaybackTrace.Stage.TRACKS, trackSummary(tracks));
-                List<Track> savedTracks = Track.find(getKey());
-                setTrack(savedTracks);
-                if (RealtimeSubtitleController.get().isEnabled()) disableSubtitleTrackForRealtime();
-                if (PlayerSetting.isPreferAAC(playerType) && !TrackUtil.hasTrack(player, savedTracks, C.TRACK_TYPE_AUDIO)) TrackUtil.preferAAC(player);
+                restoreTrackSelection(Track.find(getKey()));
                 if (engine instanceof MpvPlayerEngine mpv) {
                     mpv.completeInitialSubtitleTrackRestore();
                 }
@@ -8523,17 +8564,6 @@ public void resetTrack(int type) {
 
         @Override
         public void onRenderedFirstFrame() {
-            // A rendered video frame proves that the media and video decoder are
-            // working even if a slow audio track keeps Exo in BUFFERING briefly.
-            // Do not let the generic startup timer turn that valid playback into
-            // a false connection-timeout error. Hand the session to the stall
-            // watchdog instead of leaving it unguarded: a first frame is not
-            // STATE_READY, and without a guard a session that never reaches READY
-            // would buffer forever with no error and no fallback.
-            if (isExo() && player != null && player.getPlaybackState() != Player.STATE_READY) {
-                App.removeCallbacks(runnable);
-                armBufferingStallWatchdog();
-            }
             playbackTrace.mark(PlaybackTrace.Stage.FIRST_FRAME, "source=media3 player=" + playerType);
             publishPlaybackAutoContext(true);
             onIjkRuntimeFirstFrame(SystemClock.elapsedRealtime());
@@ -8613,111 +8643,7 @@ public void resetTrack(int type) {
         }
     };
 
-    /**
-     * Arms the stall watchdog for a session that is buffering, or that has shown a
-     * first frame without reaching {@link Player#STATE_READY} yet. This is the
-     * replacement guard for the startup timeout: a rendered frame proves the decoder
-     * works, but it does not prove playback can proceed, so the session must stay
-     * under some watch until READY actually arrives.
-     *
-     * <p>Deliberately not gated on the kernel. E-SP3 makes this watchdog a trigger of the
-     * decode/kernel fallback chain, and that chain covers every kernel, so restricting it to
-     * Exo would leave MPV and Ijk with the very "spins forever, never falls back" gap it was
-     * added to close. MPV publishes both signals the criterion reads through {@code
-     * SimpleBasePlayer.State} — {@code setIsLoading} mirrors {@code paused-for-cache} and the
-     * buffered end comes from the demuxer-cache observers — so they do advance there; a stalled
-     * MPV session simply keeps {@code isLoading()} true and gets the longer loading ceiling.
-     * False positives while paused are handled by the {@code playWhenReady} guard in
-     * {@link #checkBufferingStall()}, not by excluding a kernel.
-     */
-    private void armBufferingStallWatchdog() {
-        if (player == null || spec == null) return;
-        bufferingStallWatchdog.arm(
-                SystemClock.elapsedRealtime(),
-                Math.max(0, player.getCurrentPosition()),
-                nativeBufferedPosition());
-        App.post(bufferingStallRunnable, BUFFERING_STALL_POLL_INTERVAL_MS);
-    }
-
-    private void cancelBufferingStallWatchdog() {
-        bufferingStallWatchdog.reset();
-        App.removeCallbacks(bufferingStallRunnable);
-    }
-
-    /**
-     * The stall criterion must read the raw Exo buffered position. {@code
-     * getEffectiveBufferedPosition()} folds in completed disk ranges, which would
-     * keep a stalled session looking like it were still making progress.
-     */
-    private long nativeBufferedPosition() {
-        return player == null ? 0 : Math.max(0, player.getBufferedPosition());
-    }
-
-    private void checkBufferingStall() {
-        if (player == null || spec == null) {
-            cancelBufferingStallWatchdog();
-            return;
-        }
-        int state = player.getPlaybackState();
-        if (state == Player.STATE_READY || state == Player.STATE_ENDED || state == Player.STATE_IDLE) {
-            cancelBufferingStallWatchdog();
-            return;
-        }
-        long now = SystemClock.elapsedRealtime();
-        // A paused session is not a stalled one: pausing while still buffering freezes the
-        // position by design, and once the buffer stops growing the criterion would fire and
-        // switch decoder or engine behind a user who only pressed pause.
-        //
-        // Keep polling and start a fresh episode every tick instead of cancelling. Resuming
-        // then gets a full window with no dependency on a resume callback — note that
-        // onIsPlayingChanged does NOT fire here, since isPlaying() requires STATE_READY and
-        // stays false in both directions while buffering.
-        if (!player.getPlayWhenReady()) {
-            bufferingStallWatchdog.arm(now,
-                    Math.max(0, player.getCurrentPosition()), nativeBufferedPosition());
-            App.post(bufferingStallRunnable, BUFFERING_STALL_POLL_INTERVAL_MS);
-            return;
-        }
-        long position = Math.max(0, player.getCurrentPosition());
-        long buffered = nativeBufferedPosition();
-        if (bufferingStallWatchdog.shouldTimeout(now, position, buffered, player.isLoading())) {
-            onBufferingStall(position, buffered);
-            return;
-        }
-        bufferingStallWatchdog.observe(now, position, buffered);
-        App.post(bufferingStallRunnable, BUFFERING_STALL_POLL_INTERVAL_MS);
-    }
-
-    /**
-     * Deliberately narrower than {@link #onPlaybackTimeout()}: the startup-only
-     * retries there (DV7 first-frame fallback, LUT warmup refresh, Ijk managed
-     * reload) must not run again for a session that already started playing.
-     */
-    private void onBufferingStall(long positionMs, long bufferedPositionMs) {
-        cancelBufferingStallWatchdog();
-        PlaybackTrace.log("buffering-stall", playbackTrace.current(),
-                "stalled position=%d buffered=%d player=%d", positionMs, bufferedPositionMs, playerType);
-        if (SpiderDebug.isEnabled()) {
-            SpiderDebug.log("player", "buffering stall position=%d buffered=%d spec=%s",
-                    positionMs, bufferedPositionMs, debugSpec());
-        }
-        // A stall right after the user picked a kernel must report that choice's failure rather
-        // than silently walking the fallback chain away from it, matching onPlaybackTimeout.
-        if (manualPlayerSwitchPending) {
-            finishPlaybackProfileAbSession(
-                    "manual-switch-stall", SystemClock.elapsedRealtime());
-            callback.onError(ResUtil.getString(R.string.error_play_timeout));
-            return;
-        }
-        PlaybackException e = new PlaybackException(
-                ResUtil.getString(R.string.error_play_timeout), null, PlaybackException.ERROR_CODE_TIMEOUT);
-        if (fallbackPlayback(e)) return;
-        finishPlaybackProfileAbSession("buffering-stall", SystemClock.elapsedRealtime());
-        callback.onError(ResUtil.getString(R.string.error_play_timeout));
-    }
-
     private void onPlaybackTimeout() {
-        cancelBufferingStallWatchdog();
         completeIjkBufferManagedReload(
                 false, "timeout", SystemClock.elapsedRealtime(), true);
         PlaybackException e = new PlaybackException(ResUtil.getString(R.string.error_play_timeout), null, PlaybackException.ERROR_CODE_TIMEOUT);
