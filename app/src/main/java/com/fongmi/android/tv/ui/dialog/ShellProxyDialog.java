@@ -48,7 +48,11 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 
+import java.io.BufferedReader;
+import java.io.InputStream;
+import java.io.InputStreamReader;
 import java.net.URI;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashSet;
@@ -62,6 +66,9 @@ import okhttp3.Response;
 
 public class ShellProxyDialog extends BaseAlertDialog {
 
+    private static final String BUILTIN_PROXY_URL = "http://127.0.0.1:7890";
+    private static final String BUILTIN_RULES_ASSET = "proxy_default.json";
+
     private DialogShellProxyBinding binding;
     private RuleAdapter adapter;
     private Runnable callback;
@@ -72,6 +79,9 @@ public class ShellProxyDialog extends BaseAlertDialog {
     private boolean reverseOrder;
     private boolean beforeRecognizeTextMode = true;
     private boolean saved;
+    private boolean savedEnabled;
+    private String savedUrl = "";
+    private String savedRules = "";
     private boolean testing;
     private SettingClipboardOverlay clipboardOverlay;
     private Dialog ruleEditorDialog;
@@ -138,10 +148,12 @@ public class ShellProxyDialog extends BaseAlertDialog {
     protected void initView() {
         adapter = new RuleAdapter();
         proxyEnabled = Setting.isShellProxy();
+        savedEnabled = proxyEnabled;
+        savedUrl = Setting.getShellProxyUrl();
+        savedRules = Setting.getShellProxyRules();
         updateProxyEnabledText();
         updateReverseText();
-        binding.defaultUrl.setText(Setting.getShellProxyUrl());
-        if (TextUtils.isEmpty(binding.defaultUrl.getText())) binding.defaultUrl.setText("socks5://");
+        binding.defaultUrl.setText(getInitialUrl());
         binding.defaultUrl.setSelection(binding.defaultUrl.length());
         binding.rules.setText(getRules());
         binding.rules.setSelection(binding.rules.length());
@@ -255,13 +267,31 @@ public class ShellProxyDialog extends BaseAlertDialog {
         }
     }
 
+    private String getInitialUrl() {
+        String url = Setting.getShellProxyUrl();
+        return TextUtils.isEmpty(url) ? BUILTIN_PROXY_URL : url;
+    }
+
     private String getRules() {
         String rules = Setting.getShellProxyRules();
         if (!TextUtils.isEmpty(rules)) return Rule.toRawJson(Rule.parse(rules));
         String url = Setting.getShellProxyUrl();
         String hosts = Setting.getShellProxyHosts();
-        if (TextUtils.isEmpty(url) || TextUtils.isEmpty(hosts) || "*".equals(hosts)) return "";
-        return Rule.toRawJson(List.of(new Rule(hosts, url)));
+        if (!TextUtils.isEmpty(url) && !TextUtils.isEmpty(hosts) && !"*".equals(hosts)) return Rule.toRawJson(List.of(new Rule(hosts, url)));
+        return getBuiltinRules();
+    }
+
+    private String getBuiltinRules() {
+        try (InputStream input = requireContext().getAssets().open(BUILTIN_RULES_ASSET)) {
+            BufferedReader reader = new BufferedReader(new InputStreamReader(input, StandardCharsets.UTF_8));
+            StringBuilder builder = new StringBuilder();
+            String line;
+            while ((line = reader.readLine()) != null) builder.append(line).append('\n');
+            List<Rule> items = Rule.parse(builder.toString());
+            return items.isEmpty() ? "" : Rule.toRawJson(items);
+        } catch (Exception e) {
+            return "";
+        }
     }
 
     private String getDefaultUrl() {
@@ -321,6 +351,11 @@ public class ShellProxyDialog extends BaseAlertDialog {
     private void updateProxyEnabledText() {
         binding.proxyEnabled.setText(proxyEnabled ? R.string.setting_enable : R.string.setting_disable);
         binding.proxyEnabled.setAlpha(proxyEnabled ? 1.0f : 0.65f);
+        float alpha = proxyEnabled ? 1.0f : 0.45f;
+        binding.defaultUrl.setEnabled(proxyEnabled);
+        binding.defaultUrl.setAlpha(alpha);
+        binding.rules.setEnabled(proxyEnabled);
+        binding.rules.setAlpha(alpha);
     }
 
     private void updateReverseText() {
@@ -627,12 +662,20 @@ public class ShellProxyDialog extends BaseAlertDialog {
             Notify.show(R.string.setting_proxy_invalid);
             return false;
         }
-        if (!enabled) Setting.putShellProxy(false);
-        Setting.putShellProxyConfig(url, rules);
-        if (enabled) Setting.putShellProxy(true);
+        if (!enabled) {
+            Setting.putShellProxy(false);
+        } else {
+            Setting.putShellProxyConfig(url, rules);
+            Setting.putShellProxy(true);
+            if (hasConfigChanged(url, rules)) Notify.show(ResUtil.getString(R.string.setting_proxy_enabled_saved, Rule.parse(rules).size()));
+        }
         if (callback != null) callback.run();
         saved = true;
         return true;
+    }
+
+    private boolean hasConfigChanged(String url, String rules) {
+        return !savedEnabled || !TextUtils.equals(url, savedUrl) || !TextUtils.equals(rules, savedRules);
     }
 
     private record TestResult(boolean success, String message) {

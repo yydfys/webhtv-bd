@@ -850,6 +850,7 @@
     <string name="setting_proxy_add_rule">Add rule</string>
     <string name="setting_proxy_rule_count">%1$d rules</string>
     <string name="setting_proxy_invalid">Invalid proxy URL</string>
+    <string name="setting_proxy_enabled_saved">Proxy enabled · %1$d rules</string>
     <string name="setting_proxy_suggest">Auto suggest</string>
     <string name="setting_proxy_recognize">Auto detect</string>
     <string name="setting_proxy_recognize_hint">Paste full config, proxy snippet, rule array, or one rule object</string>
