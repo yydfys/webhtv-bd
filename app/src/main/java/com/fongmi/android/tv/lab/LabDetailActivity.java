@@ -78,10 +78,7 @@ public class LabDetailActivity extends AppCompatActivity implements LabCommandAd
         mBinding.toolbar.setNavigationOnClickListener(v -> finish());
         mBinding.btnDownload.setOnClickListener(v -> onDownload());
         mBinding.btnUninstall.setOnClickListener(v -> onUninstall());
-        mBinding.btnTerminal.setOnClickListener(v -> {
-            String name = item == null ? itemName : item.name;
-            LabTerminalActivity.start(this, name, name);
-        });
+        mBinding.btnTerminal.setOnClickListener(v -> openTerminal());
         mBinding.btnAddCommand.setOnClickListener(v -> LabCommandEditDialog.show(this, item, null, this::reload));
         mBinding.btnRefreshCommand.setOnClickListener(v -> onRefreshCommands());
         commandAdapter = new LabCommandAdapter(this, this);
@@ -133,6 +130,14 @@ public class LabDetailActivity extends AppCompatActivity implements LabCommandAd
         mBinding.commandRecycler.setVisibility(hasCommands ? View.VISIBLE : View.GONE);
         invalidateOptionsMenu();
         updateButtons();
+        // 「终端」类条目（terminal_auto_open）：进详情页即附着容器终端，不在中间页停留
+        if (item.terminal_auto_open && item.isUbuntu() && LabUbuntu.installed(this)) {
+            String shell = LabUbuntu.shellCommand(this);
+            if (shell != null && !shell.isEmpty()) {
+                LabTerminalActivity.start(this, item.name, item.name, shell);
+                finish();
+            }
+        }
     }
 
     private String displayVersion() {
@@ -140,7 +145,7 @@ public class LabDetailActivity extends AppCompatActivity implements LabCommandAd
     }
 
     private void updateButtons() {
-        boolean installed = item.isUbuntu() ? (item.hasInstall() && installDone) : LabEnv.installed(this, item);
+        boolean installed = LabEnv.installed(this, item) || (item.isUbuntu() && item.hasInstall() && installDone);
         boolean running = anyRunning();
         boolean update = installed && hasNewVersion();
         boolean plainUbuntu = item.isUbuntu() && !item.hasInstall();
@@ -246,14 +251,47 @@ public class LabDetailActivity extends AppCompatActivity implements LabCommandAd
                 .show();
     }
 
+    /**
+     * 打开终端：ubuntu 条目必须开进 proot 容器（本机 shell 里跑不了 apt/php/python3），
+     * android 条目保持原来的本机 shell。
+     */
+    private void openTerminal() {
+        String name = item == null ? itemName : item.name;
+        if (item != null && item.isUbuntu()) {
+            if (!LabUbuntu.installed(this)) {
+                Toast.makeText(this, "请先在实验室设置里装好 Ubuntu 环境", Toast.LENGTH_LONG).show();
+                return;
+            }
+            String shell = LabUbuntu.shellCommand(this);
+            if (shell == null || shell.isEmpty()) {
+                Toast.makeText(this, "proot 未就绪", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            LabTerminalActivity.start(this, name, name, shell);
+            return;
+        }
+        LabTerminalActivity.start(this, name, name);
+    }
+
     /** 容器条目的环境安装：在容器终端里跑 install.command（apt 输出看得见）。 */
     private void onContainerInstall() {
-        if (!item.hasInstall()) return;
+        if (!item.hasInstall()) {
+            // 「终端」这类条目本来就不装环境：直接附着容器终端，别静默无反应
+            if (item.isUbuntu() && item.terminal_auto_open) {
+                openTerminal();
+            } else {
+                Toast.makeText(this, "该条目无需安装环境", Toast.LENGTH_SHORT).show();
+            }
+            return;
+        }
         if (!LabUbuntu.installed(this)) {
             Toast.makeText(this, "请先在实验室设置里装好 Ubuntu 环境", Toast.LENGTH_LONG).show();
             return;
         }
-        String cmd = LabUbuntu.prootCommand(this, item.install.command);
+        // install.command 里带 {package_dir} 等占位符，必须先展开再进容器，
+        // 否则 touch {package_dir}/.installed 会写成字面路径，安装状态永远点不亮。
+        String expanded = LabRunner.expand(this, item, item.install.command, null);
+        String cmd = LabUbuntu.prootCommand(this, expanded);
         if (cmd == null || cmd.isEmpty()) {
             Toast.makeText(this, "proot 未就绪", Toast.LENGTH_SHORT).show();
             return;
@@ -263,7 +301,8 @@ public class LabDetailActivity extends AppCompatActivity implements LabCommandAd
 
     private void onContainerUninstall() {
         if (item.install == null || !item.install.hasUninstall()) return;
-        String cmd = LabUbuntu.prootCommand(this, item.install.uninstall_command);
+        String expanded = LabRunner.expand(this, item, item.install.uninstall_command, null);
+        String cmd = LabUbuntu.prootCommand(this, expanded);
         if (cmd == null || cmd.isEmpty()) return;
         LabTerminalActivity.start(this, item.name + " 卸载", item.name, cmd);
     }
