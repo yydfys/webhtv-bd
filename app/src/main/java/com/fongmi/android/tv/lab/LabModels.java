@@ -31,6 +31,14 @@ public final class LabModels {
         public boolean auto_install;
         public boolean available;
         public boolean show;
+        /** 运行环境：ubuntu = 命令包进 proot 容器执行；缺省/android = 直接跑 /system/bin/sh。 */
+        public String runtime;
+        /** 需要先装（install 成功后才允许跑命令）。 */
+        public boolean install_required;
+        /** 点击条目直接进容器终端，不展示命令卡片。 */
+        public boolean terminal_auto_open;
+        /** 条目级安装/卸载脚本（apt 装环境）。 */
+        public Install install;
         public String binary_path;
         public String cmd_name;
         /** 显式声明这是 Linux rootfs 包（解压到 rootfs/ 而非包根目录）；不填则按包名推断。 */
@@ -40,6 +48,15 @@ public final class LabModels {
         public List<Download> downloads;
         public List<Command> commands;
         public List<Setting> settings;
+
+        /** 是否容器（Ubuntu）运行时。 */
+        public boolean isUbuntu() {
+            return "ubuntu".equalsIgnoreCase(runtime);
+        }
+
+        public boolean hasInstall() {
+            return install != null && install.command != null && !install.command.isEmpty();
+        }
 
         public boolean hasSettings() {
             return settings != null && !settings.isEmpty();
@@ -60,6 +77,23 @@ public final class LabModels {
                 }
             }
             return list;
+        }
+    }
+
+    /** 条目级安装脚本（在容器内执行）。 */
+    public static class Install {
+        public String check_command;
+        public String command;
+        public String uninstall_command;
+        /** terminal = 在容器终端里跑（能看 apt 输出）。 */
+        public String mode;
+
+        public boolean isTerminalMode() {
+            return "terminal".equalsIgnoreCase(mode);
+        }
+
+        public boolean hasUninstall() {
+            return uninstall_command != null && !uninstall_command.isEmpty();
         }
     }
 
@@ -106,6 +140,10 @@ public final class LabModels {
         public boolean auto_execute;
         public boolean background;
         public Boolean show_output;
+        /** 状态检测命令（容器内执行，有输出 = 运行中）。 */
+        public String check_command;
+        /** 停止命令（容器内执行）。 */
+        public String stop_command;
         public int min_version;
         public List<Variable> variables;
         public List<Click> clicks;
@@ -139,6 +177,14 @@ public final class LabModels {
 
         public boolean isShowOutput() {
             return show_output == null || show_output;
+        }
+
+        public boolean hasCheck() {
+            return check_command != null && !check_command.isEmpty();
+        }
+
+        public boolean hasStop() {
+            return stop_command != null && !stop_command.isEmpty();
         }
     }
 

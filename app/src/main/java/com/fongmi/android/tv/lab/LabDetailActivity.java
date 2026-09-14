@@ -38,11 +38,17 @@ public class LabDetailActivity extends AppCompatActivity implements LabCommandAd
     private LabCommandAdapter commandAdapter;
     private LabModels.Item item;
     private String itemName;
+    /** check_command 轮询结果：命令 id → 是否在跑（容器条目跨进程重启也能亮状态）。 */
+    private final Map<String, Boolean> checkState = new HashMap<>();
+    private boolean checkBusy = false;
+    /** 容器条目的“环境已装好”状态（install.check_command 通过）。 */
+    private boolean installDone = false;
     private final android.os.Handler mRefreshHandler = new android.os.Handler(android.os.Looper.getMainLooper());
     private final Runnable mRefreshRunnable = new Runnable() {
         @Override
         public void run() {
             if (item != null) updateButtons();
+            pollCheckState();
             mRefreshHandler.postDelayed(this, 2000);
         }
     };
@@ -134,12 +140,13 @@ public class LabDetailActivity extends AppCompatActivity implements LabCommandAd
     }
 
     private void updateButtons() {
-        boolean installed = LabEnv.installed(this, item);
+        boolean installed = item.isUbuntu() ? (item.hasInstall() && installDone) : LabEnv.installed(this, item);
         boolean running = anyRunning();
         boolean update = installed && hasNewVersion();
-        mBinding.btnDownload.setText(update ? "更新" : "下载安装");
-        mBinding.btnDownload.setVisibility(installed && !update ? View.GONE : View.VISIBLE);
-        mBinding.btnUninstall.setVisibility(installed ? View.VISIBLE : View.GONE);
+        boolean plainUbuntu = item.isUbuntu() && !item.hasInstall();
+        mBinding.btnDownload.setText(item.isUbuntu() ? "安装环境" : (update ? "更新" : "下载安装"));
+        mBinding.btnDownload.setVisibility(plainUbuntu || (installed && !update) ? View.GONE : View.VISIBLE);
+        mBinding.btnUninstall.setVisibility(installed && !plainUbuntu ? View.VISIBLE : View.GONE);
         if (running) {
             mBinding.status.setText(R.string.lab_running);
             mBinding.status.setBackgroundResource(R.drawable.shape_lab_running_tag);
@@ -158,10 +165,43 @@ public class LabDetailActivity extends AppCompatActivity implements LabCommandAd
         return !installed.isEmpty() && LabEnv.compareVersions(displayVersion(), installed) > 0;
     }
 
+    /**
+     * 后台跑 check_command 摸运行状态。只查“带停止命令”的（即常驻服务），
+     * 避免一个条目几十条检测命令把手机拖住。
+     */
+    private void pollCheckState() {
+        final LabModels.Item target = item;
+        if (target == null || checkBusy) return;
+        final java.util.List<LabModels.Command> pending = new java.util.ArrayList<>();
+        if (target.commands != null) {
+            for (LabModels.Command command : target.commands) {
+                if (command != null && command.hasCheck() && command.hasStop()) pending.add(command);
+            }
+        }
+        final boolean wantInstall = target.isUbuntu() && target.hasInstall();
+        if (pending.isEmpty() && !wantInstall) return;
+        checkBusy = true;
+        new Thread(() -> {
+            final Map<String, Boolean> result = new HashMap<>();
+            for (LabModels.Command command : pending) {
+                result.put(command.id, LabRunner.checkRunning(LabDetailActivity.this, target, command));
+            }
+            final boolean done = wantInstall && LabRunner.installDone(LabDetailActivity.this, target);
+            App.post(() -> {
+                checkState.clear();
+                checkState.putAll(result);
+                if (wantInstall) installDone = done;
+                checkBusy = false;
+                if (item != null) updateButtons();
+            });
+        }).start();
+    }
+
     private boolean anyRunning() {
         if (item.commands != null) {
             for (LabModels.Command command : item.commands) {
                 if (LabRunner.isRunning(item.name + "/" + command.id)) return true;
+                if (Boolean.TRUE.equals(checkState.get(command.id))) return true;
             }
         }
         for (LabCustomCommands.CustomCommand custom : LabCustomCommands.list(item.name)) {
@@ -171,6 +211,10 @@ public class LabDetailActivity extends AppCompatActivity implements LabCommandAd
     }
 
     private void onDownload() {
+        if (item.isUbuntu()) {
+            onContainerInstall();
+            return;
+        }
         if (!item.available) {
             Toast.makeText(this, "该包暂未上线", Toast.LENGTH_SHORT).show();
             return;
@@ -188,6 +232,10 @@ public class LabDetailActivity extends AppCompatActivity implements LabCommandAd
     }
 
     private void onUninstall() {
+        if (item.isUbuntu()) {
+            onContainerUninstall();
+            return;
+        }
         new MaterialAlertDialogBuilder(this, R.style.Theme_App_Lab_Dialog)
                 .setTitle("确认卸载")
                 .setMessage("确定要卸载 " + item.name + " 吗？这将停止所有运行中的命令。")
@@ -196,6 +244,28 @@ public class LabDetailActivity extends AppCompatActivity implements LabCommandAd
                     LabActions.uninstall(this, item, this::updateButtons);
                 })
                 .show();
+    }
+
+    /** 容器条目的环境安装：在容器终端里跑 install.command（apt 输出看得见）。 */
+    private void onContainerInstall() {
+        if (!item.hasInstall()) return;
+        if (!LabUbuntu.installed(this)) {
+            Toast.makeText(this, "请先在实验室设置里装好 Ubuntu 环境", Toast.LENGTH_LONG).show();
+            return;
+        }
+        String cmd = LabUbuntu.prootCommand(this, item.install.command);
+        if (cmd == null || cmd.isEmpty()) {
+            Toast.makeText(this, "proot 未就绪", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        LabTerminalActivity.start(this, item.name + " 安装", item.name, cmd);
+    }
+
+    private void onContainerUninstall() {
+        if (item.install == null || !item.install.hasUninstall()) return;
+        String cmd = LabUbuntu.prootCommand(this, item.install.uninstall_command);
+        if (cmd == null || cmd.isEmpty()) return;
+        LabTerminalActivity.start(this, item.name + " 卸载", item.name, cmd);
     }
 
     private void onRefreshCommands() {
@@ -230,8 +300,14 @@ public class LabDetailActivity extends AppCompatActivity implements LabCommandAd
     @Override
     public void onAction(LabModels.Item item, LabModels.Command command) {
         String key = item.name + "/" + command.id;
-        if (LabRunner.isRunning(key)) {
-            LabRunner.stop(key);
+        boolean running = LabRunner.isRunning(key) || Boolean.TRUE.equals(checkState.get(command.id));
+        if (running) {
+            if (command.hasStop()) {
+                LabRunner.runStop(this, item, command, command.cachedVariableValues, null);
+                checkState.put(command.id, false);
+            } else {
+                LabRunner.stop(key);
+            }
             Notify.show(R.string.lab_command_stopped);
         } else {
             LabCommandSheet sheet = new LabCommandSheet(this, item, command, this::updateButtons);

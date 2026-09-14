@@ -567,8 +567,12 @@ public final class LabUbuntu {
         sb.append(" -r ").append(quote(rootfsDir(context).getAbsolutePath()));
         sb.append(" -b /dev -b /proc -b /sys -b /tmp -b /dev/urandom:/dev/random");
         String external = externalStorage();
-        if (external != null && getSharedStorage(context)) {
-            sb.append(" -b ").append(quote(external)).append(":/sdcard");
+        if (external != null) {
+            // 同路径绑定：lab.json 里写死的 /storage/emulated/0/... 在容器内按原路径可直接用
+            sb.append(" -b ").append(quote(external)).append(":").append(quote(external));
+            if (getSharedStorage(context)) {
+                sb.append(" -b ").append(quote(external)).append(":/sdcard");
+            }
         }
         sb.append(" -w /root");
         sb.append(" /usr/bin/env -i HOME=/root");

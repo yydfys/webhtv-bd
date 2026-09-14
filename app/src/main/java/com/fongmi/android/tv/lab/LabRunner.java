@@ -143,13 +143,74 @@ public final class LabRunner {
         return runShellCommand(context, item, key, expanded, listener);
     }
 
+    /** runtime=ubuntu 的命令包进 proot 容器；包装不可用时退回原命令（不静默丢弃）。 */
+    public static String shellOf(Context context, LabModels.Item item, String command) {
+        if (item == null || !item.isUbuntu() || TextUtils.isEmpty(command)) return command;
+        String wrapped = LabUbuntu.prootCommand(context, command);
+        return TextUtils.isEmpty(wrapped) ? command : wrapped;
+    }
+
+    /**
+     * 跑 check_command 判断条目是否运行中：有输出 = 运行中。
+     * 容器条目在 proot 内执行（pgrep 之类需要容器内进程视图）。
+     */
+    public static boolean checkRunning(Context context, LabModels.Item item, LabModels.Command command) {
+        if (item == null || command == null || !command.hasCheck()) return false;
+        return runCheck(context, item, command.check_command, command.cachedVariableValues);
+    }
+
+    /** 条目级安装检测：跑 install.check_command，通过即为已装好。 */
+    public static boolean installDone(Context context, LabModels.Item item) {
+        if (item == null || item.install == null) return false;
+        String check = item.install.check_command;
+        if (TextUtils.isEmpty(check)) return false;
+        return runCheck(context, item, check, null);
+    }
+
+    /** 通用状态检测：命令有输出即视为真（pgrep/test 这类检测命令都靠退出码/输出表达）。 */
+    public static boolean runCheck(Context context, LabModels.Item item, String checkCommand, Map<String, String> vars) {
+        if (item == null || TextUtils.isEmpty(checkCommand)) return false;
+        String cmd = expand(context, item, checkCommand, vars);
+        Process process = null;
+        try {
+            ProcessBuilder builder = new ProcessBuilder("/system/bin/sh", "-c", shellOf(context, item, cmd));
+            builder.redirectErrorStream(true);
+            applyEnv(builder.environment(), context, item);
+            process = builder.start();
+            java.io.InputStream in = process.getInputStream();
+            byte[] buf = new byte[256];
+            long deadline = System.currentTimeMillis() + 4500;
+            while (System.currentTimeMillis() < deadline) {
+                if (in.available() > 0 && in.read(buf) > 0) return true;
+                if (!process.isAlive()) break;
+                try {
+                    Thread.sleep(100);
+                } catch (InterruptedException ignored) {
+                }
+            }
+            return false;
+        } catch (Exception e) {
+            return false;
+        } finally {
+            if (process != null) process.destroy();
+        }
+    }
+
+    /** 执行 stop_command（容器条目在 proot 内跑），执行完让它自然退出。 */
+    public static Process runStop(Context context, LabModels.Item item, LabModels.Command command,
+                                  Map<String, String> vars, OutputListener listener) {
+        if (item == null || command == null || !command.hasStop()) return null;
+        return runCustom(context, item, command.stop_command, vars, item.name + "/" + command.id + "#stop", listener);
+    }
+
     public static Process runShellCommand(Context context, LabModels.Item item, String key,
                                           String command, OutputListener listener) {
         stop(key);
         try {
             if (TextUtils.isEmpty(command)) throw new IOException("命令为空");
             File cwd = LabEnv.packageRoot(context, item);
-            ProcessBuilder builder = new ProcessBuilder("/system/bin/setsid", "/system/bin/sh", "-c", command);
+            String cmdline = shellOf(context, item, command);
+            ProcessBuilder builder = new ProcessBuilder("/system/bin/setsid", "/system/bin/sh", "-c", cmdline);
             builder.directory(cwd);
             builder.redirectErrorStream(true);
             applyEnv(builder.environment(), context, item);

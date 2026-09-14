@@ -213,6 +213,20 @@ public class LabActivity extends AppCompatActivity implements LabPackageAdapter.
 
     @Override
     public void onOpen(LabModels.Item item) {
+        // 容器终端类条目（terminal_auto_open）：点一下直接进 Ubuntu 终端，不摆命令卡片
+        if (item.terminal_auto_open && item.isUbuntu()) {
+            if (!LabUbuntu.installed(this)) {
+                android.widget.Toast.makeText(this, "请先在设置里装好 Ubuntu 环境", android.widget.Toast.LENGTH_LONG).show();
+                return;
+            }
+            String cmd = LabUbuntu.shellCommand(this);
+            if (cmd == null || cmd.isEmpty()) {
+                android.widget.Toast.makeText(this, "proot 未就绪", android.widget.Toast.LENGTH_SHORT).show();
+                return;
+            }
+            LabTerminalActivity.start(this, item.name, item.name, cmd);
+            return;
+        }
         LabDetailActivity.start(this, item.name);
     }
 

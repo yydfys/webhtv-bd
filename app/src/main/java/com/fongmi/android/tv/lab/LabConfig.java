@@ -21,6 +21,7 @@ import java.io.InputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
@@ -38,6 +39,8 @@ public final class LabConfig {
     private static final String KEY_URL = "url";
     private static final String KEY_ROOT = "root";
     private static final String KEY_LOCAL_PATH = "local_path";
+    /** 上次释放的内置模板 md5：用来判断磁盘上那份是不是用户改过的。 */
+    private static final String KEY_TEMPLATE_MD5 = "template_md5";
     private static final String KEY_FOREGROUND = "foreground";
     private static final String KEY_BATTERY = "battery";
     private static final String KEY_GLOBAL_PROXY = "global_proxy";
@@ -297,15 +300,76 @@ public final class LabConfig {
         if (!TextUtils.isEmpty(getLocalPath())) return;
         try {
             File target = new File(templateRoot(), "lab.json");
-            if (target.exists()) return;
             for (String candidate : localCandidates()) {
-                if (new File(candidate).exists()) return;
+                File file = new File(candidate);
+                if (!file.getAbsolutePath().equals(target.getAbsolutePath()) && file.exists()) return;
             }
+            String asset = readAssetTemplate();
+            if (asset == null) return;
+            String assetMd5 = md5Of(asset);
             if (target.getParentFile() != null) target.getParentFile().mkdirs();
-            try (InputStream in = App.get().getAssets().open("lab_template.json")) {
-                Path.copy(in, target);
+            if (!target.exists()) {
+                writeText(target, asset);
+                sp().edit().putString(KEY_TEMPLATE_MD5, assetMd5).apply();
+                return;
             }
+            String localMd5 = md5Of(readAllText(target));
+            if (localMd5.equals(assetMd5)) {
+                sp().edit().putString(KEY_TEMPLATE_MD5, assetMd5).apply();
+                return;
+            }
+            String last = sp().getString(KEY_TEMPLATE_MD5, "");
+            // 记录过 md5 又对不上 → 用户自己改过，保留；老版本没记录过 → 当作释放出来的副本，升级一次
+            if (!TextUtils.isEmpty(last) && !last.equals(localMd5)) return;
+            copyFile(target, new File(target.getParentFile(), "lab.json.bak"));
+            writeText(target, asset);
+            sp().edit().putString(KEY_TEMPLATE_MD5, assetMd5).apply();
+            File cache = configCacheFile();
+            if (cache.exists()) cache.delete();
         } catch (Exception ignored) {
+        }
+    }
+
+    private String readAssetTemplate() {
+        try (InputStream in = App.get().getAssets().open("lab_template.json")) {
+            return readAll(in);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private static String readAllText(File file) {
+        try (InputStream in = new FileInputStream(file)) {
+            return readAll(in);
+        } catch (Exception e) {
+            return "";
+        }
+    }
+
+    private static void writeText(File file, String text) {
+        try (FileOutputStream out = new FileOutputStream(file)) {
+            out.write(text.getBytes(StandardCharsets.UTF_8));
+        } catch (Exception ignored) {
+        }
+    }
+
+    private static void copyFile(File from, File to) {
+        try (InputStream in = new FileInputStream(from); FileOutputStream out = new FileOutputStream(to)) {
+            byte[] buf = new byte[8192];
+            int n;
+            while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
+        } catch (Exception ignored) {
+        }
+    }
+
+    private static String md5Of(String text) {
+        try {
+            byte[] bytes = MessageDigest.getInstance("MD5").digest(text.getBytes(StandardCharsets.UTF_8));
+            StringBuilder sb = new StringBuilder();
+            for (byte b : bytes) sb.append(String.format("%02x", b));
+            return sb.toString();
+        } catch (Exception e) {
+            return "";
         }
     }
 
