@@ -191,6 +191,23 @@ public final class LabEnv {
         return dir;
     }
 
+    /**
+     * 条目的工作目录（对应 lab.json 里的 {package_dir}）。
+     *
+     * <p>ubuntu 条目必须落在共享存储：proot 只把共享存储按原路径挂进容器
+     * （-b /storage/emulated/0:/storage/emulated/0），而 install 命令里的
+     * {@code touch {package_dir}/.installed} 是在容器内执行、安装状态检测在宿主侧读，
+     * 只有共享存储这条路径容器内外都能读写。android 条目沿用私目录。
+     */
+    public static File packageDir(Context context, LabModels.Item item) {
+        if (item != null && item.isUbuntu()) {
+            File dir = new File(new File(localRoot(), "lab"), item.name);
+            if (!dir.exists()) dir.mkdirs();
+            return dir;
+        }
+        return packageRoot(context, item);
+    }
+
     public static File localRoot() {
         return new File(LabConfig.get().getRoot());
     }
@@ -269,6 +286,11 @@ public final class LabEnv {
     public static boolean installed(Context context, LabModels.Item item) {
         if (isRootfs(item)) {
             return nonEmpty(new File(packageRoot(context, item), "rootfs"));
+        }
+        if (item != null && item.isUbuntu()) {
+            // ubuntu 条目的环境装在 rootfs 内，宿主侧看不到任何二进制，
+            // 只能认 install 阶段写的标记文件（lab.json 约定 {package_dir}/.installed）。
+            return new File(packageDir(context, item), ".installed").exists();
         }
         File bin = binary(context, item);
         if (bin != null && bin.exists()) return true;
