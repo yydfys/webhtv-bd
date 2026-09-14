@@ -288,9 +288,18 @@ public final class LabEnv {
             return nonEmpty(new File(packageRoot(context, item), "rootfs"));
         }
         if (item != null && item.isUbuntu()) {
-            // ubuntu 条目的环境装在 rootfs 内，宿主侧看不到任何二进制，
-            // 只能认 install 阶段写的标记文件（lab.json 约定 {package_dir}/.installed）。
-            return new File(packageDir(context, item), ".installed").exists();
+            // ubuntu 条目的环境装在 rootfs 内，宿主侧看不到任何二进制：
+            // 1) 先认 install 阶段写的标记文件（lab.json 约定 {package_dir}/.installed）
+            if (new File(packageDir(context, item), ".installed").exists()) return true;
+            // 2) 兜底：从 install.check_command 里取 `command -v xxx` 的程序名，
+            //    直接看 rootfs 内有没有这个可执行文件（apt 真装上了就算装上了）
+            String bin = ubuntuBinary(item);
+            if (bin == null || bin.isEmpty()) return false;
+            File rootfs = LabUbuntu.rootfsDir(context);
+            for (String dir : new String[]{"usr/bin/", "usr/sbin/", "usr/local/bin/", "bin/", "sbin/"}) {
+                if (new File(rootfs, dir + bin).exists()) return true;
+            }
+            return false;
         }
         File bin = binary(context, item);
         if (bin != null && bin.exists()) return true;
@@ -298,6 +307,15 @@ public final class LabEnv {
         File binDir = new File(packageDir, "bin");
         File runnerDir = new File(packageDir, "runner");
         return nonEmpty(binDir) || nonEmpty(runnerDir) || nonEmpty(new File(packageDir, "rootfs"));
+    }
+
+    /** 从 install.check_command 的 `command -v xxx` 里取目标程序名（php / python3 / node …）。 */
+    private static String ubuntuBinary(LabModels.Item item) {
+        if (item == null || item.install == null || TextUtils.isEmpty(item.install.check_command)) return "";
+        java.util.regex.Matcher matcher = java.util.regex.Pattern
+                .compile("command\\s+-v\\s+([A-Za-z0-9_.\\-]+)")
+                .matcher(item.install.check_command);
+        return matcher.find() ? matcher.group(1) : "";
     }
 
     private static boolean nonEmpty(File dir) {

@@ -283,6 +283,9 @@ public class LabTerminalActivity extends AppCompatActivity {
             builder.redirectErrorStream(true);
             if (item != null) {
                 File cwd = LabEnv.packageRoot(this, item);
+                // 包目录可能还不存在（首次安装）：先把工作目录建出来，
+                // 否则 ProcessBuilder.directory() 指向不存在的目录会让 shell 直接起不来。
+                if (!cwd.exists()) cwd.mkdirs();
                 builder.directory(cwd);
                 LabRunner.applyEnv(builder.environment(), this, item);
                 builder.environment().put("HOME", cwd.getAbsolutePath());

@@ -167,7 +167,14 @@ public final class LabRunner {
         return runCheck(context, item, check, null);
     }
 
-    /** 通用状态检测：命令有输出即视为真（pgrep/test 这类检测命令都靠退出码/输出表达）。 */
+    /**
+     * 通用状态检测：以命令自身的退出码为准（0 = 真）。
+     *
+     * <p>不能用"有输出即真"——ubuntu 条目的检测命令要包进 proot，proot 一启动就
+     * 自己往 stdout 打东西，会把没装好的条目误判成已装好（状态灯乱跳）。
+     * proot 会透传容器内命令的退出码，所以 pgrep / test -f / command -v 这类
+     * 检测都靠退出码判断即可。
+     */
     public static boolean runCheck(Context context, LabModels.Item item, String checkCommand, Map<String, String> vars) {
         if (item == null || TextUtils.isEmpty(checkCommand)) return false;
         String cmd = expand(context, item, checkCommand, vars);
@@ -178,17 +185,18 @@ public final class LabRunner {
             applyEnv(builder.environment(), context, item);
             process = builder.start();
             java.io.InputStream in = process.getInputStream();
-            byte[] buf = new byte[256];
-            long deadline = System.currentTimeMillis() + 4500;
-            while (System.currentTimeMillis() < deadline) {
-                if (in.available() > 0 && in.read(buf) > 0) return true;
-                if (!process.isAlive()) break;
-                try {
-                    Thread.sleep(100);
-                } catch (InterruptedException ignored) {
+            byte[] buf = new byte[512];
+            long deadline = System.currentTimeMillis() + 8000;
+            // 必须持续排空输出，否则管道塞满后子进程卡住不退出
+            while (!process.waitFor(150, java.util.concurrent.TimeUnit.MILLISECONDS)) {
+                while (in.available() > 0) in.read(buf);
+                if (System.currentTimeMillis() > deadline) {
+                    process.destroy();
+                    return false;
                 }
             }
-            return false;
+            while (in.available() > 0) in.read(buf);
+            return process.exitValue() == 0;
         } catch (Exception e) {
             return false;
         } finally {

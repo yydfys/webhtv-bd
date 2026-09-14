@@ -145,7 +145,9 @@ public class LabDetailActivity extends AppCompatActivity implements LabCommandAd
     }
 
     private void updateButtons() {
-        boolean installed = LabEnv.installed(this, item) || (item.isUbuntu() && item.hasInstall() && installDone);
+        // 安装状态一律以 LabEnv.installed() 为准（ubuntu 看标记 + rootfs 内二进制），
+        // 不再叠加 installDone：那条走 proot 检测，proot 有个风吹草动就会误判成"已装好"。
+        boolean installed = LabEnv.installed(this, item);
         boolean running = anyRunning();
         boolean update = installed && hasNewVersion();
         boolean plainUbuntu = item.isUbuntu() && !item.hasInstall();
@@ -291,12 +293,30 @@ public class LabDetailActivity extends AppCompatActivity implements LabCommandAd
         // install.command 里带 {package_dir} 等占位符，必须先展开再进容器，
         // 否则 touch {package_dir}/.installed 会写成字面路径，安装状态永远点不亮。
         String expanded = LabRunner.expand(this, item, item.install.command, null);
-        String cmd = LabUbuntu.prootCommand(this, expanded);
+        String cmd = LabUbuntu.prootCommand(this, wrapInstall(expanded, LabEnv.packageDir(this, item)));
         if (cmd == null || cmd.isEmpty()) {
             Toast.makeText(this, "proot 未就绪", Toast.LENGTH_SHORT).show();
             return;
         }
         LabTerminalActivity.start(this, item.name + " 安装", item.name, cmd);
+    }
+
+    /**
+     * 给 install.command 套壳：跑完按**真实退出码**决定是否写安装标记，
+     * 并把退出码与标记路径打进终端。
+     *
+     * <p>json 里的 install.command 是 `apt-get ... && touch '{package_dir}/.installed'`
+     * 这种长 && 链，中间任何一步非 0 都会让 touch 永不执行、终端里还看不出失败在哪；
+     * 由引擎按退出码补标记后：装成功一定点得亮，装失败也能一眼看到 exit=。
+     */
+    private String wrapInstall(String command, java.io.File packageDir) {
+        String dir = packageDir.getAbsolutePath().replace("'", "'\\''");
+        return "{ " + command + " ; } ; __lab_ec=$?; "
+                + "echo \"[lab] install exit=$__lab_ec\"; "
+                + "if [ $__lab_ec -eq 0 ]; then mkdir -p '" + dir + "' && "
+                + "touch '" + dir + "/.installed' && echo \"[lab] marker ok: " + dir + "/.installed\"; "
+                + "else echo \"[lab] install failed - marker not written\"; fi; "
+                + "exit $__lab_ec";
     }
 
     private void onContainerUninstall() {
