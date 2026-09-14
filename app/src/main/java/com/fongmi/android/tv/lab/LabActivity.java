@@ -364,6 +364,13 @@ public class LabActivity extends AppCompatActivity implements LabPackageAdapter.
         EditText proxyNoProxy = root.findViewById(R.id.proxyNoProxy);
         View navEntryRow = root.findViewById(R.id.navEntryRow);
         MaterialSwitch navEntry = root.findViewById(R.id.navEntrySwitch);
+        View ubuntuRow = root.findViewById(R.id.ubuntuRow);
+        TextView ubuntuSummary = root.findViewById(R.id.ubuntuSummary);
+        ubuntuSummary.setText(LabUbuntu.summary(this));
+        ubuntuRow.setOnClickListener(v -> {
+            settingsDialog.dismiss();
+            LabUbuntuDialog.show(this);
+        });
         navEntryRow.setVisibility(Util.isMobile() ? View.VISIBLE : View.GONE);
         String[] items = {getString(R.string.lab_source_local), getString(R.string.lab_source_url)};
         dropdown.setAdapter(new ArrayAdapter<>(this, android.R.layout.simple_dropdown_item_1line, items));

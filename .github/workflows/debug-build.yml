@@ -24,7 +24,7 @@ on:
         required: false
         default: ''
   push:
-    branches: [vpn-dev, vpn-mihomo-tun]
+    branches: [vpn-dev, vpn-mihomo-tun, vpn-mihomo-ubuntu]
 
 permissions:
   contents: write

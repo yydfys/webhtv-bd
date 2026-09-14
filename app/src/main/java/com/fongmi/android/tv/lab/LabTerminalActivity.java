@@ -35,6 +35,7 @@ public class LabTerminalActivity extends AppCompatActivity {
 
     private static final String EXTRA_TITLE = "title";
     private static final String EXTRA_PACKAGE = "package";
+    private static final String EXTRA_CMD = "command";
 
     private ActivityLabTerminalBinding mBinding;
     private Process process;
@@ -45,15 +46,26 @@ public class LabTerminalActivity extends AppCompatActivity {
     private final LinkedList<String> history = new LinkedList<>();
     private final ArrayList<String> commandHistory = new ArrayList<>();
     private LabModels.Item item;
+    private String commandLine;
 
     public static void start(Context context, String title) {
         start(context, title, null);
     }
 
     public static void start(Context context, String title, String packageName) {
+        start(context, title, packageName, null);
+    }
+
+    /**
+     * commandLine 非空时用它作为 shell 的启动命令——Ubuntu 子系统靠它把终端
+     * 直接开进 proot 容器（/system/bin/sh -c "proot ... /bin/bash -i"），
+     * 之后用户输入的命令都在容器内的 bash 里执行。
+     */
+    public static void start(Context context, String title, String packageName, String commandLine) {
         Intent intent = new Intent(context, LabTerminalActivity.class);
         intent.putExtra(EXTRA_TITLE, title);
         if (packageName != null) intent.putExtra(EXTRA_PACKAGE, packageName);
+        if (commandLine != null) intent.putExtra(EXTRA_CMD, commandLine);
         context.startActivity(intent);
     }
 
@@ -69,6 +81,7 @@ public class LabTerminalActivity extends AppCompatActivity {
         setContentView(mBinding.getRoot());
         String title = getIntent().getStringExtra(EXTRA_TITLE);
         String packageName = getIntent().getStringExtra(EXTRA_PACKAGE);
+        commandLine = getIntent().getStringExtra(EXTRA_CMD);
         if (!TextUtils.isEmpty(packageName)) {
             LabModels.LabRoot root = LabConfig.get().getLabRoot();
             if (root != null && root.lists != null) {
@@ -263,13 +276,26 @@ public class LabTerminalActivity extends AppCompatActivity {
     private void startShell() {
         if (process != null && process.isAlive()) return;
         try {
-            ProcessBuilder builder = new ProcessBuilder("/system/bin/sh");
+            boolean ubuntu = !TextUtils.isEmpty(commandLine);
+            ProcessBuilder builder = ubuntu
+                    ? new ProcessBuilder("/system/bin/sh", "-c", commandLine)
+                    : new ProcessBuilder("/system/bin/sh");
             builder.redirectErrorStream(true);
             if (item != null) {
                 File cwd = LabEnv.packageRoot(this, item);
                 builder.directory(cwd);
                 LabRunner.applyEnv(builder.environment(), this, item);
                 builder.environment().put("HOME", cwd.getAbsolutePath());
+                builder.environment().put("TERM", "dumb");
+            } else if (ubuntu) {
+                // Ubuntu 终端：proot 是动态链接的，必须带上 loader 与依赖 .so 的搜索路径
+                builder.directory(getFilesDir());
+                builder.environment().putAll(LabEnv.prootEnv(this));
+                String existing = builder.environment().get("LD_LIBRARY_PATH");
+                String prootDir = LabEnv.prootRoot(this).getAbsolutePath();
+                builder.environment().put("LD_LIBRARY_PATH", TextUtils.isEmpty(existing) ? prootDir : existing + ":" + prootDir);
+                builder.environment().put("PATH", LabEnv.sharedBin(this).getAbsolutePath() + ":/system/bin:/system/xbin");
+                builder.environment().put("HOME", getFilesDir().getAbsolutePath());
                 builder.environment().put("TERM", "dumb");
             }
             process = builder.start();

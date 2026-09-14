@@ -92,7 +92,7 @@ public final class LabEnv {
      * 刚解出来的发行版 rootfs 缺 DNS 配置，apt 会以"Temporary failure resolving"之类
      * 难以定位的方式失败，所以这里补上 resolv.conf / hosts，并预建 proot 要绑定的挂载点。
      */
-    private static void prepareRootfs(File rootfs) {
+    static void prepareRootfs(File rootfs) {
         try {
             File etc = new File(rootfs, "etc");
             etc.mkdirs();
@@ -653,11 +653,11 @@ public final class LabEnv {
         return cleaned.isEmpty() ? "archive" : cleaned;
     }
 
-    private static void download(String url, File target) throws IOException {
+    static void download(String url, File target) throws IOException {
         download(url, target, null, null);
     }
 
-    private static void download(String url, File target, InstallCallback callback, String fileName) throws IOException {
+    static void download(String url, File target, InstallCallback callback, String fileName) throws IOException {
         HttpURLConnection conn = (HttpURLConnection) new URL(url).openConnection();
         conn.setConnectTimeout(15000);
         conn.setReadTimeout(120000);
@@ -695,11 +695,11 @@ public final class LabEnv {
         return String.format(Locale.US, "%.1f %s", bytes / Math.pow(1024, idx + 1), units[idx]);
     }
 
-    private static void extract(File archive, File root) throws IOException {
+    static void extract(File archive, File root) throws IOException {
         extract(archive, root, null);
     }
 
-    private static void extract(File archive, File root, ExtractProgress cb) throws IOException {
+    static void extract(File archive, File root, ExtractProgress cb) throws IOException {
         extract(archive, root, null, cb);
     }
 
@@ -707,7 +707,7 @@ public final class LabEnv {
      * @param singleName 裸 gzip（整个包就是一个压缩过的可执行文件，如 mihomo 官方 release）解压后的落地文件名；
      *                   传 null 时回落到压缩包自身的名字。
      */
-    private static void extract(File archive, File root, String singleName, ExtractProgress cb) throws IOException {
+    static void extract(File archive, File root, String singleName, ExtractProgress cb) throws IOException {
         long total = cb != null ? measure(archive) : 0;
         if (tryExtractByMagic(archive, root, singleName, total, cb)) return;
         String name = archive.getName().toLowerCase(Locale.ROOT);
