@@ -13,10 +13,9 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.HttpURLConnection;
+import java.security.MessageDigest;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
-import java.util.ArrayList;
-import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -68,7 +67,7 @@ public final class LabUbuntu {
     private static final String[] RELEASE_DIRS = {"24.04", "26.04"};
     private static final String[] RELEASE_CODENAMES = {"noble", "resolute"};
     private static final String[][] RELEASE_FILES = {
-            {"24.04.4", "24.04.3", "24.04.2", "24.04.1"},
+            {"24.04.5", "24.04.4", "24.04.3", "24.04.2"},
             {"26.04.1", "26.04"},
     };
 
@@ -250,27 +249,113 @@ public final class LabUbuntu {
         return null;
     }
 
+    /** rootfs 下载信息（地址 / 文件名 / 版本 / 校验和）。 */
+    public static class Artifact {
+        public String url = "";
+        public String fileName = "";
+        public String version = "";
+        public String sha256 = "";
+    }
+
     /**
-     * rootfs 下载地址候选列表（按优先级）。
-     * 同一发行版有多个点版本（24.04.4 / 24.04.3 …），各镜像站同步进度不一，
-     * 所以这里给一串候选，安装时逐个探测取第一个真实存在的。
+     * 读发行版目录的 SHA256SUMS，挑出当前架构可用的最新镜像。
+     * 比"猜文件名"可靠：各镜像站点版本同步进度不一（USTC 有 24.04.5 却对 HEAD 回 403），
+     * 只有清单里列出的文件名才是真实存在的。
      */
-    public static List<String> rootfsCandidates(Context context) {
-        List<String> list = new ArrayList<>();
+    private static Artifact parseIndex(String base, String tag) {
+        String text = fetchText(base + "SHA256SUMS");
+        if (TextUtils.isEmpty(text)) return null;
+        String suffix = "-base-" + tag + ".tar.gz";
+        Artifact best = null;
+        for (String line : text.split("\n")) {
+            String trimmed = line.trim();
+            int star = trimmed.indexOf('*');
+            if (star <= 0) continue;
+            String hash = trimmed.substring(0, star).trim();
+            String name = trimmed.substring(star + 1).trim();
+            if (!name.startsWith("ubuntu-base-") || !name.endsWith(suffix)) continue;
+            String version = name.substring("ubuntu-base-".length(), name.length() - suffix.length());
+            if (!version.matches("[0-9]+(\\.[0-9]+)*")) continue;
+            if (best != null && LabEnv.compareVersions(version, best.version) <= 0) continue;
+            Artifact artifact = new Artifact();
+            artifact.url = base + name;
+            artifact.fileName = name;
+            artifact.version = version;
+            artifact.sha256 = hash;
+            best = artifact;
+        }
+        return best;
+    }
+
+    /** 候选地址探测：按候选版本顺序找到第一个真实可下载的。 */
+    private static Artifact probe(Context context, String tag) {
         int source = getRootfsSource(context);
         if (source == SRC_CUSTOM) {
-            String custom = getRootfsCustomUrl(context);
-            if (!TextUtils.isEmpty(custom)) list.add(custom);
-            return list;
+            Artifact artifact = new Artifact();
+            artifact.url = getRootfsCustomUrl(context);
+            artifact.fileName = fileName(artifact.url);
+            artifact.version = versionFromUrl(artifact.url);
+            return TextUtils.isEmpty(artifact.url) ? null : artifact;
         }
-        String tag = archTag();
-        if (tag == null) return list;
         int release = getRelease(context);
+        String base = ROOTFS_MIRRORS[source] + RELEASE_DIRS[release] + "/release/";
         for (String version : RELEASE_FILES[release]) {
-            list.add(ROOTFS_MIRRORS[source] + RELEASE_DIRS[release] + "/release/"
-                    + "ubuntu-base-" + version + "-base-" + tag + ".tar.gz");
+            String url = base + "ubuntu-base-" + version + "-base-" + tag + ".tar.gz";
+            if (reachable(url)) {
+                Artifact artifact = new Artifact();
+                artifact.url = url;
+                artifact.fileName = fileName(url);
+                artifact.version = version;
+                return artifact;
+            }
         }
-        return list;
+        return null;
+    }
+
+    /** 解析下载信息：先看目录清单（顺带拿到最新点版本与校验和），失败退回候选探测。 */
+    private static Artifact resolveArtifact(Context context, String tag) {
+        int source = getRootfsSource(context);
+        int release = getRelease(context);
+        if (source != SRC_CUSTOM) {
+            Artifact fromIndex = parseIndex(ROOTFS_MIRRORS[source] + RELEASE_DIRS[release] + "/release/", tag);
+            if (fromIndex != null) return fromIndex;
+        }
+        Artifact probed = probe(context, tag);
+        if (probed != null) return probed;
+        Artifact fallback = new Artifact();
+        fallback.version = RELEASE_FILES[release][0];
+        fallback.fileName = "ubuntu-base-" + fallback.version + "-base-" + tag + ".tar.gz";
+        fallback.url = (source == SRC_CUSTOM
+                ? getRootfsCustomUrl(context)
+                : ROOTFS_MIRRORS[source] + RELEASE_DIRS[release] + "/release/") + fallback.fileName;
+        return fallback;
+    }
+
+    /** 取小文本（限长，防止异常大文件拖垮内存）。 */
+    private static String fetchText(String url) {
+        HttpURLConnection conn = null;
+        try {
+            conn = (HttpURLConnection) new URL(url).openConnection();
+            conn.setConnectTimeout(10000);
+            conn.setReadTimeout(15000);
+            conn.setInstanceFollowRedirects(true);
+            conn.setRequestProperty("User-Agent", "WebHTV-Lab");
+            if (conn.getResponseCode() != 200) return "";
+            StringBuilder sb = new StringBuilder();
+            try (InputStream in = conn.getInputStream()) {
+                byte[] buffer = new byte[8192];
+                int read;
+                while ((read = in.read(buffer)) != -1) {
+                    sb.append(new String(buffer, 0, read, StandardCharsets.UTF_8));
+                    if (sb.length() > 262144) break;
+                }
+            }
+            return sb.toString();
+        } catch (Exception e) {
+            return "";
+        } finally {
+            if (conn != null) conn.disconnect();
+        }
     }
 
     /** apt 源地址（自定义源时用用户填的 URL）。 */
@@ -283,25 +368,21 @@ public final class LabUbuntu {
         return APT_MIRRORS[source];
     }
 
-    /** 探测候选里第一个可达的下载地址；全部不可达时返回首个候选交给下载阶段报错。 */
-    private static String pickUrl(List<String> candidates) {
-        if (candidates.isEmpty()) return "";
-        for (String url : candidates) {
-            if (reachable(url)) return url;
-        }
-        return candidates.get(0);
-    }
-
+    /**
+     * 轻量可达性探测：Range 只取 1 字节。
+     * 不用 HEAD——部分镜像站（如 USTC）对 HEAD 直接回 403，会把存在的文件误判成缺失。
+     */
     private static boolean reachable(String url) {
         HttpURLConnection conn = null;
         try {
             conn = (HttpURLConnection) new URL(url).openConnection();
-            conn.setRequestMethod("HEAD");
             conn.setConnectTimeout(10000);
             conn.setReadTimeout(10000);
             conn.setInstanceFollowRedirects(true);
             conn.setRequestProperty("User-Agent", "WebHTV-Lab");
-            return conn.getResponseCode() == 200 && conn.getContentLengthLong() > 0;
+            conn.setRequestProperty("Range", "bytes=0-0");
+            int code = conn.getResponseCode();
+            return code == 200 || code == 206;
         } catch (Exception e) {
             return false;
         } finally {
@@ -331,8 +412,9 @@ public final class LabUbuntu {
                 String tag = archTag();
                 if (tag == null) throw new IOException("当前设备架构不支持 Ubuntu 运行环境");
                 if (callback != null) App.post(() -> callback.onProgress("正在准备 ..."));
-                String url = pickUrl(rootfsCandidates(app));
-                if (TextUtils.isEmpty(url)) throw new IOException("没有可用的 rootfs 下载地址");
+                Artifact artifact = resolveArtifact(app, tag);
+                if (artifact == null || TextUtils.isEmpty(artifact.url)) throw new IOException("没有可用的 rootfs 下载地址");
+                String url = artifact.url;
 
                 deleteQuietly(backup);
                 if (rootfs.exists() && !rootfs.renameTo(backup)) {
@@ -345,7 +427,10 @@ public final class LabUbuntu {
                     if (callback != null) App.post(() -> callback.onProgress("正在下载 Ubuntu Base ..."));
                     File archive = new File(app.getCacheDir(), "ubuntu-base-" + tag + ".tar.gz");
                     deleteQuietly(archive);
-                    LabEnv.download(url, archive, callback, fileName(url));
+                    LabEnv.download(url, archive, callback, artifact.fileName);
+                    if (!TextUtils.isEmpty(artifact.sha256) && !artifact.sha256.equalsIgnoreCase(sha256(archive))) {
+                        if (callback != null) App.post(() -> callback.onProgress("校验值不一致（镜像可能尚未同步），继续安装 ..."));
+                    }
 
                     if (callback != null) App.post(() -> callback.onProgress("正在解压 ..."));
                     LabEnv.extract(archive, rootfs, null, (done, total) -> {
@@ -360,7 +445,7 @@ public final class LabUbuntu {
 
                     Meta meta = new Meta();
                     meta.release = RELEASE_DIRS[getRelease(app)];
-                    meta.version = versionFromUrl(url);
+                    meta.version = artifact.version;
                     meta.source = getRootfsSource(app);
                     meta.url = url;
                     meta.aptSource = getAptSource(app);
@@ -528,6 +613,20 @@ public final class LabUbuntu {
             }
             file.delete();
         } catch (Exception ignored) {
+        }
+    }
+
+    private static String sha256(File file) {
+        try (InputStream in = new FileInputStream(file)) {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            byte[] buffer = new byte[65536];
+            int read;
+            while ((read = in.read(buffer)) != -1) digest.update(buffer, 0, read);
+            StringBuilder sb = new StringBuilder();
+            for (byte value : digest.digest()) sb.append(String.format(Locale.US, "%02x", value));
+            return sb.toString();
+        } catch (Exception e) {
+            return "";
         }
     }
 

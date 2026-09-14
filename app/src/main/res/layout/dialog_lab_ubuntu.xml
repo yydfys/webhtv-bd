@@ -226,6 +226,6 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="12dp"
-            android:text="Rootfs 与已安装软件位于应用私有目录，卸载应用即清除；手机共享存储与 lab 配置不受影响。"/>
+            android:text="Rootfs 与已安装软件位于应用私有目录，卸载应用即清除；手机共享存储与 lab 配置不受影响。\n文件管理器「添加本地存储」中选择「Ubuntu 虚拟存储」，即可直接管理 Rootfs 内文件。"/>
     </androidx.appcompat.widget.LinearLayoutCompat>
 </ScrollView>

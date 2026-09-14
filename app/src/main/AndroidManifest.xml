@@ -96,6 +96,17 @@
                 android:value="androidx.startup" />
         </provider>
 
+        <provider
+            android:name=".lab.UbuntuDocumentsProvider"
+            android:authorities="${applicationId}.ubuntu.documents"
+            android:exported="true"
+            android:grantUriPermissions="true"
+            android:permission="android.permission.MANAGE_DOCUMENTS">
+            <intent-filter>
+                <action android:name="android.content.action.DOCUMENTS_PROVIDER" />
+            </intent-filter>
+        </provider>
+
         <activity
             android:name=".ui.activity.CrashActivity"
             android:process=":error_activity"
