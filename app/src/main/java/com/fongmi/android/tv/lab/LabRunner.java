@@ -526,6 +526,7 @@ public final class LabRunner {
                 .replace("{dataPath}", new File(packageDir, "data").getAbsolutePath())
                 .replace("{cachePath}", context.getCacheDir().getAbsolutePath())
                 .replace("{envRootPath}", packageDir.getAbsolutePath())
+                .replace("{package_dir}", LabEnv.packageDir(context, item).getAbsolutePath())
                 .replace("{wwwroot}", new File(LabEnv.localRoot(), "wwwroot").getAbsolutePath())
                 .replace("{sdcard}", "/storage/emulated/0");
     }
