@@ -67,6 +67,10 @@ public final class LabPackageAdapter extends RecyclerView.Adapter<LabPackageAdap
         if (!item.available) {
             holder.status.setText("未上线");
             holder.status.setBackgroundResource(R.drawable.shape_lab_unavailable);
+        } else if (item.terminal_auto_open) {
+            // 终端类条目不需要装环境，别打「未安装」误导（点了直接进容器终端）
+            holder.status.setText("终端");
+            holder.status.setBackgroundResource(R.drawable.shape_lab_installed);
         } else if (running) {
             holder.status.setText(R.string.lab_running);
             holder.status.setBackgroundResource(R.drawable.shape_lab_running_tag);
