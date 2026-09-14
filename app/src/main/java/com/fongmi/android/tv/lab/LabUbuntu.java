@@ -561,15 +561,32 @@ public final class LabUbuntu {
         File proot = LabEnv.ensureProot(context);
         if (proot == null) return null;
         if (TextUtils.isEmpty(inner)) inner = "/bin/bash -l";
+        File rootfs = rootfsDir(context);
+        // bind 目标必须在 rootfs 内已存在，否则 proot 直接起不来 → 命令全失败
+        LabEnv.ensureBindTargets(context, rootfs);
         StringBuilder sb = new StringBuilder();
         sb.append(quote(proot.getAbsolutePath()));
         sb.append(" -0 --link2symlink --kill-on-exit");
-        sb.append(" -r ").append(quote(rootfsDir(context).getAbsolutePath()));
-        sb.append(" -b /dev -b /proc -b /sys -b /tmp -b /dev/urandom:/dev/random");
+        sb.append(" -r ").append(quote(rootfs.getAbsolutePath()));
+        // 内核挂载点用宿主原样的 /dev /proc /sys。
+        // 注意：**不绑 /tmp**——Android 上没有宿主 /tmp，绑一个不存在的目录会让 proot 起不来，
+        // 容器内 /tmp 用 rootfs 自己的（init 时建好并置 1777），临时目录由 PROOT_TMP_DIR/TMPDIR 指到私目录。
+        sb.append(" -b /dev -b /proc -b /sys -b /dev/urandom:/dev/random");
+        // 私目录同路径绑定：json 里的 {files_dir} / {package_dir} 这类宿主绝对路径，容器内外指向同一份数据
+        // （VodPlus 同款做法：filesDir 与 lab 目录都按原路径挂进去，安装标记两边都看得见）
+        for (String dir : new String[]{context.getFilesDir().getAbsolutePath(),
+                context.getCacheDir().getAbsolutePath(),
+                LabEnv.localRoot().getAbsolutePath()}) {
+            if (!TextUtils.isEmpty(dir)) {
+                sb.append(" -b ").append(quote(dir)).append(":").append(quote(dir));
+            }
+        }
         String external = externalStorage();
         if (external != null) {
             // 同路径绑定：lab.json 里写死的 /storage/emulated/0/... 在容器内按原路径可直接用
             sb.append(" -b ").append(quote(external)).append(":").append(quote(external));
+            // lab 根目录（存放 lab.json / 各条目目录）在容器内同时可见为 /lab，兼容 json 里的 /lab/... 写法
+            sb.append(" -b ").append(quote(LabEnv.localRoot().getAbsolutePath())).append(":/lab");
             if (getSharedStorage(context)) {
                 sb.append(" -b ").append(quote(external)).append(":/sdcard");
             }

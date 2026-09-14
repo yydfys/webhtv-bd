@@ -150,19 +150,27 @@ public class LabDetailActivity extends AppCompatActivity implements LabCommandAd
         boolean installed = LabEnv.installed(this, item);
         boolean running = anyRunning();
         boolean update = installed && hasNewVersion();
-        boolean plainUbuntu = item.isUbuntu() && !item.hasInstall();
-        mBinding.btnDownload.setText(item.isUbuntu() ? "安装环境" : (update ? "更新" : "下载安装"));
+        // 只有"需要安装"的条目才谈安装状态；纯命令条目（终端/二进制/直跑）不显示未安装
+        boolean needsInstall = LabEnv.needsInstall(item);
+        boolean plainUbuntu = !needsInstall;
+        mBinding.btnDownload.setText(item.isUbuntu() && needsInstall ? "安装环境" : (update ? "更新" : "下载安装"));
         mBinding.btnDownload.setVisibility(plainUbuntu || (installed && !update) ? View.GONE : View.VISIBLE);
-        mBinding.btnUninstall.setVisibility(installed && !plainUbuntu ? View.VISIBLE : View.GONE);
+        mBinding.btnUninstall.setVisibility(installed && needsInstall ? View.VISIBLE : View.GONE);
         if (running) {
             mBinding.status.setText(R.string.lab_running);
             mBinding.status.setBackgroundResource(R.drawable.shape_lab_running_tag);
+            mBinding.status.setVisibility(View.VISIBLE);
+        } else if (!needsInstall) {
+            // 无需安装的条目：状态位对用户没有意义，直接收起
+            mBinding.status.setVisibility(View.GONE);
         } else if (installed) {
             mBinding.status.setText(R.string.lab_installed);
             mBinding.status.setBackgroundResource(R.drawable.shape_lab_installed);
+            mBinding.status.setVisibility(View.VISIBLE);
         } else {
             mBinding.status.setText(R.string.lab_not_installed);
             mBinding.status.setBackgroundResource(R.drawable.shape_lab_not_installed);
+            mBinding.status.setVisibility(View.VISIBLE);
         }
         commandAdapter.notifyDataSetChanged();
     }
@@ -415,7 +423,7 @@ public class LabDetailActivity extends AppCompatActivity implements LabCommandAd
     }
 
     private void exportPackage() {
-        if (!LabEnv.installed(this, item)) {
+        if (LabEnv.needsInstall(item) && !LabEnv.installed(this, item)) {
             Toast.makeText(this, "该包尚未安装", Toast.LENGTH_SHORT).show();
             return;
         }

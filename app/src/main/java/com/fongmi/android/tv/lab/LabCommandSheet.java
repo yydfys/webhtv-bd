@@ -305,7 +305,7 @@ public final class LabCommandSheet implements LabRunner.OutputListener {
             syncRunning();
             return;
         }
-        if (!LabEnv.installed(activity, item)) {
+        if (!LabEnv.ready(activity, item)) {
             Toast.makeText(activity, "请先安装 " + item.name, Toast.LENGTH_SHORT).show();
             return;
         }
@@ -414,10 +414,10 @@ public final class LabCommandSheet implements LabRunner.OutputListener {
         sheetBtnRun.setVisibility(running ? View.GONE : View.VISIBLE);
         sheetBtnStop.setVisibility(running ? View.VISIBLE : View.GONE);
         sheetBtnOutput.setVisibility(running ? View.VISIBLE : View.GONE);
-        boolean installed = LabEnv.installed(activity, item);
+        boolean ready = LabEnv.ready(activity, item);
         boolean supported = command.isSupported(LabEnv.appVersionCode(activity));
-        sheetBtnRun.setEnabled(installed && supported);
-        sheetBtnRun.setAlpha(installed && supported ? 1.0f : 0.5f);
+        sheetBtnRun.setEnabled(ready && supported);
+        sheetBtnRun.setAlpha(ready && supported ? 1.0f : 0.5f);
     }
 
     private void saveCached() {

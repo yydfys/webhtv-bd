@@ -104,10 +104,48 @@ public final class LabEnv {
             if (!hosts.exists() || hosts.length() == 0) {
                 writeSmall(hosts, "127.0.0.1 localhost\n::1 localhost\n");
             }
-            for (String dir : new String[]{"dev", "proc", "sys", "root", "tmp"}) {
+            for (String dir : new String[]{"dev", "proc", "sys", "root", "tmp", "run", "var/tmp"}) {
                 new File(rootfs, dir).mkdirs();
             }
+            // /tmp 必须是 1777：apt / dpkg / debconf 都靠它放锁文件和临时脚本
+            chmodMode(new File(rootfs, "tmp"), 01777);
+            chmodMode(new File(rootfs, "var/tmp"), 01777);
         } catch (Exception ignored) {
+        }
+    }
+
+    /** 把 rootfs 内某个目录设成指定权限（proot 内 uid0，宿主侧就是 app 自己，能改）。 */
+    static void chmodMode(File file, int mode) {
+        try {
+            if (file.exists()) android.system.Os.chmod(file.getAbsolutePath(), mode);
+        } catch (Exception ignored) {
+        }
+    }
+
+    /**
+     * proot 的 bind 要求容器内目标目录**已存在**，否则 proot 直接报错起不来。
+     * 这里把同路径绑定的目标（私目录 / lab 目录 / 共享存储）在 rootfs 里预先建好。
+     */
+    public static void ensureBindTargets(Context context, File rootfs) {
+        java.util.List<String> paths = new java.util.ArrayList<>();
+        try {
+            paths.add(context.getFilesDir().getAbsolutePath());
+            paths.add(context.getCacheDir().getAbsolutePath());
+            paths.add(localRoot().getAbsolutePath());
+            File external = android.os.Environment.getExternalStorageDirectory();
+            if (external != null) {
+                paths.add(external.getAbsolutePath());
+                paths.add("/sdcard");
+            }
+            paths.add("/lab");
+        } catch (Exception ignored) {
+        }
+        for (String path : paths) {
+            if (TextUtils.isEmpty(path) || !path.startsWith("/")) continue;
+            try {
+                new File(rootfs, path).mkdirs();
+            } catch (Exception ignored) {
+            }
         }
     }
 
@@ -154,7 +192,15 @@ public final class LabEnv {
         env.put("PROOT_LOADER", new File(dir, "loader").getAbsolutePath());
         File loader32 = new File(dir, "loader32");
         if (loader32.exists()) env.put("PROOT_LOADER_32", loader32.getAbsolutePath());
-        env.put("PROOT_TMP_DIR", context.getCacheDir().getAbsolutePath());
+        // proot 自己的临时目录：放私目录里（cache 可能被系统清掉，清掉后 proot 起不来）
+        File tmp = new File(context.getFilesDir(), "lab/tmp");
+        try {
+            tmp.mkdirs();
+        } catch (Exception ignored) {
+        }
+        String tmpPath = tmp.isDirectory() ? tmp.getAbsolutePath() : context.getCacheDir().getAbsolutePath();
+        env.put("PROOT_TMP_DIR", tmpPath);
+        env.put("TMPDIR", tmpPath);
         return env;
     }
 
@@ -281,6 +327,24 @@ public final class LabEnv {
         if (Boolean.TRUE.equals(item.rootfs)) return true;
         String name = item.name == null ? "" : item.name.toLowerCase(Locale.ROOT);
         return name.equals("ubuntu") || name.startsWith("ubuntu-") || name.startsWith("ubuntu_");
+    }
+
+    /**
+     * 这个条目是否"必须先装"（装了才有命令可跑）。
+     *
+     * <p>只有 rootfs 包、带 install 脚本的条目、显式 install_required 的条目才需要；
+     * 纯命令条目（终端 / 二进制 / 直跑脚本）没有"未安装"这个概念——以前一刀切用
+     * {@code installed()} 当门槛，导致这些条目运行按钮永远是灰的。
+     */
+    public static boolean needsInstall(LabModels.Item item) {
+        if (item == null) return false;
+        if (item.install_required) return true;
+        return item.hasInstall() || isRootfs(item);
+    }
+
+    /** 能不能跑：需要安装的看安装状态，不需要安装的直接放行。 */
+    public static boolean ready(Context context, LabModels.Item item) {
+        return !needsInstall(item) || installed(context, item);
     }
 
     public static boolean installed(Context context, LabModels.Item item) {
