@@ -78,6 +78,13 @@ public class LabOutputActivity extends AppCompatActivity implements LabTerminalP
         mBinding.btnClose.setOnClickListener(v -> finish());
         mBinding.btnStop.setOnClickListener(v -> stop());
         mBinding.btnSend.setOnClickListener(v -> sendInput());
+        // 「清除当前日志」：清屏 + 清掉本命令的内存/落盘日志，窗口重开不再回放旧日志
+        mBinding.btnClear.setOnClickListener(v -> {
+            LabRunner.clearLog(key());
+            mBinding.outputText.setText("");
+            updateTitle();
+            Toast.makeText(this, "已清除当前日志", Toast.LENGTH_SHORT).show();
+        });
         // 两个显示开关（照 VodPlus 终端）：自动滚动 / 自动换行；状态全局共享，多窗口实时同步
         mBinding.btnAutoScroll.setOnClickListener(v -> {
             boolean next = !LabTerminalPrefs.autoScroll();

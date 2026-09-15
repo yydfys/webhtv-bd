@@ -108,6 +108,7 @@ public class LabTerminalActivity extends AppCompatActivity implements LabTermina
             historyIndex = -1;
             mBinding.termOutput.setText("");
             renderHistory();
+            Toast.makeText(this, "已清除终端日志", Toast.LENGTH_SHORT).show();
         });
         // 两个显示开关（照 VodPlus 终端）：自动滚动 / 自动换行。状态全局共享，多窗口实时同步。
         mBinding.btnAutoScroll.setOnClickListener(v -> {
@@ -145,7 +146,18 @@ public class LabTerminalActivity extends AppCompatActivity implements LabTermina
         });
         buildShortcuts();
         append("实验室终端（交互式 shell）\n输入命令后回车执行，例如: ls、echo hello、apt update\n\n");
+        // 自动执行模式（安装/卸载等）：把要跑的命令先回显出来，
+        // 否则跑完只剩一句"shell 已退出"，用户根本看不出到底跑没跑、跑了什么。
+        if (!TextUtils.isEmpty(commandLine)) {
+            append("$ " + summarize(commandLine) + "\n\n");
+        }
         startShell();
+    }
+
+    /** 回显用：命令太长（proot 一整套参数）就截断，避免刷满整屏。 */
+    private String summarize(String command) {
+        String one = command.replace('\n', ' ');
+        return one.length() > 400 ? one.substring(0, 400) + " …" : one;
     }
 
     private void buildShortcuts() {
@@ -332,7 +344,14 @@ public class LabTerminalActivity extends AppCompatActivity implements LabTermina
                     }
                 } catch (Exception ignored) {
                 }
-                if (!stopped) append("\n[shell 已退出，输入命令可重启]\n");
+                if (!stopped) {
+                    int code = -1;
+                    try {
+                        if (process != null) code = process.exitValue();
+                    } catch (Exception ignored) {
+                    }
+                    append("\n[已退出 code=" + code + "，输入命令可重启]\n");
+                }
             }).start();
         } catch (Exception e) {
             append("启动 shell 失败: " + e.getMessage() + "\n");

@@ -149,8 +149,19 @@ public final class LabRunner {
         return "";
     }
 
+    /**
+     * 清除某条命令的日志：内存缓冲 + 落盘日志文件一起清，
+     * 否则窗口重开时会从日志文件回放出刚被清掉的旧日志。
+     */
     public static void clearLog(String key) {
         LOGS.remove(key);
+        File file = LabProcManager.logFor(key);
+        if (file != null && file.exists()) {
+            try (java.io.FileOutputStream ignored = new java.io.FileOutputStream(file, false)) {
+                // 截断即可（进程若仍在跑，后续输出继续往同一个 fd 里写）
+            } catch (Exception ignored) {
+            }
+        }
     }
 
     public static Process getProcess(String key) {

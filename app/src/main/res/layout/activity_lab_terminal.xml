@@ -58,8 +58,8 @@
             android:layout_width="32dp"
             android:layout_height="32dp"
             android:src="@drawable/ic_action_delete"
-            android:contentDescription="清屏"
-            app:tint="#666666"/>
+            android:contentDescription="清除终端日志"
+            app:tint="#FF8A65"/>
     </LinearLayout>
     <ScrollView
         android:id="@+id/termScroll"

@@ -58,6 +58,16 @@
             android:contentDescription="自动换行已开启"
             app:tint="#FF8A65" />
 
+        <ImageView
+            android:id="@+id/btnClear"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:padding="5dp"
+            android:layout_width="32dp"
+            android:layout_height="32dp"
+            android:src="@drawable/ic_action_delete"
+            android:contentDescription="清除当前日志"
+            app:tint="#FF8A65" />
+
         <TextView
             android:textSize="13sp"
             android:textColor="@color/white"

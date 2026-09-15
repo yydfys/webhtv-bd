@@ -301,7 +301,7 @@ public class LabDetailActivity extends AppCompatActivity implements LabCommandAd
         // install.command 里带 {package_dir} 等占位符，必须先展开再进容器，
         // 否则 touch {package_dir}/.installed 会写成字面路径，安装状态永远点不亮。
         String expanded = LabRunner.expand(this, item, item.install.command, null);
-        String cmd = LabUbuntu.prootCommand(this, wrapInstall(expanded, LabEnv.packageDir(this, item)));
+        String cmd = LabUbuntu.prootCommand(this, wrapInstall(item, expanded, LabEnv.packageDir(this, item)));
         if (cmd == null || cmd.isEmpty()) {
             Toast.makeText(this, "proot 未就绪", Toast.LENGTH_SHORT).show();
             return;
@@ -310,35 +310,100 @@ public class LabDetailActivity extends AppCompatActivity implements LabCommandAd
     }
 
     /**
-     * 给 install.command 套壳：跑完按**真实退出码**决定是否写安装标记，
-     * 并把退出码与标记路径打进终端。
+     * 给 install.command 套壳：分三段跑，每段都打进终端（谁在干什么一眼看清）。
+     *
+     * <p>1/3 清 apt/dpkg 残留锁；2/3 有中断残留就修（先 dpkg -f install，修不动才清**本环境自己**的包）；
+     * 3/3 安装。跑完按**真实退出码**决定是否写安装标记，退出码与标记路径都打出来。
      *
      * <p>json 里的 install.command 是 `apt-get ... && touch '{package_dir}/.installed'`
-     * 这种长 && 链，中间任何一步非 0 都会让 touch 永不执行、终端里还看不出失败在哪；
-     * 由引擎按退出码补标记后：装成功一定点得亮，装失败也能一眼看到 exit=。
+     * 这种长 && 链，中间任何一步非 0 都会让 touch 永不执行、终端里还看不出失败在哪。
      */
-    private String wrapInstall(String command, java.io.File packageDir) {
+    private String wrapInstall(LabModels.Item item, String command, java.io.File packageDir) {
         String dir = packageDir.getAbsolutePath().replace("'", "'\\''");
-        // 上一次 apt/dpkg 被中断（装到一半被杀、app 被系统回收）会在 rootfs 里留下
-        // half-configured 状态与残留锁，报 `E: dpkg was interrupted, you must manually run
-        // 'dpkg --configure -a'`，之后所有安装全被挡住 → 每次安装前先清锁 + 修 dpkg 状态（幂等）。
-        String repair = "for __lab_lock in /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock "
-                + "/var/cache/apt/archives/lock; do [ -e \"$__lab_lock\" ] && rm -f \"$__lab_lock\"; done; "
-                + "dpkg --configure -a >/dev/null 2>&1; ";
-        return repair + "{ " + command + " ; } ; __lab_ec=$?; "
-                + "echo \"[lab] install exit=$__lab_ec\"; "
-                + "if [ $__lab_ec -eq 0 ]; then mkdir -p '" + dir + "' && "
-                + "touch '" + dir + "/.installed' && echo \"[lab] marker ok: " + dir + "/.installed\"; "
-                + "else echo \"[lab] install failed - marker not written\"; fi; "
-                + "exit $__lab_ec";
+        String name = item == null || item.name == null ? "env" : item.name;
+        String reset = item != null && item.install != null && item.install.hasReset()
+                ? LabRunner.expand(this, item, item.install.reset_command, null) : "";
+        StringBuilder sb = new StringBuilder();
+        sb.append("export DEBIAN_FRONTEND=noninteractive; ");
+        sb.append("echo \"[lab] ===== ").append(name).append(" 安装（独立终端） =====\"; ");
+        sb.append(LOCK_CLEANUP);
+        sb.append("echo \"[lab] 1/3 残留锁已清；2/3 检查上次中断残留\"; ");
+        sb.append("if ! apt-get check >/dev/null 2>&1 || [ -n \"$(dpkg --audit 2>/dev/null)\" ]; then ");
+        sb.append("echo \"[lab] 检测到 dpkg 残留，先修复（可能顺带处理其它环境遗留的半装包，三个环境共用同一套 apt/dpkg 库，属正常）...\"; ");
+        sb.append("dpkg --configure -a; apt-get -f install -y; ");
+        if (reset.isEmpty()) {
+            sb.append("echo \"[lab] 残留处理完毕\"; ");
+        } else {
+            sb.append("if [ -n \"$(dpkg --audit 2>/dev/null)\" ]; then ");
+            sb.append("echo \"[lab] 残留仍未清干净，先卸载本环境自己的包再重装...\"; { ").append(reset).append(" ; } ; ");
+            sb.append("else echo \"[lab] 残留已修复\"; fi; ");
+        }
+        sb.append("else echo \"[lab] 无残留，直接安装\"; fi; ");
+        sb.append("echo \"[lab] 3/3 安装 ").append(name).append("\"; ");
+        sb.append("{ ").append(command).append(" ; } ; __lab_ec=$?; ");
+        sb.append("echo \"[lab] install exit=$__lab_ec\"; ");
+        sb.append("if [ $__lab_ec -eq 0 ]; then mkdir -p '").append(dir).append("' && touch '").append(dir)
+                .append("/.installed' && echo \"[lab] 标记已写入: ").append(dir).append("/.installed\"; ");
+        sb.append("else echo \"[lab] 安装失败（exit=$__lab_ec），未写标记\"; fi; ");
+        sb.append("exit $__lab_ec");
+        return sb.toString();
     }
 
+    /** 清掉 apt/dpkg 的几把残留锁（上次装到一半被杀留下的锁会挡住后面所有安装，幂等）。 */
+    private static final String LOCK_CLEANUP =
+            "for __lab_lock in /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock "
+                    + "/var/lib/apt/lists/lock /var/cache/apt/archives/lock; do "
+                    + "[ -e \"$__lab_lock\" ] && rm -f \"$__lab_lock\"; done; ";
+
     private void onContainerUninstall() {
-        if (item.install == null || !item.install.hasUninstall()) return;
+        if (item.install == null || !item.install.hasUninstall()) {
+            Toast.makeText(this, "该条目没有配置卸载命令", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        new MaterialAlertDialogBuilder(this, R.style.Theme_App_Lab_Dialog)
+                .setTitle("卸载 " + item.name)
+                .setMessage("将从 Ubuntu 环境里【真实卸载】 " + item.name + " 本体（apt purge 本环境自己的包），"
+                        + "并先停掉它所有运行中的命令。\n共用目录（如 wwwroot）与其它环境不受影响。")
+                .setNegativeButton(android.R.string.cancel, null)
+                .setPositiveButton("卸载", (d, w) -> runContainerUninstall())
+                .show();
+    }
+
+    private void runContainerUninstall() {
+        // 卸载前先停掉该条目所有运行中的命令（否则 php -S / node 这些还在占用文件与端口）
+        LabActions.stopItem(item);
         String expanded = LabRunner.expand(this, item, item.install.uninstall_command, null);
-        String cmd = LabUbuntu.prootCommand(this, expanded);
-        if (cmd == null || cmd.isEmpty()) return;
+        String cmd = LabUbuntu.prootCommand(this, wrapUninstall(item, expanded, LabEnv.packageDir(this, item)));
+        if (cmd == null || cmd.isEmpty()) {
+            Toast.makeText(this, "proot 未就绪", Toast.LENGTH_SHORT).show();
+            return;
+        }
         LabTerminalActivity.start(this, item.name + " 卸载", item.name, cmd);
+    }
+
+    /**
+     * 给 uninstall_command 套壳：清锁 → 修 dpkg 残留 → **真卸本体** → 打退出码。
+     * 退出码为 0 时由引擎兜底再删一次安装标记（json 里删过也无害，幂等）。
+     */
+    private String wrapUninstall(LabModels.Item item, String command, java.io.File packageDir) {
+        String dir = packageDir.getAbsolutePath().replace("'", "'\\''");
+        String name = item == null || item.name == null ? "env" : item.name;
+        StringBuilder sb = new StringBuilder();
+        sb.append("export DEBIAN_FRONTEND=noninteractive; ");
+        sb.append("echo \"[lab] ===== ").append(name).append(" 卸载（独立终端） =====\"; ");
+        sb.append(LOCK_CLEANUP);
+        sb.append("echo \"[lab] 1/3 残留锁已清；2/3 修复 dpkg 残留（有才修）\"; ");
+        sb.append("if ! apt-get check >/dev/null 2>&1 || [ -n \"$(dpkg --audit 2>/dev/null)\" ]; then ");
+        sb.append("dpkg --configure -a >/dev/null 2>&1; apt-get -f install -y >/dev/null 2>&1; echo \"[lab] 已修复\"; ");
+        sb.append("else echo \"[lab] 无残留\"; fi; ");
+        sb.append("echo \"[lab] 3/3 卸载 ").append(name).append(" 环境本体\"; ");
+        sb.append("{ ").append(command).append(" ; } ; __lab_ec=$?; ");
+        sb.append("echo \"[lab] uninstall exit=$__lab_ec\"; ");
+        sb.append("if [ $__lab_ec -eq 0 ]; then rm -f '").append(dir)
+                .append("/.installed' && echo \"[lab] 标记已移除: ").append(dir).append("/.installed\"; ");
+        sb.append("else echo \"[lab] 卸载未完成（exit=$__lab_ec），安装标记保留\"; fi; ");
+        sb.append("exit $__lab_ec");
+        return sb.toString();
     }
 
     private void onRefreshCommands() {

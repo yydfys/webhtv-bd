@@ -85,6 +85,11 @@ public final class LabModels {
         public String check_command;
         public String command;
         public String uninstall_command;
+        /**
+         * 本环境自己的重置脚本：上次安装被中断（半装/坏包）导致再怎么装都失败时，
+         * 引擎在安装前用它把**本环境自己的包**清干净再重装——只清自己，不碰别的环境。
+         */
+        public String reset_command;
         /** terminal = 在容器终端里跑（能看 apt 输出）。 */
         public String mode;
 
@@ -94,6 +99,10 @@ public final class LabModels {
 
         public boolean hasUninstall() {
             return uninstall_command != null && !uninstall_command.isEmpty();
+        }
+
+        public boolean hasReset() {
+            return reset_command != null && !reset_command.isEmpty();
         }
     }
 
