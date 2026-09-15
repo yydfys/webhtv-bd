@@ -37,9 +37,31 @@ public final class LabProxy {
 
     /** 本条命令实际生效的代理地址；返回 "" 表示直连（需要显式清空 env）。 */
     public static String resolve(Map<String, String> vars) {
+        // 条目变量显式写了 direct/none/直连 → 该命令强制直连，盖过全局开关
+        if (hasDirectToken(vars)) return "";
         String fromItem = fromVars(vars);
         if (!TextUtils.isEmpty(fromItem)) return fromItem;
         return fromGlobal();
+    }
+
+    /**
+     * 命令变量里显式要求直连的写法：{@code direct} / {@code none} / {@code off} / {@code 直连}。
+     * 给"全局开关开着、但某条命令想直连"的场景留一个口子。
+     */
+    public static boolean hasDirectToken(Map<String, String> vars) {
+        if (vars == null || vars.isEmpty()) return false;
+        for (Map.Entry<String, String> entry : vars.entrySet()) {
+            String key = entry.getKey() == null ? "" : entry.getKey().toLowerCase(Locale.ROOT);
+            if (!key.contains("proxy")) continue;
+            if (key.contains("no_proxy") || key.contains("noproxy")) continue;
+            String value = entry.getValue();
+            if (TextUtils.isEmpty(value)) continue;
+            String v = value.trim().toLowerCase(Locale.ROOT);
+            if ("direct".equals(v) || "none".equals(v) || "off".equals(v) || "直连".equals(value.trim())) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** 全局开关提供的默认代理地址；开关关着 / 端口非法 → ""（直连）。 */
@@ -131,6 +153,7 @@ public final class LabProxy {
 
     /** 给 Lab 面板显示用：这条命令当前走什么代理、依据是哪一级。 */
     public static String describe(Map<String, String> vars) {
+        if (hasDirectToken(vars)) return "直连（命令变量指定 direct）";
         String fromItem = fromVars(vars);
         if (!TextUtils.isEmpty(fromItem)) return fromItem + " （命令变量）";
         String global = fromGlobal();
