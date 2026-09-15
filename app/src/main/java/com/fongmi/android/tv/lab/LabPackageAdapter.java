@@ -76,7 +76,7 @@ public final class LabPackageAdapter extends RecyclerView.Adapter<LabPackageAdap
             holder.status.setBackgroundResource(R.drawable.shape_lab_running_tag);
         } else if (installed) {
             // 纯命令条目（如 IPTV）没有安装产物，标「就绪」而不是「已安装」，避免误导
-            holder.status.setText(LabEnv.needsInstall(item) ? R.string.lab_installed : "就绪");
+            holder.status.setText(LabEnv.needsInstall(item) ? context.getString(R.string.lab_installed) : "就绪");
             holder.status.setBackgroundResource(R.drawable.shape_lab_installed);
         } else {
             holder.status.setText(R.string.lab_not_installed);
