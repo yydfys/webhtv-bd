@@ -512,6 +512,8 @@ public final class LabUbuntu {
                         + "::1 localhost ip6-localhost ip6-loopback\n"
                         + "127.0.1.1 " + HOST_NAME + "\n");
         writeAptSource(context, rootfs);
+        // Ubuntu Base 不带 CA 证书 → https 源（apt/curl/git）会全部握手失败，必须补上
+        LabEnv.ensureCaBundle(context, rootfs);
     }
 
     private static void writeAptSource(Context context, File rootfs) throws IOException {
@@ -564,6 +566,9 @@ public final class LabUbuntu {
         File rootfs = rootfsDir(context);
         // bind 目标必须在 rootfs 内已存在，否则 proot 直接起不来 → 命令全失败
         LabEnv.ensureBindTargets(context, rootfs);
+        // 自愈（幂等，很便宜）：补 /tmp 1777 与 CA 证书 → 老 rootfs 不用重装也能修好
+        LabEnv.prepareRootfs(rootfs);
+        LabEnv.ensureCaBundle(context, rootfs);
         StringBuilder sb = new StringBuilder();
         sb.append(quote(proot.getAbsolutePath()));
         sb.append(" -0 --link2symlink --kill-on-exit");

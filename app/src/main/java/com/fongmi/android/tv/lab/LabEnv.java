@@ -104,7 +104,7 @@ public final class LabEnv {
             if (!hosts.exists() || hosts.length() == 0) {
                 writeSmall(hosts, "127.0.0.1 localhost\n::1 localhost\n");
             }
-            for (String dir : new String[]{"dev", "proc", "sys", "root", "tmp", "run", "var/tmp"}) {
+            for (String dir : new String[]{"dev", "proc", "sys", "root", "tmp", "run", "var/tmp", "etc/ssl/certs"}) {
                 new File(rootfs, dir).mkdirs();
             }
             // /tmp 必须是 1777：apt / dpkg / debconf 都靠它放锁文件和临时脚本
@@ -118,6 +118,26 @@ public final class LabEnv {
     static void chmodMode(File file, int mode) {
         try {
             if (file.exists()) android.system.Os.chmod(file.getAbsolutePath(), mode);
+        } catch (Exception ignored) {
+        }
+    }
+
+    /**
+     * Ubuntu Base 是精简镜像，**不带 CA 证书**（{@code /etc/ssl/certs/ca-certificates.crt} 缺失），
+     * 于是 apt / curl / git 走 https 源全部 "certificate verification failed"，
+     * 表现为「装 php/python/nodejs 装不上、exit=100」。
+     *
+     * <p>这里把 APK 内置的 CA bundle 写进容器；已存在则跳过（幂等）。
+     * 每次起 proot 前都会调用，所以**老 rootfs 不用重装也能自愈**。
+     */
+    public static void ensureCaBundle(Context context, File rootfs) {
+        try {
+            File dest = new File(rootfs, "etc/ssl/certs/ca-certificates.crt");
+            File parent = dest.getParentFile();
+            if (parent != null) parent.mkdirs();
+            if (dest.exists() && dest.length() > 1024) return;
+            copyAsset(context, "lab/ca-certificates.crt", dest);
+            chmodMode(dest, 0644);
         } catch (Exception ignored) {
         }
     }
