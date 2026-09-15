@@ -16,6 +16,7 @@ public final class LabOutputDialog implements LabRunner.OutputListener {
     private final Context context;
     private final TextView output;
     private final ScrollView scroll;
+    private final LabTerminalWriter writer;
     private final String key;
     private AlertDialog dialog;
     private Runnable exitAction;
@@ -29,6 +30,7 @@ public final class LabOutputDialog implements LabRunner.OutputListener {
         this.output.setTypeface(android.graphics.Typeface.MONOSPACE);
         this.output.setPadding(24, 24, 24, 24);
         this.output.setTextIsSelectable(true);
+        this.writer = new LabTerminalWriter(this.output);
         this.scroll = new ScrollView(context);
         this.scroll.addView(output);
     }
@@ -58,7 +60,8 @@ public final class LabOutputDialog implements LabRunner.OutputListener {
         App.post(() -> {
             int range = Math.max(0, scroll.getChildAt(0).getHeight() - scroll.getHeight());
             boolean atBottom = scroll.getScrollY() >= range - 4;
-            output.append(text);
+            // 与终端窗同一套语义：剥离 ANSI + \r 回行首覆盖（进度条原地刷新）
+            writer.write(text);
             // 与终端窗口共用「自动滚动」开关：开着就始终跟随最新输出
             if (LabTerminalPrefs.autoScroll() || atBottom) scroll.fullScroll(View.FOCUS_DOWN);
         });
@@ -68,7 +71,7 @@ public final class LabOutputDialog implements LabRunner.OutputListener {
     public void onExit(int code) {
         App.post(() -> {
             if (dialog != null && dialog.isShowing()) {
-                output.append("\n[进程结束，退出码 " + code + "]\n");
+                writer.write("\n[进程结束，退出码 " + code + "]\n");
             }
             if (exitAction != null) exitAction.run();
         });

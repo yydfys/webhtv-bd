@@ -26,9 +26,7 @@ import com.fongmi.android.tv.R;
 import com.fongmi.android.tv.databinding.ActivityLabTerminalBinding;
 import com.fongmi.android.tv.setting.Setting;
 
-import java.io.BufferedReader;
 import java.io.File;
-import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
@@ -54,6 +52,12 @@ public class LabTerminalActivity extends AppCompatActivity implements LabTermina
     private final ArrayList<String> commandHistory = new ArrayList<>();
     private LabModels.Item item;
     private String commandLine;
+
+    /** 输出落屏：合帧缓冲 + 终端语义写入器（\r 回行首覆盖 / 剥离 ANSI）。 */
+    private final StringBuilder pendingOut = new StringBuilder();
+    private final Runnable flushRunnable = this::flushOutput;
+    private boolean flushScheduled;
+    private LabTerminalWriter writer;
 
     public static void start(Context context, String title) {
         start(context, title, null);
@@ -86,6 +90,7 @@ public class LabTerminalActivity extends AppCompatActivity implements LabTermina
         super.onCreate(savedInstanceState);
         mBinding = ActivityLabTerminalBinding.inflate(getLayoutInflater());
         setContentView(mBinding.getRoot());
+        writer = new LabTerminalWriter(mBinding.termOutput);
         String title = getIntent().getStringExtra(EXTRA_TITLE);
         String packageName = getIntent().getStringExtra(EXTRA_PACKAGE);
         commandLine = getIntent().getStringExtra(EXTRA_CMD);
@@ -106,7 +111,8 @@ public class LabTerminalActivity extends AppCompatActivity implements LabTermina
             history.clear();
             commandHistory.clear();
             historyIndex = -1;
-            mBinding.termOutput.setText("");
+            pendingOut.setLength(0);
+            writer.clear();
             renderHistory();
             Toast.makeText(this, "已清除终端日志", Toast.LENGTH_SHORT).show();
         });
@@ -337,13 +343,11 @@ public class LabTerminalActivity extends AppCompatActivity implements LabTermina
             stdin = process.getOutputStream();
             stopped = false;
             new Thread(() -> {
-                try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8))) {
-                    String line;
-                    while ((line = reader.readLine()) != null) {
-                        if (!stopped) append(line + "\n");
-                    }
-                } catch (Exception ignored) {
-                }
+                // 交互终端同样走字节级泵：bash 的提示符（"root@xxx:~# "）不带换行，
+                // readLine() 会把它一直憋在缓冲里 → 表现就是"敲了命令没回显/没提示符"。
+                LabTerminalWriter.pump(process.getInputStream(), text -> {
+                    if (!stopped) queue(text);
+                });
                 if (!stopped) {
                     int code = -1;
                     try {
@@ -371,11 +375,46 @@ public class LabTerminalActivity extends AppCompatActivity implements LabTermina
         stdin = null;
     }
 
+    /**
+     * 输出落屏（高频路径）：先攒进缓冲，50ms 内合并成一批再写。
+     * 字节级泵是"收到多少发多少"，逐段 append 会让 TextView 反复重排；合帧后既实时又不卡。
+     * 注：必须在主线程调用（泵线程 → queue 内部自己 post；本类其余调用点都在主线程）。
+     */
+    private void queue(String text) {
+        if (text == null || text.isEmpty() || writer == null) return;
+        synchronized (pendingOut) {
+            pendingOut.append(text);
+        }
+        if (flushScheduled) return;
+        flushScheduled = true;
+        App.post(flushRunnable, 50);
+    }
+
+    /** 立即落屏（提示符/退出提示这类一次性文案，不参与合帧）；非主线程自动转主线程。 */
     private void append(String text) {
-        App.post(() -> {
-            mBinding.termOutput.append(text);
-            if (LabTerminalPrefs.autoScroll()) scrollToBottom();
-        });
+        if (text == null || text.isEmpty() || writer == null) return;
+        if (android.os.Looper.myLooper() != android.os.Looper.getMainLooper()) {
+            final String chunk = text;
+            App.post(() -> append(chunk));
+            return;
+        }
+        synchronized (pendingOut) {
+            pendingOut.append(text);
+        }
+        flushOutput();
+    }
+
+    /** 主线程：把攒下的输出一次写进终端窗（\r 回行首 / ANSI 剥离都在 writer 里做）。 */
+    private void flushOutput() {
+        flushScheduled = false;
+        String chunk;
+        synchronized (pendingOut) {
+            if (pendingOut.length() == 0) return;
+            chunk = pendingOut.toString();
+            pendingOut.setLength(0);
+        }
+        writer.write(chunk);
+        if (LabTerminalPrefs.autoScroll()) scrollToBottom();
     }
 
     /** 自动滚动开关变化（含其它终端窗口触发的变更）→ 同步按钮外观并立即套用显示效果。 */
@@ -404,6 +443,8 @@ public class LabTerminalActivity extends AppCompatActivity implements LabTermina
             mBinding.termOutput.setLayoutParams(params);
         }
         mBinding.termOutput.setHorizontallyScrolling(!wrap);
+        // 切回"换行开"时把横向滚动归零，否则内容会停在右边看不见行首
+        if (wrap) mBinding.termHScroll.scrollTo(0, 0);
         if (scroll) scrollToBottom();
     }
 
@@ -414,6 +455,8 @@ public class LabTerminalActivity extends AppCompatActivity implements LabTermina
     @Override
     protected void onDestroy() {
         LabTerminalPrefs.removeListener(this);
+        // -1 = 只 removeCallbacks：窗口关了就别再往这刷了
+        App.post(flushRunnable, -1);
         stopProcess();
         super.onDestroy();
     }

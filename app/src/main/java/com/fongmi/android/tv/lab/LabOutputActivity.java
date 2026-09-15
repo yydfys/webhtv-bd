@@ -43,6 +43,12 @@ public class LabOutputActivity extends AppCompatActivity implements LabTerminalP
     private String commandId;
     private HashMap<String, String> vars;
 
+    /** 输出落屏：合帧缓冲 + 终端语义写入器（\r 回行首覆盖 / 剥离 ANSI）。 */
+    private final StringBuilder pendingOut = new StringBuilder();
+    private final Runnable flushRunnable = this::flushOutput;
+    private boolean flushScheduled;
+    private LabTerminalWriter writer;
+
     public static void start(Context context, String itemName, String commandId, HashMap<String, String> vars) {
         Intent intent = new Intent(context, LabOutputActivity.class);
         intent.putExtra("item", itemName);
@@ -68,6 +74,7 @@ public class LabOutputActivity extends AppCompatActivity implements LabTerminalP
         //noinspection unchecked
         vars = (HashMap<String, String>) getIntent().getSerializableExtra("vars");
         if (vars == null) vars = new HashMap<>();
+        writer = new LabTerminalWriter(mBinding.outputText);
         INSTANCES.put(key(), this);
         // 自己订阅该命令的输出流：窗口开着就实时刷，关掉即退订（不影响命令继续跑）
         LabRunner.addListener(key(), this);
@@ -81,7 +88,8 @@ public class LabOutputActivity extends AppCompatActivity implements LabTerminalP
         // 「清除当前日志」：清屏 + 清掉本命令的内存/落盘日志，窗口重开不再回放旧日志
         mBinding.btnClear.setOnClickListener(v -> {
             LabRunner.clearLog(key());
-            mBinding.outputText.setText("");
+            pendingOut.setLength(0);
+            writer.clear();
             updateTitle();
             Toast.makeText(this, "已清除当前日志", Toast.LENGTH_SHORT).show();
         });
@@ -149,11 +157,47 @@ public class LabOutputActivity extends AppCompatActivity implements LabTerminalP
         updateTitle();
     }
 
+    /**
+     * 输出落屏（高频路径）：先攒进缓冲，50ms 内合并成一批再写。
+     *
+     * <p>字节级泵是"收到多少发多少"，一帧进度条会被拆成很多小段；逐段 append
+     * 会让 TextView 反复重排。合帧后既保持实时（最迟 50ms 上屏），又不会卡。
+     */
+    private void queue(String text) {
+        if (text == null || text.isEmpty() || writer == null) return;
+        synchronized (pendingOut) {
+            pendingOut.append(text);
+        }
+        if (flushScheduled) return;
+        flushScheduled = true;
+        App.post(flushRunnable, 50);
+    }
+
+    /** 立即落屏（结束/停止/发送回显这类一次性文案，不参与合帧）；非主线程自动转主线程。 */
     private void append(String text) {
-        App.post(() -> {
-            mBinding.outputText.append(text);
-            if (LabTerminalPrefs.autoScroll()) scrollToBottom();
-        });
+        if (text == null || text.isEmpty() || writer == null) return;
+        if (android.os.Looper.myLooper() != android.os.Looper.getMainLooper()) {
+            final String chunk = text;
+            App.post(() -> append(chunk));
+            return;
+        }
+        synchronized (pendingOut) {
+            pendingOut.append(text);
+        }
+        flushOutput();
+    }
+
+    /** 主线程：把攒下的输出一次写进终端窗（\r 回行首 / ANSI 剥离都在 writer 里做）。 */
+    private void flushOutput() {
+        flushScheduled = false;
+        String chunk;
+        synchronized (pendingOut) {
+            if (pendingOut.length() == 0) return;
+            chunk = pendingOut.toString();
+            pendingOut.setLength(0);
+        }
+        writer.write(chunk);
+        if (LabTerminalPrefs.autoScroll()) scrollToBottom();
     }
 
     /** 自动滚动开关变化（含其它终端窗口触发的变更）→ 同步按钮外观并立即套用显示效果。 */
@@ -182,6 +226,8 @@ public class LabOutputActivity extends AppCompatActivity implements LabTerminalP
             mBinding.outputText.setLayoutParams(params);
         }
         mBinding.outputText.setHorizontallyScrolling(!wrap);
+        // 切回"换行开"时把横向滚动归零，否则内容会停在右边看不见行首
+        if (wrap) mBinding.outputHScroll.scrollTo(0, 0);
         if (scroll) scrollToBottom();
     }
 
@@ -189,10 +235,10 @@ public class LabOutputActivity extends AppCompatActivity implements LabTerminalP
         mBinding.outputScroll.post(() -> mBinding.outputScroll.fullScroll(View.FOCUS_DOWN));
     }
 
-    /** 命令输出流回调（本窗自己订阅）。 */
+    /** 命令输出流回调（本窗自己订阅）：高频小段 → 合帧上屏。 */
     @Override
     public void onOutput(String text) {
-        append(text);
+        queue(text);
     }
 
     /** 命令结束回调（本窗自己订阅）。 */
@@ -226,6 +272,8 @@ public class LabOutputActivity extends AppCompatActivity implements LabTerminalP
         LabTerminalPrefs.removeListener(this);
         LabRunner.removeListener(key(), this);
         INSTANCES.remove(key(), this);
+        // -1 = 只 removeCallbacks：窗口关了就别再往这刷了
+        App.post(flushRunnable, -1);
         super.onDestroy();
     }
 }

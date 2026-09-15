@@ -3,10 +3,8 @@ package com.fongmi.android.tv.lab;
 import android.content.Context;
 import android.text.TextUtils;
 
-import java.io.BufferedReader;
 import java.io.File;
 import java.io.IOException;
-import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
@@ -153,14 +151,63 @@ public final class LabRunner {
      * 清除某条命令的日志：内存缓冲 + 落盘日志文件一起清，
      * 否则窗口重开时会从日志文件回放出刚被清掉的旧日志。
      */
-    public static void clearLog(String key) {
-        LOGS.remove(key);
+    public static synchronized void clearLog(String key) {
+        // 内存缓冲必须在**原位**清空：pump 线程持有的是这个对象的引用，
+        // 直接 LOGS.remove(key) 会让之后的输出写进一个没人引用的 builder（新日志"丢"）。
+        StringBuilder log = LOGS.get(key);
+        if (log != null) {
+            synchronized (log) {
+                log.setLength(0);
+            }
+        }
+        // 落盘文件也不能只 truncate：正在跑的命令，writer 的写入偏移还停在截断前的位置，
+        // 继续写会在文件开头留一大段 \0 空洞（重开窗口回放就是一片乱码）。
+        // 正确做法：关掉旧 writer → 截断 → 重开（append 模式，文件已经是空的）。
+        closeLogWriter(key);
         File file = LabProcManager.logFor(key);
         if (file != null && file.exists()) {
             try (java.io.FileOutputStream ignored = new java.io.FileOutputStream(file, false)) {
-                // 截断即可（进程若仍在跑，后续输出继续往同一个 fd 里写）
+                // 截断为 0 字节
             } catch (Exception ignored) {
             }
+            openLogWriter(key, file, null);
+        }
+    }
+
+    /** 每条命令一个落盘 writer（窗口重开时能回放）。 */
+    private static final Map<String, java.io.FileWriter> LOG_WRITERS = new ConcurrentHashMap<>();
+
+    private static synchronized void openLogWriter(String key, File file, String header) {
+        closeLogWriter(key);
+        if (file == null) return;
+        try {
+            file.getParentFile().mkdirs();
+            java.io.FileWriter writer = new java.io.FileWriter(file, true);
+            if (!TextUtils.isEmpty(header)) {
+                writer.write(header);
+                writer.flush();
+            }
+            LOG_WRITERS.put(key, writer);
+        } catch (Exception ignored) {
+        }
+    }
+
+    private static synchronized void writeLogWriter(String key, String text) {
+        java.io.FileWriter writer = LOG_WRITERS.get(key);
+        if (writer == null) return;
+        try {
+            writer.write(text);
+            writer.flush();
+        } catch (Exception ignored) {
+        }
+    }
+
+    private static synchronized void closeLogWriter(String key) {
+        java.io.FileWriter writer = LOG_WRITERS.remove(key);
+        if (writer == null) return;
+        try {
+            writer.close();
+        } catch (Exception ignored) {
         }
     }
 
@@ -463,39 +510,27 @@ public final class LabRunner {
         }
     }
 
+    /** 收到一段输出：广播给所有订阅者（各命令自己的终端窗）+ 落盘 + 进内存缓冲。 */
+    private static void emitOutput(String key, StringBuilder log, String text) {
+        if (text == null || text.isEmpty()) return;
+        broadcastOutput(key, text);
+        writeLogWriter(key, text);
+        synchronized (log) {
+            log.append(text);
+            if (log.length() > 200000) log.delete(0, log.length() / 2);
+        }
+    }
+
     private static void pump(Process process, String key, String command) {
         StringBuilder log = LOGS.computeIfAbsent(key, k -> new StringBuilder());
-        File logFile = LabProcManager.logFor(key);
-        java.io.FileWriter fileWriter = null;
-        if (logFile != null) {
-            try {
-                logFile.getParentFile().mkdirs();
-                fileWriter = new java.io.FileWriter(logFile, true);
-                fileWriter.write("$ " + command + "\n\n");
-                fileWriter.flush();
-            } catch (Exception ignored) {
-            }
-        }
-        java.io.FileWriter writer = fileWriter;
+        openLogWriter(key, LabProcManager.logFor(key), "$ " + command + "\n\n");
         Thread out = new Thread(() -> {
-            try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8))) {
-                String line;
-                while ((line = reader.readLine()) != null) {
-                    broadcastOutput(key, line + "\n");
-                    if (writer != null) {
-                        try {
-                            writer.write(line + "\n");
-                            writer.flush();
-                        } catch (Exception ignored) {
-                        }
-                    }
-                    synchronized (log) {
-                        log.append(line).append('\n');
-                        if (log.length() > 200000) log.delete(0, log.length() / 2);
-                    }
-                }
-            } catch (Exception ignored) {
-            }
+            // 字节级读取：不能用 readLine()——cfst 这类 pb 进度条在管道模式下
+            // 既不写 \r 也不写 \n，"行"是切不开的，会被一直攒到最后才一次性吐出来。
+            LabTerminalWriter.pump(process.getInputStream(), text -> emitOutput(key, log, text));
+            // writer 跟着输出流一起收（不能跟 process.waitFor() 走：后台命令的子进程
+            // 还在往管道里写时，提前关掉会让日志文件停更）
+            closeLogWriter(key);
         });
         out.start();
         new Thread(() -> {
@@ -507,10 +542,6 @@ public final class LabRunner {
                 }
                 RUNNING.remove(key, process);
                 STDIN.remove(key);
-                try {
-                    if (writer != null) writer.close();
-                } catch (Exception ignored) {
-                }
                 int pid = pidOf(process);
                 boolean daemon = false;
                 long deadline = System.currentTimeMillis() + 2000;
