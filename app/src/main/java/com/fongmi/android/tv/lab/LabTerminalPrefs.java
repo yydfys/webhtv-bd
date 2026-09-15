@@ -7,7 +7,7 @@ import com.fongmi.android.tv.App;
 import java.util.concurrent.CopyOnWriteArraySet;
 
 /**
- * 终端显示偏好（照抄 VodPlus 实验室终端的做法）：**自动滚动 / 自动换行**两个开关，
+ * 终端显示偏好：**自动滚动 / 自动换行**两个开关，
  * 存全局 SharedPreferences，并广播给所有已打开的终端窗口 —— 一个窗口切换，其它窗口立刻同步。
  *
  * <p>{@code auto_scroll}：开启时新输出始终把视口拉到最新（跟随日志），关闭后停在当前位置方便回看。
@@ -32,7 +32,7 @@ public final class LabTerminalPrefs {
         return App.get().getSharedPreferences(PREFS, 0);
     }
 
-    /** 默认开启：跟 VodPlus 一致（auto_scroll / auto_wrap 默认 true）。 */
+    /** 默认开启（auto_scroll / auto_wrap 默认 true）。 */
     public static boolean autoScroll() {
         return prefs().getBoolean(KEY_SCROLL, true);
     }

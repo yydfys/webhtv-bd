@@ -589,7 +589,7 @@ public final class LabUbuntu {
         // 容器内 /tmp 用 rootfs 自己的（init 时建好并置 1777），临时目录由 PROOT_TMP_DIR/TMPDIR 指到私目录。
         sb.append(" -b /dev -b /proc -b /sys -b /dev/urandom:/dev/random");
         // 私目录同路径绑定：json 里的 {files_dir} / {package_dir} 这类宿主绝对路径，容器内外指向同一份数据
-        // （VodPlus 同款做法：filesDir 与 lab 目录都按原路径挂进去，安装标记两边都看得见）
+        // （filesDir 与 lab 目录都按原路径挂进去，安装标记两边都看得见）
         for (String dir : new String[]{context.getFilesDir().getAbsolutePath(),
                 context.getCacheDir().getAbsolutePath(),
                 LabEnv.localRoot().getAbsolutePath()}) {

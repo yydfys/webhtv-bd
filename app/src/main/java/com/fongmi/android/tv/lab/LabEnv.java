@@ -286,8 +286,8 @@ public final class LabEnv {
         }
     }
 
-    public static void syncVodPlusAssets(Context context) {
-        syncAssets(context, "VodPlus", new File(LabConfig.get().getRoot()), false);
+    public static void syncWebhtvAssets(Context context) {
+        syncAssets(context, "WebHTV", new File(LabConfig.get().getRoot()), false);
     }
 
     private static void syncAssets(Context context, String assetPath, File dest, boolean overwrite) {

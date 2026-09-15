@@ -27,7 +27,7 @@ public final class LabAutoStart {
                 LabProcManager.updateService();
                 LabModels.LabRoot root = LabConfig.get().loadSync();
                 if (root == null || root.lists == null) return;
-                LabEnv.syncVodPlusAssets(context);
+                LabEnv.syncWebhtvAssets(context);
                 for (LabModels.Item item : root.lists) {
                     if (item == null || item.name == null) continue;
                     if (item.auto_install && item.available && !LabEnv.installed(context, item)) {

@@ -134,7 +134,7 @@ public class LabActivity extends AppCompatActivity implements LabPackageAdapter.
 
     private void reload() {
         mBinding.progress.setVisibility(View.VISIBLE);
-        LabEnv.syncVodPlusAssets(this);
+        LabEnv.syncWebhtvAssets(this);
         LabConfig.get().reload(new LabConfig.LoadCallback() {
             @Override
             public void onLoaded(LabModels.LabRoot root) {
@@ -302,9 +302,9 @@ public class LabActivity extends AppCompatActivity implements LabPackageAdapter.
 
     private String decodeImport(String text) {
         if (text == null || text.isEmpty()) return null;
-        if (text.startsWith("VodPlusLabConfig://")) {
+        if (text.startsWith("WebHTVLabConfig://")) {
             try {
-                return new String(Base64.decode(text.substring("VodPlusLabConfig://".length()), Base64.DEFAULT), "UTF-8");
+                return new String(Base64.decode(text.substring("WebHTVLabConfig://".length()), Base64.DEFAULT), "UTF-8");
             } catch (Exception e) {
                 return null;
             }

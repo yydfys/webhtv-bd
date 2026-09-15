@@ -117,7 +117,7 @@ public final class LabFilePicker {
         }
         try {
             String name = displayName(context, uri);
-            File dir = new File("/storage/emulated/0/VodPlus/lab_files");
+            File dir = new File(LabConfig.get().getRoot(), "lab_files");
             dir.mkdirs();
             File target = new File(dir, name == null || name.isEmpty() ? "file_" + System.currentTimeMillis() : name);
             try (InputStream in = context.getContentResolver().openInputStream(uri); FileOutputStream out = new FileOutputStream(target)) {

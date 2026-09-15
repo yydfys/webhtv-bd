@@ -116,7 +116,7 @@ public class LabTerminalActivity extends AppCompatActivity implements LabTermina
             renderHistory();
             Toast.makeText(this, "已清除终端日志", Toast.LENGTH_SHORT).show();
         });
-        // 两个显示开关（照 VodPlus 终端）：自动滚动 / 自动换行。状态全局共享，多窗口实时同步。
+        // 两个显示开关：自动滚动 / 自动换行。状态全局共享，多窗口实时同步。
         mBinding.btnAutoScroll.setOnClickListener(v -> {
             boolean next = !LabTerminalPrefs.autoScroll();
             LabTerminalPrefs.setAutoScroll(next);

@@ -31,7 +31,7 @@ public class LabOutputActivity extends AppCompatActivity implements LabTerminalP
     private static final int COLOR_OFF = Color.parseColor("#666666");
 
     /**
-     * 一命令一窗口（照 VodPlus 的多终端模型）：每个命令的日志窗各自独立、可同时开着，
+     * 一命令一窗口（多终端模型）：每个命令的日志窗各自独立、可同时开着，
      * 各自只收自己命令的输出流；同一命令重复打开时复用已有窗口（SINGLE_TOP）。
      */
     private static final java.util.Map<String, LabOutputActivity> INSTANCES = new java.util.concurrent.ConcurrentHashMap<>();
@@ -93,7 +93,7 @@ public class LabOutputActivity extends AppCompatActivity implements LabTerminalP
             updateTitle();
             Toast.makeText(this, "已清除当前日志", Toast.LENGTH_SHORT).show();
         });
-        // 两个显示开关（照 VodPlus 终端）：自动滚动 / 自动换行；状态全局共享，多窗口实时同步
+        // 两个显示开关：自动滚动 / 自动换行；状态全局共享，多窗口实时同步
         mBinding.btnAutoScroll.setOnClickListener(v -> {
             boolean next = !LabTerminalPrefs.autoScroll();
             LabTerminalPrefs.setAutoScroll(next);

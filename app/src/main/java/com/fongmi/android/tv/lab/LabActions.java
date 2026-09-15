@@ -57,7 +57,7 @@ public final class LabActions {
             if (!granted) {
                 new MaterialAlertDialogBuilder(activity, R.style.Theme_App_Lab_Dialog)
                         .setTitle("需要存储权限")
-                        .setMessage("安装环境需要读取手机 /storage/emulated/0/VodPlus/EnvFiles/ 里的压缩包。\n请在系统设置中授予「所有文件访问」权限后重试。")
+                        .setMessage("安装环境需要读取手机 " + LabEnv.localRoot() + "/EnvFiles/ 里的压缩包。\n请在系统设置中授予「所有文件访问」权限后重试。")
                         .setNegativeButton("取消", null)
                         .setPositiveButton("去授权", (d, w) -> PermissionUtil.requestFile(activity, granted2 -> {
                             if (granted2) startInstall(activity, item, done);
@@ -74,7 +74,7 @@ public final class LabActions {
             if (!granted) {
                 new MaterialAlertDialogBuilder(activity, R.style.Theme_App_Lab_Dialog)
                         .setTitle("需要存储权限")
-                        .setMessage("安装环境需要读取手机 /storage/emulated/0/VodPlus/EnvFiles/ 里的压缩包。\n请在系统设置中授予「所有文件访问」权限后重试。")
+                        .setMessage("安装环境需要读取手机 " + LabEnv.localRoot() + "/EnvFiles/ 里的压缩包。\n请在系统设置中授予「所有文件访问」权限后重试。")
                         .setNegativeButton("取消", null)
                         .setPositiveButton("去授权", (d, w) -> PermissionUtil.requestFile(activity, granted2 -> {
                             if (granted2) startInstallWithDialog(activity, item, done);

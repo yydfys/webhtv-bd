@@ -890,7 +890,7 @@
      "id": "quick_app_service",
      "name": "穿透应用服务",
      "description": "快速穿透应用内置的HTTP服务（默认9978端口）",
-     "command": "frpc http -s {server_addr}:{server_port} -t {token} -n vodplus_service -l 9978 -d {custom_domain}",
+     "command": "frpc http -s {server_addr}:{server_port} -t {token} -n webhtv_service -l 9978 -d {custom_domain}",
      "auto_execute": false,
      "show_output": false,
      "variables": [

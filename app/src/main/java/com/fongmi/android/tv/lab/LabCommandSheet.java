@@ -325,8 +325,8 @@ public final class LabCommandSheet implements LabRunner.OutputListener {
         }
         // 这里**不做**「扫描命令原文里的 {xxx} 让用户补参数」：
         // 命令里嵌的 Python/awk/JSON 片段（如 f"{h}p"、f"parse failed: {e}"、
-        // f"{base}?ref={BRANCH}"）都会被误判成待填参数，跟 VodPlus 的行为不一致——
-        // VodPlus 只对「声明过的变量」给出输入入口，未声明的占位符原样透传。
+        // f"{base}?ref={BRANCH}"）都会被误判成待填参数，跟预期行为不一致——
+        // 只对「声明过的变量」给出输入入口，未声明的占位符原样透传。
         // 声明过的变量在卡片上本来就有输入框（renderVariables），未声明的一律不动。
         if (command.download != null && LabEnv.dependencyNeeded(command.download)) {
             downloadDependency(() -> startRun());
@@ -373,7 +373,7 @@ public final class LabCommandSheet implements LabRunner.OutputListener {
         running = true;
         syncRunning();
         if (!command.isShowOutput()) {
-            // 后台命令照样有自己的终端窗（照 VodPlus），这里只提示一句日志去哪看
+            // 后台命令照样有自己的终端窗，这里只提示一句日志去哪看
             Toast.makeText(activity, "已在终端窗口运行: " + command.name, Toast.LENGTH_SHORT).show();
         }
         if (dialog != null && dialog.isShowing()) dialog.dismiss();
@@ -392,7 +392,7 @@ public final class LabCommandSheet implements LabRunner.OutputListener {
         sheetRunningTag.setVisibility(running ? View.VISIBLE : View.GONE);
         sheetBtnRun.setVisibility(running ? View.GONE : View.VISIBLE);
         sheetBtnStop.setVisibility(running ? View.VISIBLE : View.GONE);
-        // 「终端/日志」入口常驻：命令跑完也能随时点开回看历史日志（照 VodPlus 的常驻终端入口）
+        // 「终端/日志」入口常驻：命令跑完也能随时点开回看历史日志
         sheetBtnOutput.setVisibility(View.VISIBLE);
         boolean ready = LabEnv.ready(activity, item);
         boolean supported = command.isSupported(LabEnv.appVersionCode(activity));
