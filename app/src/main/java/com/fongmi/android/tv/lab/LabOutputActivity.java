@@ -114,8 +114,9 @@ public class LabOutputActivity extends AppCompatActivity implements LabTerminalP
             return false;
         });
 
+        // 回放历史日志：走 writer.setText，顺带把光标状态对齐到文末
         String log = LabRunner.getLog(key());
-        if (!TextUtils.isEmpty(log)) mBinding.outputText.setText(log);
+        if (!TextUtils.isEmpty(log)) writer.setText(log);
 
         boolean running = LabRunner.isRunning(key());
         showRunning(running);
