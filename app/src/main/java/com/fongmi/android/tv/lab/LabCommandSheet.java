@@ -22,11 +22,8 @@ import com.google.android.material.textfield.MaterialAutoCompleteTextView;
 import com.google.android.material.textfield.TextInputLayout;
 
 import java.util.HashMap;
-import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 public final class LabCommandSheet implements LabRunner.OutputListener {
 
@@ -326,39 +323,16 @@ public final class LabCommandSheet implements LabRunner.OutputListener {
                 }
             }
         }
-        List<String> special = Arrays.asList("serverPort", "tvPath", "dataPath", "cachePath", "envRootPath", "wwwroot", "sdcard");
-        List<LabModels.Variable> missing = new java.util.ArrayList<>();
-        Matcher matcher = Pattern.compile("\\{([a-zA-Z0-9_]+)\\}").matcher(command.command);
-        while (matcher.find()) {
-            if (matcher.start() > 0 && command.command.charAt(matcher.start() - 1) == '$') continue;
-            String key = matcher.group(1);
-            if (special.contains(key) || vars.containsKey(key) || containsVariable(key)) continue;
-            LabModels.Variable variable = new LabModels.Variable();
-            variable.key = key;
-            variable.name = key;
-            variable.type = "text";
-            variable.required = true;
-            missing.add(variable);
-        }
-        if (!missing.isEmpty()) {
-            LabVariableDialog.show(activity, "命令参数", missing, filled -> {
-                vars.putAll(filled);
-                run();
-            });
-            return;
-        }
+        // 这里**不做**「扫描命令原文里的 {xxx} 让用户补参数」：
+        // 命令里嵌的 Python/awk/JSON 片段（如 f"{h}p"、f"parse failed: {e}"、
+        // f"{base}?ref={BRANCH}"）都会被误判成待填参数，跟 VodPlus 的行为不一致——
+        // VodPlus 只对「声明过的变量」给出输入入口，未声明的占位符原样透传。
+        // 声明过的变量在卡片上本来就有输入框（renderVariables），未声明的一律不动。
         if (command.download != null && LabEnv.dependencyNeeded(command.download)) {
             downloadDependency(() -> startRun());
         } else {
             startRun();
         }
-    }
-
-    private boolean containsVariable(String key) {
-        for (LabModels.Variable variable : command.getVariables()) {
-            if (key.equals(variable.key)) return true;
-        }
-        return false;
     }
 
     private void downloadDependency(Runnable next) {

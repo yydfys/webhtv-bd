@@ -367,9 +367,26 @@ public final class LabEnv {
         return !needsInstall(item) || installed(context, item);
     }
 
+    /**
+     * 纯命令条目：没有 install 段、也没有可下载产物（downloads / binary_path / cmd_name 全空）。
+     *
+     * <p>这类条目（例如 IPTV、tgsou 这种「命令本身就是全部」的写法）压根不存在"装没装"这件事，
+     * 拿宿主目录里有没有 bin 去判它必然为假 —— 卡片就永远挂着「未安装」。它们的可用性只取决于
+     * 所在运行环境：ubuntu 条目跑在共享容器里（容器装好就能用），其它 runtime 直接在本机跑。
+     */
+    public static boolean commandOnly(LabModels.Item item) {
+        if (item == null) return false;
+        if (item.install_required || item.hasInstall() || isRootfs(item)) return false;
+        if (item.downloads != null && !item.downloads.isEmpty()) return false;
+        return TextUtils.isEmpty(item.binary_path) && TextUtils.isEmpty(item.cmd_name);
+    }
+
     public static boolean installed(Context context, LabModels.Item item) {
         if (isRootfs(item)) {
             return nonEmpty(new File(packageRoot(context, item), "rootfs"));
+        }
+        if (commandOnly(item)) {
+            return !item.isUbuntu() || LabUbuntu.installed(context);
         }
         if (item != null && item.isUbuntu()) {
             // ubuntu 条目的环境装在 rootfs 内，宿主侧看不到任何二进制：
