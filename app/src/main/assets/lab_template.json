@@ -13,614 +13,286 @@
       "order": 2
     },
     {
-      "id": "network",
-      "name": "网络工具",
+      "id": "terminal",
+      "name": "终端",
       "order": 3
     }
   ],
   "lists": [
     {
       "name": "php",
+      "runtime": "ubuntu",
       "group": "runtime",
-      "version": "7.3.22",
       "icon": "https://img.icons8.com/?size=240&id=121463&format=png&color=000000",
-      "auto_install": true,
-      "available": true,
+      "info": "在 Ubuntu Rootfs 中独立安装并运行 PHP CLI，wwwroot 目录会被php、python环境共用，卸载单个环境时不会删除目录本身，只清理自身文件。",
       "show": true,
-      "info": "爬虫运行时，支持多架构，适合低版本安卓和性能较差的设备，此运行时强制静默无感安装。\nsite配置：\n    {\n      \"key\": \"php甜圈短剧\",\n      \"name\": \"php | 甜圈短剧\",\n      \"api\": \"./vod/甜圈短剧.php\",\n      \"type\": \"3\"\n    }",
-      "binary_path": "bin/php",
-      "var_path": {
-        "LD_LIBRARY_PATH": "bin"
+      "version": "8.3.6",
+      "auto_install": false,
+      "available": true,
+      "downloads": [],
+      "install": {
+        "check_command": "test -f '{package_dir}/.installed' && command -v php >/dev/null 2>&1",
+        "command": "export DEBIAN_FRONTEND=noninteractive; apt-get update && apt-get install -y php-cli && mkdir -p '/storage/emulated/0/WebHTV/wwwroot' && printf '%s\\n' '<?php echo \"Hello from Ubuntu PHP \" . PHP_VERSION;' > '/storage/emulated/0/WebHTV/wwwroot/index.php' && touch '{package_dir}/.installed'",
+        "mode": "terminal",
+        "uninstall_command": "export DEBIAN_FRONTEND=noninteractive; __p=$(dpkg -l 2>/dev/null | awk '$1 ~ /^i/ || $1==\"rc\" {print $2}' | grep -E '^php' | tr '\\n' ' '); echo \"[lab] 待卸载 php 包: ${__p:-（无）}\"; [ -n \"$__p\" ] && apt-get purge -y $__p; apt-get autoremove -y; rm -f '/storage/emulated/0/WebHTV/wwwroot/index.php'; rm -f '{package_dir}/.installed'; if command -v php >/dev/null 2>&1; then echo '[lab] php 仍在 rootfs，卸载未完成'; false; else echo '[lab] php 已从 rootfs 移除'; true; fi",
+        "reset_command": "export DEBIAN_FRONTEND=noninteractive; __p=$(dpkg -l 2>/dev/null | awk '$1 ~ /^i/ || $1==\"rc\" {print $2}' | grep -E '^php' | tr '\\n' ' '); [ -n \"$__p\" ] && apt-get purge -y $__p; apt-get autoremove -y >/dev/null 2>&1; rm -f '{package_dir}/.installed'; true"
       },
       "commands": [
         {
-          "id": "server",
-          "name": "轻量服务器",
-          "description": "php内置服务器，可以跑任何php脚本。",
-          "command": "php -S 0.0.0.0:{port} -t {root_dir} -d error_log={sdcard}/WebHTV/logs/php_error.log",
+          "id": "php_server",
+          "name": "启动 PHP Web服务",
           "auto_execute": true,
-          "show_output": false,
+          "background": true,
+          "show_output": true,
+          "check_command": "pgrep -f '[p]hp -S 0.0.0.0:{port}'",
+          "command": "php -S 0.0.0.0:{port} -t {www_dir} -d memory_limit={memory_limit}M",
+          "stop_command": "pkill -f '[p]hp -S 0.0.0.0:{port}' 2>/dev/null; fuser -k {port}/tcp 2>/dev/null; exit 0",
           "variables": [
             {
               "key": "port",
               "name": "端口号",
               "type": "number",
-              "default": "8901",
+              "default": 8901,
               "hint": "服务器监听端口",
               "required": true,
               "min": 1024,
               "max": 65535
             },
             {
-              "key": "root_dir",
-              "name": "根目录",
+              "key": "www_dir",
+              "name": "Web根目录",
               "type": "directory",
-              "default": "{sdcard}/WebHTV/wwwroot",
-              "hint": "Web 服务器根目录",
+              "default": "/storage/emulated/0/WebHTV/wwwroot",
+              "hint": "php文件目录",
               "required": true
-            }
-          ],
-          "clicks": [
-            {
-              "title": "打开首页",
-              "action": "open",
-              "value": "http://0.0.0.0:{port}"
             },
             {
-              "title": "T4代理接口",
-              "action": "webview",
-              "value": "http://0.0.0.0:{port}/vod.php?key=站源key&ac=list",
-              "style": "dialog"
+              "key": "memory_limit",
+              "name": "内存占用大小",
+              "type": "number",
+              "default": 1024,
+              "hint": "内存限制(MB)",
+              "required": true,
+              "min": 8,
+              "max": 2048
             }
           ]
         },
         {
-          "id": "modules",
-          "name": "查看模块",
-          "description": "查看已加载的 PHP 模块",
-          "command": "php -m",
+          "id": "stop_php",
+          "name": "⭕️ 停止所有PHP服务",
+          "command": "pkill -f 'php -S'",
           "auto_execute": false,
           "show_output": true
         },
         {
-          "id": "test_all_types",
-          "name": "测试所有变量类型",
-          "description": "用于测试对话框 UI 的命令",
-          "command": "php -r \"echo '{text_val} {num_val} {select_val} {switch_val} {file_val} {dir_val} {multiline_val}';\"",
+          "id": "php_version",
+          "name": "查看 PHP 版本",
           "auto_execute": false,
+          "command": "php -v",
+          "show_output": true
+        }
+      ]
+    },
+    {
+      "name": "python3",
+      "group": "runtime",
+      "runtime": "ubuntu",
+      "icon": "https://img.icons8.com/?size=240&id=13441&format=png&color=000000",
+      "info": "在 Ubuntu Rootfs 中独立安装并运行 Python3，wwwroot 目录会被php、python环境共用，卸载单个环境时不会删除目录本身，只清理自身文件。",
+      "show": true,
+      "version": "3.12.3",
+      "auto_install": false,
+      "available": true,
+      "downloads": [],
+      "install": {
+        "check_command": "test -f '{package_dir}/.installed' && command -v python3 >/dev/null 2>&1",
+        "command": "export DEBIAN_FRONTEND=noninteractive; apt-get update && apt-get install -y python3 && mkdir -p '/storage/emulated/0/WebHTV/wwwroot' && printf '%s\\n' '<!doctype html><meta charset=\"utf-8\"><h1>Hello from Ubuntu Python3</h1>' > '/storage/emulated/0/WebHTV/wwwroot/index.html' && touch '{package_dir}/.installed'",
+        "mode": "terminal",
+        "uninstall_command": "export DEBIAN_FRONTEND=noninteractive; __p=$(dpkg -l 2>/dev/null | awk '$1 ~ /^i/ || $1==\"rc\" {print $2}' | grep -E '^python3' | tr '\\n' ' '); echo \"[lab] 待卸载 python3 包: ${__p:-（无）}\"; [ -n \"$__p\" ] && apt-get purge -y $__p; apt-get autoremove -y; rm -rf /usr/local/lib/python3* /usr/local/bin/pip /usr/local/bin/pip3* /root/.cache/pip; rm -f '/storage/emulated/0/WebHTV/wwwroot/index.html'; rm -f '{package_dir}/.installed'; if command -v python3 >/dev/null 2>&1; then echo '[lab] python3 仍在 rootfs，卸载未完成'; false; else echo '[lab] python3 已从 rootfs 移除'; true; fi",
+        "reset_command": "export DEBIAN_FRONTEND=noninteractive; __p=$(dpkg -l 2>/dev/null | awk '$1 ~ /^i/ || $1==\"rc\" {print $2}' | grep -E '^python3' | tr '\\n' ' '); [ -n \"$__p\" ] && apt-get purge -y $__p; apt-get autoremove -y >/dev/null 2>&1; rm -f '{package_dir}/.installed'; true"
+      },
+      "commands": [
+        {
+          "id": "python_server",
+          "name": "启动 Python3 Web服务",
+          "auto_execute": false,
+          "background": true,
+          "check_command": "pgrep -f '[p]ython3 -m http.server {server}'",
+          "command": "ulimit -v $(({memory_limit} * 1024)) && exec python3 -m http.server {server} --bind 0.0.0.0 --directory '{www_dir}'",
           "show_output": true,
+          "stop_command": "pkill -f '[p]ython3 -m http.server {server}' 2>/dev/null; fuser -k {server}/tcp 2>/dev/null; exit 0",
           "variables": [
             {
-              "key": "text_val",
-              "name": "文本输入",
-              "type": "text",
-              "default": "hello",
-              "hint": "普通文本输入框",
-              "required": true
-            },
-            {
-              "key": "num_val",
-              "name": "数字输入",
+              "key": "server",
+              "name": "端口号",
               "type": "number",
-              "default": "8080",
-              "hint": "端口号",
+              "default": 8902,
+              "hint": "服务器监听端口",
               "required": true,
               "min": 1024,
               "max": 65535
             },
             {
-              "key": "select_val",
-              "name": "下拉选择",
-              "type": "select",
-              "default": "dev",
-              "hint": "选择运行环境",
-              "required": true,
-              "options": [
-                {
-                  "label": "开发环境",
-                  "value": "dev"
-                },
-                {
-                  "label": "测试环境",
-                  "value": "test"
-                },
-                {
-                  "label": "生产环境",
-                  "value": "prod"
-                }
-              ]
-            },
-            {
-              "key": "switch_val",
-              "name": "开关选项",
-              "type": "switch",
-              "default": "true",
-              "hint": "启用调试模式",
-              "required": false
-            },
-            {
-              "key": "file_val",
-              "name": "文件选择",
-              "type": "file",
-              "default": "/sdcard/test.php",
-              "hint": "选择 PHP 文件",
-              "required": false,
-              "filter": "*.php"
-            },
-            {
-              "key": "dir_val",
-              "name": "目录选择",
+              "key": "www_dir",
+              "name": "Web根目录",
               "type": "directory",
-              "default": "/sdcard/www",
-              "hint": "选择工作目录",
-              "required": false
+              "default": "/storage/emulated/0/WebHTV/wwwroot",
+              "hint": "php文件目录",
+              "required": true
             },
             {
-              "key": "multiline_val",
-              "name": "多行文本",
-              "type": "text_multiline",
-              "default": "line1\nline2",
-              "hint": "输入多行内容",
-              "required": false
-            }
-          ],
-          "clicks": [
-            {
-              "title": "测试链接",
-              "action": "open",
-              "value": "http://0.0.0.0:{num_val}"
-            },
-            {
-              "title": "复制命令",
-              "action": "copy",
-              "value": "php -r \"echo '{text_val}'\""
-            },
-            {
-              "title": "内置浏览",
-              "action": "webview",
-              "value": "http://0.0.0.0:{num_val}",
-              "style": "dialog",
-              "content": "在应用内打开网页"
-            },
-            {
-              "title": "二维码",
-              "action": "qrcode",
-              "value": "http://0.0.0.0:{num_val}",
-              "content": "扫码访问服务"
-            },
-            {
-              "title": "分享",
-              "action": "share",
-              "value": "http://0.0.0.0:{num_val}"
-            },
-            {
-              "title": "使用说明",
-              "action": "alert",
-              "value": "本命令用于测试所有变量类型，包括文本、数字、选择、开关、文件、目录、多行文本等。",
-              "content": "请根据需要填写各项参数后运行命令"
-            },
-            {
-              "title": "提示",
-              "action": "toast",
-              "value": "当前文本值: {text_val}"
+              "key": "memory_limit",
+              "name": "内存占用大小",
+              "type": "number",
+              "default": 1024,
+              "hint": "内存限制(MB)",
+              "required": true,
+              "min": 8,
+              "max": 2048
             }
           ]
-        }
-      ],
-      "downloads": [
-        {
-          "arch": "arm64-v8a",
-          "version": "7.3.33",
-          "url": "https://hhy.sogoucdn.com/wsbff/wsbaike/2025121313/5d66d880-d7e1-11f0-9c92-bb466718b950.jpeg",
-          "size": "15.2 MB",
-          "mirrors": {
-            "github": "https://raw.githubusercontent.com/lindaDougherty567/binary/44218a6b0b906494dab4cf2b547e48f9b4d5de8d/files/php_armv8a.zip",
-            "gitlab": "https://gitlab.com/ccfork/binary/-/raw/3ec029a37bc2b9515d245b2500a32867434f7e3a/files/php_armv8a.zip"
-          }
         },
         {
-          "arch": "armeabi-v7a",
-          "version": "7.3.22",
-          "url": "https://hhy.sogoucdn.com/wsbff/wsbaike/2025121313/5d66d880-d7e1-11f0-9c92-bb466718b950.jpeg",
-          "size": "14.8 MB",
-          "mirrors": {
-            "github": "https://github.com/example/php/releases/download/php-android-armeabi-v7a.tar.gz",
-            "gitlab": "https://gitlab.example.com/php/php-android-armeabi-v7a.tar.gz"
-          }
-        }
-      ]
-    },
-    {
-      "name": "python",
-      "group": "runtime",
-      "version": "3.12",
-      "icon": "https://img.icons8.com/?size=240&id=13441&format=png&color=000000",
-      "auto_install": false,
-      "available": true,
-      "show": true,
-      "info": "Python静态编译版本，适用于Android ARM架构",
-      "binary_path": "bin/python3",
-      "var_path": {
-        "PATH": "bin",
-        "LD_LIBRARY_PATH": "lib",
-        "PYTHONHOME": ".",
-        "PYTHONPATH": "lib/python3.12/site-packages"
-      },
-      "commands": [
-        {
+          "id": "python_version",
+          "name": "查看 Python3 版本",
           "auto_execute": false,
-          "background": false,
           "command": "python3 --version",
-          "description": "显示 Python 版本信息",
-          "id": "version",
-          "name": "查看版本",
           "show_output": true
-        },
-        {
-          "auto_execute": false,
-          "background": false,
-          "command": "python3 -m pip list",
-          "description": "列出已安装的第三方模块",
-          "id": "pip_list",
-          "name": "查看模块",
-          "show_output": true
-        },
-        {
-          "auto_execute": false,
-          "background": false,
-          "command": "python3 -m pip install {package}",
-          "description": "使用 pip 安装的 Python 模块",
-          "id": "pip_install",
-          "name": "安装模块",
-          "show_output": true,
-          "variables": [
-            {
-              "default": "requests",
-              "hint": "请输入要安装的模块名称，如 requests、httpx",
-              "key": "package",
-              "name": "名称",
-              "required": true,
-              "type": "text"
-            }
-          ]
-        },
-        {
-          "auto_execute": false,
-          "background": false,
-          "command": "python3 -m pip uninstall {package} -y",
-          "description": "使用 pip 卸载的 Python 模块",
-          "id": "pip_uninstall",
-          "name": "卸载模块",
-          "show_output": true,
-          "variables": [
-            {
-              "default": "",
-              "hint": "请输入要卸载的模块名称",
-              "key": "package",
-              "name": "名称",
-              "required": true,
-              "type": "text"
-            }
-          ]
-        },
-        {
-          "auto_execute": false,
-          "background": false,
-          "command": "python3 -m pip install --upgrade {package}",
-          "description": "升级的 Python 模块到最新版本",
-          "id": "pip_upgrade",
-          "name": "升级模块",
-          "show_output": true,
-          "variables": [
-            {
-              "default": "pip",
-              "hint": "请输入要升级的模块名称，默认升级 pip 自身",
-              "key": "package",
-              "name": "名称",
-              "required": true,
-              "type": "text"
-            }
-          ]
-        },
-        {
-          "auto_execute": false,
-          "background": false,
-          "command": "python3 {script_path}",
-          "description": "运行的 Python 脚本",
-          "id": "run_script",
-          "name": "运行脚本",
-          "show_output": true,
-          "variables": [
-            {
-              "default": "/storage/emulated/0/",
-              "filter": "*.py",
-              "hint": "请选择要运行的 .py 脚本",
-              "key": "script_path",
-              "name": "脚本路径",
-              "required": true,
-              "type": "file"
-            }
-          ]
-        },
-        {
-          "auto_execute": false,
-          "background": true,
-          "command": "python3 -m http.server {port} --directory {root_dir}",
-          "description": "启动一个临时的 HTTP 文件服务器",
-          "id": "http_server",
-          "name": "HTTP 文件服务器",
-          "show_output": true,
-          "variables": [
-            {
-              "default": "8080",
-              "hint": "HTTP 服务器监听端口",
-              "key": "port",
-              "max": 65535,
-              "min": 1024,
-              "name": "端口号",
-              "required": true,
-              "type": "number"
-            },
-            {
-              "default": "/storage/emulated/0/",
-              "hint": "要共享的根目录",
-              "key": "root_dir",
-              "name": "根目录",
-              "required": true,
-              "type": "directory"
-            }
-          ]
-        }
-      ],
-      "downloads": [
-        {
-          "arch": "arm64-v8a",
-          "url": "https://raw.githubusercontent.com/ecocoinsch/files/5bdafa2ff1a599b221d54426c99fcb3de7a46835/python-3.12.12-arm64.7z",
-          "size": "12.1 MB",
-          "mirrors": {
-            "other": "https://yydf.540734621.xyz/ejz/python-3.12.12-arm64.zip"
-          },
-          "version": "3.12"
         }
       ]
     },
     {
       "name": "nodejs",
+      "runtime": "ubuntu",
       "group": "runtime",
-      "cmd_name": "node",
-      "version": "25.2.1",
       "icon": "https://img.icons8.com/?size=240&id=hsPbhkOH4FMe&format=png&color=000000",
+      "info": "在 Ubuntu Rootfs 中独立安装并运行 Node.js（版本 24.x LTS）。",
+      "show": true,
+      "version": "24.19.0",
       "auto_install": false,
       "available": true,
-      "show": true,
-      "info": "Node.js静态编译版本，适用于Android ARM架构",
-      "binary_path": "bin/node",
-      "var_path": {
-        "LD_LIBRARY_PATH": "lib",
-        "OPENSSL_CONF": "/dev/null",
-        "NODE_PATH": "lib/node_modules"
+      "downloads": [],
+      "install": {
+        "check_command": "test -f '{package_dir}/.installed' && command -v node >/dev/null 2>&1",
+        "command": "export DEBIAN_FRONTEND=noninteractive; apt-get update && apt-get install -y curl && curl -fsSL https://deb.nodesource.com/setup_24.x | bash - && apt-get install -y nodejs && npm install -g npm@latest && touch '{package_dir}/.installed'",
+        "mode": "terminal",
+        "uninstall_command": "export DEBIAN_FRONTEND=noninteractive; __p=$(dpkg -l 2>/dev/null | awk '$1 ~ /^i/ || $1==\"rc\" {print $2}' | grep -E '^node' | tr '\\n' ' '); echo \"[lab] 待卸载 node 包: ${__p:-（无）}\"; [ -n \"$__p\" ] && apt-get purge -y $__p; apt-get autoremove -y; rm -f /etc/apt/sources.list.d/nodesource.list /etc/apt/sources.list.d/nodesource.sources /etc/apt/keyrings/nodesource.gpg /usr/share/keyrings/nodesource.gpg; rm -rf /usr/lib/node_modules /usr/local/lib/node_modules /root/.npm /root/.node-gyp; rm -f '{package_dir}/.installed'; if command -v node >/dev/null 2>&1; then echo '[lab] node 仍在 rootfs，卸载未完成'; false; else echo '[lab] node 已从 rootfs 移除'; true; fi",
+        "reset_command": "export DEBIAN_FRONTEND=noninteractive; __p=$(dpkg -l 2>/dev/null | awk '$1 ~ /^i/ || $1==\"rc\" {print $2}' | grep -E '^node' | tr '\\n' ' '); [ -n \"$__p\" ] && apt-get purge -y $__p; apt-get autoremove -y >/dev/null 2>&1; rm -f '{package_dir}/.installed'; true"
       },
       "commands": [
         {
-          "id": "version",
-          "name": "查看版本",
-          "description": "显示 Node.js 版本信息",
-          "command": "node -v",
+          "id": "node_server",
+          "name": "启动 Node.js Web服务",
           "auto_execute": false,
-          "show_output": true
-        },
-        {
-          "id": "list_modules",
-          "name": "查看模块",
-          "description": "列出已安装的 Node.js 模块",
-          "command": "node -e \"require('fs').readdirSync('{envRootPath}/lib/node_modules').forEach(m => console.log(m))\"",
-          "auto_execute": false,
-          "show_output": true
-        },
-        {
-          "id": "run_script",
-          "name": "运行脚本",
-          "description": "执行指定的 JavaScript 脚本",
-          "command": "node {script_path}",
-          "auto_execute": false,
+          "background": true,
           "show_output": true,
+          "check_command": "pgrep -f '[n]ode_server.js'",
+          "command": "node {www_dir}/node_server.js --port {server} --root '{www_dir}' --max-old-space-size {memory_limit}",
+          "stop_command": "pkill -f '[n]ode_server.js' 2>/dev/null; fuser -k {server}/tcp 2>/dev/null; exit 0",
           "variables": [
             {
-              "key": "script_path",
-              "name": "脚本路径",
-              "type": "file",
-              "default": "",
-              "hint": "选择要执行的 JS 脚本",
-              "required": true,
-              "filter": "*.js"
-            }
-          ]
-        },
-        {
-          "id": "t4_proxy",
-          "name": "T4代理服务器",
-          "description": "启动 Spider API Type 4 代理服务器，支持将壳子当前的所有数据(py,php,js,jar以及t1和t4)暴露为T4接口",
-          "command": "node {sdcard}/WebHTV/Proxy/T4Proxy.js --port {port}",
-          "auto_execute": false,
-          "show_output": false,
-          "download": {
-            "title": "脚本地址",
-            "url": "https://raw.githubusercontent.com/ecocoinsch/files/bc6e339038fd186b80b33a25de2c261c1c580fc2/T4Proxy.js",
-            "save_to": "{sdcard}/WebHTV/Proxy/T4Proxy.js",
-            "check_file": "Proxy/T4Proxy.js",
-            "size": "JS脚本"
-          },
-          "variables": [
-            {
-              "key": "port",
+              "key": "server",
               "name": "端口号",
               "type": "number",
-              "default": "10998",
+              "default": 8903,
               "hint": "服务器监听端口",
               "required": true,
               "min": 1024,
               "max": 65535
-            }
-          ],
-          "clicks": [
-            {
-              "title": "配置接口",
-              "action": "webview",
-              "value": "http://0.0.0.0:{port}?ac=config",
-              "style": "dialog",
-              "content": "查看所有站源配置"
             },
             {
-              "title": "接口文档",
-              "action": "alert",
-              "value": "T4代理接口说明：\n\n• 配置接口: /?ac=config\n• 首页接口: /站源key\n• 分类接口: /站源key?t=分类ID&pg=页码\n• 详情接口: /站源key?ids=视频ID\n• 搜索接口: /站源key?wd=关键词&pg=页码\n• 播放接口: /站源key?flag=播放源&id=播放ID\n\n提示：ac参数可省略，系统会自动识别接口类型\n筛选参数：area=地区&year=年份&type=类型&class=剧情&lang=语言",
-              "content": "详细接口说明"
-            },
-            {
-              "title": "打开首页",
-              "action": "open",
-              "value": "http://0.0.0.0:{port}"
-            },
-            {
-              "title": "生成二维码",
-              "action": "qrcode",
-              "value": "http://0.0.0.0:{port}?ac=config",
-              "content": "扫码访问配置接口"
-            },
-            {
-              "title": "复制地址",
-              "action": "copy",
-              "value": "http://0.0.0.0:{port}"
-            }
-          ]
-        },
-        {
-          "id": "dz_drpy_node",
-          "name": "道长Drpy一键运行",
-          "description": "啥都不说了,内置一堆源,运行后复制配置到设置点播中粘贴即可",
-          "command": "node {sdcard}/WebHTV/drpy_node/index.js",
-          "auto_execute": false,
-          "show_output": true,
-          "min_version": 110,
-          "clicks": [
-            {
-              "title": "复制配置",
-              "action": "copy",
-              "value": "http://127.0.0.1:5757/config/1"
-            }
-          ],
-          "download": {
-            "title": "下载地址",
-            "url": "https://git-proxy.playdreamer.cn/hjdhnx/drpy-node/releases/download/V1.3.24/drpy-node-20260214.7z",
-            "extract_to": "drpy_node",
-            "check_file": "drpy_node/index.js",
-            "size": "25Mb",
-            "mirrors": {
-              "github": "https://github.com/hjdhnx/drpy-node/releases/download/V1.3.24/drpy-node-20260214.7z"
-            }
-          }
-        },
-        {
-          "id": "mtranserver_server",
-          "name": "MTranServer 翻译服务",
-          "description": "启动内置中/英/日/韩模型的离线翻译服务。目录由实验室 mkdir 字段创建；访问令牌在运行命令时填写。",
-          "command": "env HOME={sdcard}/WebHTV/mtranserver NODE_ENV=production NODE_OPTIONS=--max-old-space-size=512 MT_CHECK_UPDATE=false node {sdcard}/WebHTV/mtranserver/dist/main.js --host 0.0.0.0 --port 8989 --model-dir {sdcard}/WebHTV/mtranserver/data/models/default --config-dir {sdcard}/WebHTV/mtranserver/data/config --log-dir {sdcard}/WebHTV/mtranserver/data/logs --worker-idle-timeout 60 --workers-per-language 1 --api-token {api_token} --no-check-update --log-level info",
-          "auto_execute": false,
-          "background": true,
-          "show_output": true,
-          "download": {
-            "title": "MTranServer包",
-            "url": "http://127.0.0.1:{serverPort}/file/WebHTV/EnvFiles/mtranserver-lab-4.0.33.zip",
-            "extract_to": "mtranserver",
-            "check_file": "mtranserver/data/models/default/zh-Hans_en/model.zhen.intgemm.alphas.bin",
-            "size": "228.97 MB"
-          },
-          "clicks": [
-            {
-              "title": "复制API",
-              "action": "copy",
-              "value": "http://0.0.0.0:8989/translate"
-            },
-            {
-              "title": "打开WebUI",
-              "action": "open",
-              "value": "http://localhost:8989/ui/"
-            },
-            {
-              "title": "健康检查",
-              "action": "open",
-              "value": "http://localhost:8989/health"
-            },
-            {
-              "title": "使用说明",
-              "action": "alert",
-              "value": "服务已内置中/英/日/韩常用模型，不需要首次在线下载这些模型。\nWeb UI 如提示 Unauthorized，请在页面设置/API Token 中保存同一访问令牌。\n服务监听：http://0.0.0.0:8989\n本机访问：http://localhost:8989\n局域网访问：请使用手机当前局域网 IP 的 8989 端口\n翻译接口：http://0.0.0.0:8989/translate\n日/韩与中文互译会自动经英文中转。",
-              "content": "MTranServer 翻译服务"
-            }
-          ],
-          "variables": [
-            {
-              "key": "api_token",
-              "name": "访问令牌",
-              "type": "text",
-              "default": "mtran-local-token",
-              "hint": "用于请求 MTranServer API；Web UI 也要保存同一 token",
+              "key": "www_dir",
+              "name": "Web根目录",
+              "type": "directory",
+              "default": "/storage/emulated/0/WebHTV/wwwroot",
+              "hint": "静态文件目录",
               "required": true
+            },
+            {
+              "key": "memory_limit",
+              "name": "内存占用大小",
+              "type": "number",
+              "default": 1024,
+              "hint": "内存限制(MB)",
+              "required": true,
+              "min": 8,
+              "max": 2048
             }
           ]
-        }
-      ],
-      "downloads": [
+        },
         {
-          "arch": "arm64-v8a",
-          "url": "https://hhy.sogoucdn.com/wsbff/wsbaike/2025121522/59272e10-d9c5-11f0-a324-93ba524b5e23.jpeg",
-          "liburl": "https://hhy.sogoucdn.com/wsbff/wsbaike/2025121522/5a4b14a0-d9c5-11f0-9c92-bb466718b950.jpeg",
-          "size": "68.5 MB",
-          "mirrors": {
-            "github": "https://raw.githubusercontent.com/lindaDougherty567/binary/65daf34a660d3f36f0744ac8370711155081d8b4/files/nodejs_armv8a.zip",
-            "gitlab": "https://gitlab.com/ccfork/binary/-/raw/88937096341e6e053fc31c6d78a9d7c625951833/files/nodejs_armv8a.zip"
-          }
+          "id": "node_version",
+          "name": "查看 Node.js 版本",
+          "auto_execute": false,
+          "command": "node --version && npm --version",
+          "show_output": true
         }
-      ],
-      "mkdir": [
-        "{sdcard}/WebHTV/mtranserver/data/models/default",
-        "{sdcard}/WebHTV/mtranserver/data/config",
-        "{sdcard}/WebHTV/mtranserver/data/logs"
       ]
     },
     {
-      "name": "alist",
-      "group": "tools",
-      "version": "3.45.0",
-      "icon": "https://wsrv.nl/?url=https://alist.nn.ci/logo.svg&w=240&h=240&output=png",
+      "name": "Ubuntu终端",
+      "runtime": "ubuntu",
+      "group": "terminal",
+      "version": "24.04",
+      "icon": "https://img.icons8.com/color/240/ubuntu.png",
+      "info": "不执行下载安装，进入详情后直接附着独立 Ubuntu 终端。",
       "auto_install": false,
-      "available": true,
+      "install_required": false,
+      "terminal_auto_open": true,
       "show": true,
+      "available": true,
+      "commands": [],
+      "downloads": []
+    },
+    {
+      "name": "alist",
+      "runtime": "ubuntu",
+      "group": "tools",
+      "version": "3.63.0",
+      "icon": "https://wsrv.nl/?url=https://alist.nn.ci/logo.svg&w=240&h=240&output=png",
       "info": "一个支持多种存储的文件列表程序，支持阿里云盘、百度网盘、OneDrive等",
-      "binary_path": "alist",
-      "var_path": {},
+      "auto_install": false,
+      "install_required": false,
+      "show": true,
+      "available": true,
+      "downloads": [],
       "commands": [
         {
-          "id": "version",
-          "name": "查看版本",
-          "description": "显示 AList 版本信息",
-          "command": "alist version",
+          "id": "init_server",
+          "name": "第一步：初始化(必须)",
+          "description": "创建 /boot/alist/目录并拷贝alist二进制到私目录/alist/，给予可执行权限，为后续运行做准备！",
+          "command": "mkdir -p /boot/alist/ && cp {src_path} /boot/alist/alist && cd /boot/alist/ && chmod +x alist",
           "auto_execute": false,
-          "show_output": true
+          "show_output": true,
+          "variables": [
+            {
+              "key": "src_path",
+              "name": "alist文件路径",
+              "type": "file",
+              "default": "/storage/emulated/0/WebHTV/EnvFiles/alist",
+              "hint": "选择 alist 二进制文件",
+              "required": true,
+              "filter": "*"
+            }
+          ]
         },
         {
           "id": "server",
-          "name": "启动服务",
+          "name": "第二步：启动服务",
           "description": "启动 AList 文件服务器",
-          "command": "alist server --data {data_dir}",
-          "auto_execute": true,
+          "command": "cd /boot/alist/ && ./alist server --data {data_dir}",
+          "check_command": "pgrep -f '[a]list server'",
+          "stop_command": "pkill -f '[a]list server' 2>/dev/null; fuser -k 5244/tcp 2>/dev/null; exit 0",
+          "auto_execute": false,
           "show_output": false,
+          "background": true,
           "variables": [
             {
               "key": "data_dir",
               "name": "数据目录",
               "type": "directory",
-              "default": "{dataPath}",
+              "default": "/storage/emulated/0/WebHTV/EnvFiles/config/alist/",
               "hint": "AList 数据存储目录",
               "required": true
             }
@@ -629,27 +301,27 @@
             {
               "title": "浏览首页",
               "action": "webview",
-              "value": "http://0.0.0.0:5244",
+              "value": "http://127.0.0.1:5244",
               "style": "dialog"
             },
             {
               "title": "后台管理",
               "action": "webview",
-              "value": "http://0.0.0.0:5244/@manage",
+              "value": "http://127.0.0.1:5244/@manage",
               "style": "dialog"
             },
             {
               "title": "复制地址",
               "action": "copy",
-              "value": "http://0.0.0.0:5244"
+              "value": "http://127.0.0.1:5244"
             }
           ]
         },
         {
           "id": "admin",
-          "name": "设置密码",
+          "name": "设置管理员密码",
           "description": "设置管理员密码",
-          "command": "alist admin set {password} --data {data_dir}",
+          "command": "/boot/alist/alist admin set {password} --data {data_dir}",
           "auto_execute": false,
           "show_output": true,
           "variables": [
@@ -665,7 +337,7 @@
               "key": "data_dir",
               "name": "数据目录",
               "type": "directory",
-              "default": "{dataPath}",
+              "default": "/storage/emulated/0/WebHTV/EnvFiles/config/alist/",
               "hint": "AList 数据存储目录",
               "required": true
             }
@@ -673,9 +345,9 @@
         },
         {
           "id": "random_pwd",
-          "name": "随机密码",
+          "name": "随机生成新密码",
           "description": "生成随机管理员密码",
-          "command": "alist admin random --data {data_dir}",
+          "command": "/boot/alist/alist admin random --data {data_dir}",
           "auto_execute": false,
           "show_output": true,
           "variables": [
@@ -683,7 +355,7 @@
               "key": "data_dir",
               "name": "数据目录",
               "type": "directory",
-              "default": "{dataPath}",
+              "default": "/storage/emulated/0/WebHTV/EnvFiles/config/alist/",
               "hint": "AList 数据存储目录",
               "required": true
             }
@@ -691,501 +363,608 @@
         },
         {
           "id": "config_port",
-          "name": "配置端口",
-          "description": "修改 AList 监听端口",
-          "command": "alist config set --port {port} --data {data_dir}",
+          "name": "修改配置端口(vi命令)",
+          "description": "修改 AList 配置文件config.json里的端口：\n\"scheme\": {\n    \"address\": \"0.0.0.0\",\n    \"http_port\": 5244,    // ← 就改这个数字}\n修改后操作说明：\n键盘的 方向键（↑↓←→） 移动光标到 \"http_port\": 5244 ，\n保存并退出（最常用） Esc → : → wq → 回车。\n只保存，不退出（继续编辑） Esc → : → w → 回车。\n强制保存并退出（权限不够时用） Esc → : → wq! → 回车。\n放弃修改，强制退出（改乱了想重来） Esc → : → q! → 回车。",
+          "command": "vi {data_dir}/config.json",
           "auto_execute": false,
           "show_output": true,
+          "variables": [
+            {
+              "key": "data_dir",
+              "name": "数据目录",
+              "type": "directory",
+              "default": "/storage/emulated/0/WebHTV/EnvFiles/config/alist/",
+              "hint": "AList 数据存储目录",
+              "required": true
+            }
+          ]
+        },
+        {
+          "id": "config_port2",
+          "name": "修改配置端口(nano命令)",
+          "description": "修改 AList 配置文件config.json里的端口：\n\"scheme\": {\n    \"address\": \"0.0.0.0\",\n    \"http_port\": 5244,    // ← 就改这个数字}\n修改后操作说明：\n键盘的 方向键（↑↓←→） 移动光标到 \"http_port\": 5244 ，\n这里保存并退出（最常用）: Ctrl+O → 回车 → Ctrl+X，\n直接退出（不保存） Ctrl+X → 屏幕提示是否保存时，按 N（No），\n搜索某个关键词 Ctrl+W，输入关键词（如 http_port），按回车跳转",
+          "command": "nano {data_dir}/config.json",
+          "auto_execute": false,
+          "show_output": true,
+          "variables": [
+            {
+              "key": "data_dir",
+              "name": "数据目录",
+              "type": "directory",
+              "default": "/storage/emulated/0/WebHTV/EnvFiles/config/alist/",
+              "hint": "AList 数据存储目录",
+              "required": true
+            }
+          ]
+        },
+        {
+          "id": "stop_alist",
+          "name": "停止 Alist 服务",
+          "description": "停止所有正在运行的 Alist 进程",
+          "command": "pkill -f '[a]list' 2>/dev/null && echo '✅ Alist 已停止' || echo '❌ 没有运行的 Alist 进程'; exit 0",
+          "auto_execute": false,
+          "show_output": true
+        },
+        {
+          "id": "version",
+          "name": "查看版本",
+          "description": "显示 AList 版本信息",
+          "command": "/boot/alist/alist version",
+          "auto_execute": false,
+          "show_output": true
+        },
+        {
+          "id": "help",
+          "name": "查看帮助",
+          "description": "显示 AList 帮助信息",
+          "command": "/boot/alist/alist help",
+          "auto_execute": false,
+          "show_output": true
+        }
+      ]
+    },
+    {
+      "name": "yt-dlp",
+      "runtime": "ubuntu",
+      "group": "tools",
+      "version": "2026.08.19",
+      "icon": "https://proxy.gitwarp.top/https://raw.githubusercontent.com/yydfys/icons/main/ytdlp.png",
+      "info": "yt-dlp 视频下载/解析服务。二进制位于 /storage/emulated/0/WebHTV/EnvFiles/yt-dlp/yt-dlp（用户自行放置），拷贝到 /root/yt-dlp 后启动 Python API 服务，提供视频信息查询、直链解析、下载接口。",
+      "mkdir": "/storage/emulated/0/WebHTV/EnvFiles/yt-dlp",
+      "auto_install": false,
+      "install_required": false,
+      "show": true,
+      "available": true,
+      "downloads": [],
+      "commands": [
+        {
+          "id": "init_ytdlp",
+          "name": "第一步：初始化(必须)",
+          "description": "拷贝 yt-dlp 二进制到 /root/yt-dlp 并生成 API 服务脚本",
+          "command": "mkdir -p /root/yt-dlp/ && cp /storage/emulated/0/WebHTV/EnvFiles/yt-dlp/yt-dlp /root/yt-dlp/yt-dlp && chmod +x /root/yt-dlp/yt-dlp && cat > /root/yt-dlp/ytdlp_api.py << 'PYEOF'\n#!/usr/bin/env python3\n# -*- coding: utf-8 -*-\n\"\"\"yt-dlp API service wrapper (with web panel)\"\"\"\nimport argparse, json, os, subprocess, urllib.parse\nfrom http.server import BaseHTTPRequestHandler, ThreadingHTTPServer\n\nYTDLP = os.environ.get(\"YTDLP_BIN\", \"/root/yt-dlp/yt-dlp\")\nDOWNLOAD_DIR = os.environ.get(\"YTDLP_DIR\", \"/storage/emulated/0/Download/yt-dlp\")\n\nFORMAT_ALIAS = {\n    \"best\": \"best\",\n    \"1080\": \"bestvideo[height<=1080]+bestaudio/best[height<=1080]\",\n    \"720\": \"bestvideo[height<=720]+bestaudio/best[height<=720]\",\n    \"480\": \"bestvideo[height<=480]+bestaudio/best[height<=480]\",\n    \"mp3\": \"bestaudio/best\",\n}\n\ndef run_ytdlp(args, timeout=120):\n    try:\n        p = subprocess.run([YTDLP]+args, capture_output=True, text=True, timeout=timeout)\n        return p.returncode, p.stdout, p.stderr\n    except subprocess.TimeoutExpired:\n        return -1, \"\", \"timeout\"\n    except FileNotFoundError:\n        return -2, \"\", \"yt-dlp not found\"\n\ndef do_info(url):\n    code, out, err = run_ytdlp([\"-J\", \"--no-playlist\", \"--skip-download\", url])\n    if code != 0:\n        return {\"ok\": False, \"error\": err.strip() or \"unknown\"}\n    try:\n        data = json.loads(out)\n    except Exception as e:\n        return {\"ok\": False, \"error\": f\"parse failed: {e}\"}\n    formats = []\n    seen = set()\n    for f in data.get(\"formats\", []):\n        h = f.get(\"height\") or 0\n        res = f\"{h}p\" if h else \"audio\"\n        key = (res, f.get(\"ext\", \"\"))\n        if key in seen:\n            continue\n        seen.add(key)\n        formats.append({\"id\": f.get(\"format_id\",\"\"), \"resolution\": res, \"ext\": f.get(\"ext\",\"\"), \"size\": f.get(\"filesize\") or f.get(\"filesize_approx\") or 0})\n    return {\"ok\": True, \"title\": data.get(\"title\",\"\"), \"duration\": data.get(\"duration\"), \"thumbnail\": data.get(\"thumbnail\",\"\"), \"uploader\": data.get(\"uploader\",\"\"), \"formats\": formats[:30]}\n\ndef do_play(url, fmt=\"best\"):\n    f = FORMAT_ALIAS.get(fmt, fmt)\n    code, out, err = run_ytdlp([\"-g\", \"--no-playlist\", \"-f\", f, url])\n    if code != 0:\n        return {\"ok\": False, \"error\": err.strip() or \"unknown\"}\n    lines = [l for l in out.strip().splitlines() if l.strip()]\n    if not lines:\n        return {\"ok\": False, \"error\": \"no url\"}\n    return {\"ok\": True, \"url\": lines[-1].strip()}\n\ndef do_download(url, fmt=\"best\"):\n    os.makedirs(DOWNLOAD_DIR, exist_ok=True)\n    f = FORMAT_ALIAS.get(fmt, fmt)\n    outtmpl = os.path.join(DOWNLOAD_DIR, \"%(title)s [%(id)s].%(ext)s\")\n    try:\n        p = subprocess.run([YTDLP, \"--no-playlist\", \"-f\", f, \"-o\", outtmpl, \"--newline\", \"--no-warnings\", url], capture_output=True, text=True, timeout=3600)\n    except subprocess.TimeoutExpired:\n        return {\"ok\": False, \"error\": \"download timeout\"}\n    except FileNotFoundError:\n        return {\"ok\": False, \"error\": \"yt-dlp not found\"}\n    tail = (p.stdout + \"\\n\" + p.stderr).strip().splitlines()[-15:]\n    if p.returncode == 0:\n        files = os.listdir(DOWNLOAD_DIR)\n        return {\"ok\": True, \"dir\": DOWNLOAD_DIR, \"files\": files, \"log\": tail}\n    return {\"ok\": False, \"error\": \"download failed\", \"log\": tail}\n\nPANEL_HTML = \"\"\"<!DOCTYPE html>\n<html lang=\"zh-CN\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n<title>yt-dlp 视频工具</title>\n<style>\n*{box-sizing:border-box;margin:0;padding:0}\nbody{font-family:-apple-system,BlinkMacSystemFont,\"Segoe UI\",Roboto,sans-serif;background:#0f172a;color:#e2e8f0;min-height:100vh;padding:16px}\n.card{max-width:720px;margin:0 auto;background:#1e293b;border-radius:16px;padding:20px;box-shadow:0 8px 30px rgba(0,0,0,.4)}\nh1{font-size:20px;margin-bottom:16px;display:flex;align-items:center;gap:8px}\nh1 span{background:#3b82f6;color:#fff;font-size:12px;padding:2px 8px;border-radius:10px}\nlabel{display:block;font-size:13px;color:#94a3b8;margin:12px 0 6px}\ninput[type=text]{width:100%;padding:12px;border-radius:10px;border:1px solid #334155;background:#0f172a;color:#e2e8f0;font-size:14px;outline:none}\ninput[type=text]:focus{border-color:#3b82f6}\nselect{width:100%;padding:12px;border-radius:10px;border:1px solid #334155;background:#0f172a;color:#e2e8f0;font-size:14px;margin-bottom:8px}\n.btns{display:flex;gap:10px;margin-top:14px;flex-wrap:wrap}\n.btn{flex:1;min-width:100px;padding:12px;border:none;border-radius:10px;font-size:15px;font-weight:600;cursor:pointer;color:#fff}\n.btn-info{background:#3b82f6}.btn-play{background:#22c55e}.btn-dl{background:#f59e0b}\n.btn:active{transform:scale(.97)}\n#result{margin-top:16px;background:#0f172a;border-radius:10px;padding:14px;font-size:13px;white-space:pre-wrap;word-break:break-all;max-height:420px;overflow:auto;display:none;line-height:1.6}\n#player{margin-top:16px;width:100%;border-radius:10px;display:none;background:#000}\n#direct{margin-top:10px;font-size:12px;color:#38bdf8;word-break:break-all;display:none;background:#0f172a;padding:10px;border-radius:8px}\n.status{font-size:13px;color:#94a3b8;margin-top:10px;min-height:18px}\n.ok{color:#4ade80}.err{color:#f87171}\n</style>\n</head>\n<body>\n<div class=\"card\">\n<h1>🎬 yt-dlp 视频工具 <span>v2026.08</span></h1>\n<label>视频地址</label>\n<input type=\"text\" id=\"url\" placeholder=\"粘贴视频链接，如 https://www.bilibili.com/video/BVxxx\">\n<label>清晰度 / 格式</label>\n<select id=\"fmt\">\n<option value=\"best\">最高画质 (best)</option>\n<option value=\"1080\">1080P</option>\n<option value=\"720\">720P</option>\n<option value=\"480\">480P</option>\n<option value=\"mp3\">仅音频 MP3</option>\n</select>\n<div class=\"btns\">\n<button class=\"btn btn-info\" onclick=\"doInfo()\">🔍 查询信息</button>\n<button class=\"btn btn-play\" onclick=\"doPlay()\">▶️ 在线播放</button>\n<button class=\"btn btn-dl\" onclick=\"doDownload()\">⬇️ 下载</button>\n</div>\n<div class=\"status\" id=\"status\"></div>\n<div id=\"result\"></div>\n<video id=\"player\" controls playsinline></video>\n<div id=\"direct\"></div>\n</div>\n<script>\nfunction $(id){return document.getElementById(id)}\nfunction setStatus(t,c){var s=$('status');s.textContent=t;s.className='status '+(c||'')}\nasync function api(path){\n  var r=await fetch(path);\n  return await r.json();\n}\nfunction showResult(obj){\n  var el=$('result');el.style.display='block';\n  if(obj.ok){\n    var lines=[];\n    lines.push('✅ '+obj.title||'');\n    if(obj.uploader) lines.push('👤 作者: '+obj.uploader);\n    if(obj.duration) lines.push('⏱ 时长: '+Math.floor(obj.duration/60)+'分'+Math.round(obj.duration%60)+'秒');\n    if(obj.formats&&obj.formats.length){\n      lines.push('📺 可用清晰度:');\n      obj.formats.forEach(function(f){lines.push('   '+f.resolution+' ['+f.ext+']'+(f.size?' ('+Math.round(f.size/1048576)+'MB)':''))});\n    }\n    el.innerHTML=lines.join('\\n');el.className='el ok';\n  } else {\n    el.innerHTML='❌ '+(obj.error||'失败');el.className='el err';\n  }\n}\nasync function doInfo(){\n  var u=$('url').value.trim();if(!u){setStatus('请输入视频地址','err');return}\n  setStatus('查询中…');$('player').style.display='none';$('direct').style.display='none';\n  try{\n    var d=await api('/api/info?url='+encodeURIComponent(u));\n    showResult(d);d.ok?setStatus('查询完成','ok'):setStatus('查询失败','err');\n  }catch(e){setStatus('请求失败: '+e,'err')}\n}\nasync function doPlay(){\n  var u=$('url').value.trim();if(!u){setStatus('请输入视频地址','err');return}\n  var f=$('fmt').value;\n  setStatus('解析播放链接中…');$('direct').style.display='none';\n  try{\n    var d=await api('/api/play?url='+encodeURIComponent(u)+'&format='+f);\n    if(d.ok){\n      var v=$('player');v.src=d.url;v.style.display='block';v.play().catch(function(){});\n      $('direct').textContent='直链: '+d.url;$('direct').style.display='block';\n      setStatus('✅ 已获取播放链接','ok');\n    } else {\n      $('player').style.display='none';setStatus('❌ '+(d.error||'解析失败'),'err');\n    }\n  }catch(e){setStatus('请求失败: '+e,'err')}\n}\nasync function doDownload(){\n  var u=$('url').value.trim();if(!u){setStatus('请输入视频地址','err');return}\n  var f=$('fmt').value;\n  setStatus('下载中… 大文件需要较长时间，请耐心等待');$('player').style.display='none';$('direct').style.display='none';\n  try{\n    var d=await api('/api/download?url='+encodeURIComponent(u)+'&format='+f);\n    if(d.ok){\n      var lines=['✅ 下载完成!','📁 目录: '+d.dir];\n      (d.files||[]).slice(-5).forEach(function(x){lines.push('   📄 '+x)});\n      $('result').style.display='block';$('result').innerHTML=lines.join('\\n');\n      setStatus('✅ 已保存到 '+d.dir,'ok');\n    } else {\n      setStatus('❌ 下载失败: '+(d.error||'未知'),'err');\n    }\n  }catch(e){setStatus('请求失败: '+e,'err')}\n}\n</script>\n</body>\n</html>\"\"\"\n\nclass Handler(BaseHTTPRequestHandler):\n    def log_message(self, *a): pass\n    def _send(self, obj, code=200):\n        body = json.dumps(obj, ensure_ascii=False).encode(\"utf-8\")\n        self.send_response(code)\n        self.send_header(\"Content-Type\", \"application/json; charset=utf-8\")\n        self.send_header(\"Content-Length\", str(len(body)))\n        self.send_header(\"Access-Control-Allow-Origin\", \"*\")\n        self.end_headers()\n        self.wfile.write(body)\n    def _send_html(self, html, code=200):\n        body = html.encode(\"utf-8\")\n        self.send_response(code)\n        self.send_header(\"Content-Type\", \"text/html; charset=utf-8\")\n        self.send_header(\"Content-Length\", str(len(body)))\n        self.end_headers()\n        self.wfile.write(body)\n    def do_GET(self):\n        parsed = urllib.parse.urlparse(self.path)\n        q = urllib.parse.parse_qs(parsed.query)\n        path = parsed.path.rstrip(\"/\")\n        if path == \"\" or path == \"/\":\n            self._send_html(PANEL_HTML)\n            return\n        if path == \"/api/health\":\n            ok = os.path.exists(YTDLP)\n            self._send({\"ok\": ok, \"ytdlp\": YTDLP, \"exists\": ok})\n            return\n        if path == \"/api/version\":\n            code, out, err = run_ytdlp([\"--version\"], timeout=30)\n            self._send({\"ok\": code == 0, \"version\": out.strip(), \"error\": err.strip()})\n            return\n        if path == \"/api/info\":\n            url = q.get(\"url\", [\"\"])[0]\n            if not url: self._send({\"ok\": False, \"error\": \"missing url\"}, 400); return\n            self._send(do_info(url))\n            return\n        if path == \"/api/play\":\n            url = q.get(\"url\", [\"\"])[0]\n            fmt = q.get(\"format\", [\"best\"])[0]\n            if not url: self._send({\"ok\": False, \"error\": \"missing url\"}, 400); return\n            self._send(do_play(url, fmt))\n            return\n        if path == \"/api/download\":\n            url = q.get(\"url\", [\"\"])[0]\n            fmt = q.get(\"format\", [\"best\"])[0]\n            if not url: self._send({\"ok\": False, \"error\": \"missing url\"}, 400); return\n            self._send(do_download(url, fmt))\n            return\n        self._send({\"ok\": False, \"error\": \"not found\", \"hint\": \"/api/health /api/version /api/info /api/play /api/download\"}, 404)\n\ndef main():\n    ap = argparse.ArgumentParser()\n    ap.add_argument(\"--port\", type=int, default=8898)\n    ap.add_argument(\"--host\", default=\"0.0.0.0\")\n    args = ap.parse_args()\n    srv = ThreadingHTTPServer((args.host, args.port), Handler)\n    print(f\"yt-dlp API listening on {args.host}:{args.port}\", flush=True)\n    srv.serve_forever()\n\nif __name__ == \"__main__\":\n    main()\nPYEOF\nchmod +x /root/yt-dlp/ytdlp_api.py && /root/yt-dlp/yt-dlp --version && echo \"yt-dlp init OK\"",
+          "auto_execute": false,
+          "show_output": true
+        },
+        {
+          "id": "run_ytdlp",
+          "name": "第二步：启动 API 服务",
+          "description": "启动 yt-dlp API 服务（后台运行，提供 /api/info /api/play /api/download；下载目录可在下方变量配置）",
+          "command": "cd /root/yt-dlp/ && YTDLP_DIR='{download_dir}' python3 /root/yt-dlp/ytdlp_api.py --port {port}",
+          "check_command": "pgrep -f '[y]tdlp_api.py'",
+          "stop_command": "pkill -f '[y]tdlp_api.py' 2>/dev/null; exit 0",
+          "auto_execute": false,
+          "show_output": false,
+          "background": true,
+          "min_version": 110,
+          "variables": [
+            {
+              "key": "download_dir",
+              "name": "下载目录",
+              "type": "directory",
+              "default": "/storage/emulated/0/Download/yt-dlp",
+              "hint": "视频下载保存目录（yt-dlp 下载文件存放位置）",
+              "required": true
+            },
+            {
+              "key": "port",
+              "name": "服务端口",
+              "type": "number",
+              "default": 8898,
+              "hint": "yt-dlp API 服务监听端口",
+              "required": true,
+              "min": 1024,
+              "max": 65535
+            }
+          ],
+          "clicks": [
+            {
+              "title": "🎬 打开工具面板",
+              "action": "webview",
+              "value": "http://127.0.0.1:{port}/",
+              "style": "dialog"
+            },
+            {
+              "title": "健康检查",
+              "action": "webview",
+              "value": "http://127.0.0.1:{port}/api/health",
+              "style": "dialog"
+            }
+          ]
+        },
+        {
+          "id": "kill_ytdlp",
+          "name": "🛑 停止 API 服务",
+          "description": "强制终止 yt-dlp API 服务进程",
+          "command": "pkill -f '[y]tdlp_api.py' 2>/dev/null; exit 0",
+          "auto_execute": false,
+          "show_output": true
+        },
+        {
+          "id": "version",
+          "name": "查看版本",
+          "description": "显示 yt-dlp 版本信息",
+          "command": "/root/yt-dlp/yt-dlp --version",
+          "auto_execute": false,
+          "show_output": true
+        },
+        {
+          "id": "help",
+          "name": "查看帮助",
+          "description": "显示 yt-dlp 帮助信息",
+          "command": "/root/yt-dlp/yt-dlp --help",
+          "auto_execute": false,
+          "show_output": true
+        }
+      ]
+    },
+    {
+      "name": "tgsou",
+      "runtime": "ubuntu",
+      "group": "tools",
+      "version": "9999",
+      "icon": "https://img.icons8.com/?size=240&id=63306&format=png&color=000000",
+      "info": "真心版TGSou，一个telegram资源搜索服务，启动服务，可以替代真心本地包lib/tgsou二进制本地文件，为影视壳子提供telegram资源搜索服务，需要将 http://127.0.0.1:端口 配置到真心本地包/json/peizhi.json.goServerUrl字段使用。",
+      "auto_install": false,
+      "install_required": false,
+      "show": true,
+      "available": true,
+      "downloads": [],
+      "commands": [
+        {
+          "id": "init_providers",
+          "name": "第一步：初始化(必须)",
+          "description": "创建 /boot/tgsou/目录并拷贝tgsou go二进制到私目录/tgsou，给予可执行权限，为后续运行做准备！",
+          "command": "mkdir -p /boot/tgsou/ && cp {src_path} /boot/tgsou/tgsou-go-linux-arm64 && cd /boot/tgsou/ && chmod +x tgsou-go-linux-arm64",
+          "auto_execute": false,
+          "show_output": true,
+          "variables": [
+            {
+              "key": "src_path",
+              "name": "tgsou-go-linux-arm64 文件路径",
+              "type": "file",
+              "default": "/storage/emulated/0/WebHTV/EnvFiles/tgsou-go-linux-arm64",
+              "hint": "选择 tgsou-go-linux-arm64 二进制文件",
+              "required": true,
+              "filter": "*"
+            }
+          ]
+        },
+        {
+          "id": "tgsou-go-linux-arm64",
+          "name": "第二步：启动TGSOU服务",
+          "description": "真心本地服务器tgsou GO版：tgsou-go-linux-arm64进程",
+          "command": "cd /boot/tgsou/ && ./tgsou-go-linux-arm64 --port {port} --proxy {proxy}",
+          "check_command": "fuser {port}/tcp 2>/dev/null | grep -q .",
+          "stop_command": "pkill -f '[t]gsou-go-linux-arm64' 2>/dev/null; fuser -k {port}/tcp 2>/dev/null; exit 0",
+          "auto_execute": false,
+          "show_output": true,
+          "background": true,
           "variables": [
             {
               "key": "port",
               "name": "端口号",
               "type": "number",
-              "default": "5244",
-              "hint": "AList 服务监听端口",
+              "default": 9977,
+              "hint": "服务监听端口",
               "required": true,
               "min": 1024,
               "max": 65535
             },
             {
-              "key": "data_dir",
-              "name": "数据目录",
-              "type": "directory",
-              "default": "{dataPath}",
-              "hint": "AList 数据存储目录",
+              "key": "proxy",
+              "name": "代理地址",
+              "type": "text",
+              "default": "http://127.0.0.1:7890",
+              "hint": "代理地址，默认http",
               "required": true
-            }
-          ]
-        }
-      ],
-      "downloads": [
-        {
-          "arch": "arm64-v8a",
-          "url": "https://github.com/ecocoinsch/files/raw/2a76ebe5efc47ff5432e6e93c6a00dbb894107f9/alist-android-arm64.7z",
-          "size": "21.9 MB",
-          "mirrors": {
-            "github": "https://github.com/ecocoinsch/files/raw/2a76ebe5efc47ff5432e6e93c6a00dbb894107f9/alist-android-arm64.7z"
-          }
-        },
-        {
-          "arch": "armeabi-v7a",
-          "version": "3.40.0",
-          "url": "https://github.com/ecocoinsch/files/raw/2a76ebe5efc47ff5432e6e93c6a00dbb894107f9/alist-android-arm.7z",
-          "size": "21.4 MB",
-          "mirrors": {
-            "github": "https://github.com/ecocoinsch/files/raw/2a76ebe5efc47ff5432e6e93c6a00dbb894107f9/alist-android-arm.7z"
-          }
-        }
-      ],
-      "cmd_name": "alist"
-    },
-    {
-      "name": "frp",
-      "group": "network",
-      "version": "0.67.0",
-      "icon": "https://p2.so.qhimg.com/t02329536615c28bc32.png",
-      "auto_install": false,
-      "mkdir": "{sdcard}/WebHTV/frp",
-      "available": true,
-      "show": true,
-      "info": "FRP 是一个专注于内网穿透的高性能的反向代理应用，支持 TCP、UDP、HTTP、HTTPS 等多种协议。可以将内网服务以安全、便捷的方式通过具有公网 IP 节点的中转暴露到公网。",
-      "binary_path": "bin/frpc",
-      "commands": [
-        {
-          "id": "version",
-          "name": "查看版本",
-          "description": "显示 FRP 客户端版本信息",
-          "command": "frpc -v",
-          "auto_execute": false,
-          "show_output": true
-        },
-        {
-          "id": "run_config",
-          "name": "启动客户端",
-          "description": "使用指定配置文件启动 FRP 客户端",
-          "command": "frpc -c {config_path}",
-          "auto_execute": false,
-          "show_output": false,
-          "variables": [
-            {
-              "key": "config_path",
-              "name": "配置文件",
-              "type": "file",
-              "default": "{sdcard}/WebHTV/frp/frpc.toml",
-              "hint": "选择 FRP 客户端配置文件",
-              "required": true,
-              "filter": "*.toml,*.ini"
             }
           ],
           "clicks": [
             {
-              "title": "配置说明",
-              "action": "alert",
-              "value": "FRP 配置文件示例：\n\n[common]\nserver_addr = 你的服务器IP\nserver_port = 7000\ntoken = 你的密钥\n\n[web]\ntype = http\nlocal_port = 8080\ncustom_domains = 你的域名",
-              "content": "请根据实际情况修改配置文件"
-            },
-            {
-              "title": "官方文档",
-              "action": "open",
-              "value": "https://gofrp.org/zh-cn/docs/"
-            }
-          ]
-        },
-        {
-          "id": "quick_http",
-          "name": "快速HTTP穿透",
-          "description": "快速配置HTTP内网穿透",
-          "command": "frpc http -s {server_addr}:{server_port} -t {token} -n {proxy_name} -l {local_port} -d {custom_domain}",
-          "auto_execute": false,
-          "show_output": false,
-          "variables": [
-            {
-              "key": "server_addr",
-              "name": "服务器地址",
-              "type": "text",
-              "default": "",
-              "hint": "FRP 服务器 IP 或域名",
-              "required": true
-            },
-            {
-              "key": "server_port",
-              "name": "服务器端口",
-              "type": "number",
-              "default": "7000",
-              "hint": "FRP 服务器端口",
-              "required": true,
-              "min": 1,
-              "max": 65535
-            },
-            {
-              "key": "token",
-              "name": "连接密钥",
-              "type": "text",
-              "default": "",
-              "hint": "服务器设置的 token",
-              "required": true
-            },
-            {
-              "key": "proxy_name",
-              "name": "代理名称",
-              "type": "text",
-              "default": "web",
-              "hint": "代理服务的名称",
-              "required": true
-            },
-            {
-              "key": "local_port",
-              "name": "本地端口",
-              "type": "number",
-              "default": "8080",
-              "hint": "本地服务端口",
-              "required": true,
-              "min": 1,
-              "max": 65535
-            },
-            {
-              "key": "custom_domain",
-              "name": "自定义域名",
-              "type": "text",
-              "default": "",
-              "hint": "访问的域名（可选）",
-              "required": false
-            }
-          ],
-          "clicks": [
-            {
-              "title": "使用提示",
-              "action": "toast",
-              "value": "HTTP穿透已启动，请通过服务器配置的域名访问"
-            }
-          ]
-        },
-        {
-          "id": "quick_tcp",
-          "name": "快速TCP穿透",
-          "description": "快速配置TCP内网穿透",
-          "command": "frpc tcp -s {server_addr}:{server_port} -t {token} -n {proxy_name} -l {local_port} -r {remote_port}",
-          "auto_execute": false,
-          "show_output": false,
-          "variables": [
-            {
-              "key": "server_addr",
-              "name": "服务器地址",
-              "type": "text",
-              "default": "",
-              "hint": "FRP 服务器 IP 或域名",
-              "required": true
-            },
-            {
-              "key": "server_port",
-              "name": "服务器端口",
-              "type": "number",
-              "default": "7000",
-              "hint": "FRP 服务器端口",
-              "required": true,
-              "min": 1,
-              "max": 65535
-            },
-            {
-              "key": "token",
-              "name": "连接密钥",
-              "type": "text",
-              "default": "",
-              "hint": "服务器设置的 token",
-              "required": true
-            },
-            {
-              "key": "proxy_name",
-              "name": "代理名称",
-              "type": "text",
-              "default": "ssh",
-              "hint": "代理服务的名称",
-              "required": true
-            },
-            {
-              "key": "local_port",
-              "name": "本地端口",
-              "type": "number",
-              "default": "22",
-              "hint": "本地服务端口",
-              "required": true,
-              "min": 1,
-              "max": 65535
-            },
-            {
-              "key": "remote_port",
-              "name": "远程端口",
-              "type": "number",
-              "default": "6000",
-              "hint": "服务器映射的端口",
-              "required": true,
-              "min": 1,
-              "max": 65535
-            }
-          ],
-          "clicks": [
-            {
-              "title": "连接信息",
-              "action": "alert",
-              "value": "TCP穿透已启动\n\n访问地址：{server_addr}:{remote_port}\n本地端口：{local_port}",
-              "content": "请使用上述地址访问本地服务"
-            },
-            {
-              "title": "复制地址",
-              "action": "copy",
-              "value": "{server_addr}:{remote_port}"
-            }
-          ]
-        },
-        {
-          "id": "quick_app_service",
-          "name": "穿透应用服务",
-          "description": "快速穿透应用内置的HTTP服务（默认9978端口）",
-          "command": "frpc http -s {server_addr}:{server_port} -t {token} -n webhtv_service -l 9978 -d {custom_domain}",
-          "auto_execute": false,
-          "show_output": false,
-          "variables": [
-            {
-              "key": "server_addr",
-              "name": "服务器地址",
-              "type": "text",
-              "default": "",
-              "hint": "FRP 服务器 IP 或域名",
-              "required": true
-            },
-            {
-              "key": "server_port",
-              "name": "服务器端口",
-              "type": "number",
-              "default": "7000",
-              "hint": "FRP 服务器端口",
-              "required": true,
-              "min": 1,
-              "max": 65535
-            },
-            {
-              "key": "token",
-              "name": "连接密钥",
-              "type": "text",
-              "default": "",
-              "hint": "服务器设置的 token",
-              "required": true
-            },
-            {
-              "key": "custom_domain",
-              "name": "自定义域名",
-              "type": "text",
-              "default": "",
-              "hint": "访问的域名（可选）",
-              "required": false
-            }
-          ],
-          "clicks": [
-            {
-              "title": "访问地址",
-              "action": "alert",
-              "value": "应用服务穿透已启动\n\n本地端口：9978\n访问域名：{custom_domain}\n\n可通过公网访问以下接口：\n• VOD API: /vod/api\n• Spider API: /spider\n• 代理服务: /proxy",
-              "content": "请通过配置的域名访问应用服务"
-            },
-            {
-              "title": "复制域名",
-              "action": "copy",
-              "value": "{custom_domain}"
-            },
-            {
-              "title": "测试连接",
               "action": "webview",
-              "value": "http://{custom_domain}/vod/api?ac=site",
+              "height": 0,
               "style": "dialog",
-              "content": "测试VOD API接口"
+              "title": "查看goServerUrl服务器",
+              "value": "http://127.0.0.1:{port}/captured",
+              "width": 0
             },
             {
-              "title": "使用说明",
+              "title": "复制goServerUrl服务器",
+              "action": "copy",
+              "value": "http://127.0.0.1:{port}"
+            },
+            {
               "action": "alert",
-              "value": "应用服务穿透说明：\n\n1. 确保应用内置HTTP服务已启动\n2. 本地端口固定为9978\n3. 穿透后可通过公网访问应用的所有API接口\n4. 建议配置自定义域名以便访问\n\n注意：请确保服务器防火墙已开放相应端口",
-              "content": "详细使用说明"
+              "title": "📱 使用说明",
+              "value": "【真心GO服务器使用说明】\n\n① 启动服务：\n   直接点击上方「运行」按钮启动\n\n② 查看goServerUrl服务器：\n   • 点击「查看goServerUrl服务器」网页查看\n\n③ 查看goServerUrl服务器：\n• 点击「复制goServerUrl服务器」\n复制服务器地址，去真心本地包json/peizhi.json填入：goServerUrl地址",
+              "height": 0,
+              "width": 0
             }
           ]
         },
         {
-          "id": "help",
-          "name": "查看帮助",
-          "description": "显示 FRP 客户端帮助信息",
-          "command": "frpc -h",
+          "id": "kill_tgsou-go-linux-arm64",
+          "name": "🛑 停止 真心TGSou 服务",
+          "description": "强制终止所有名为：tgsou-go-linux-arm64 的进程，停止tgsou服务！",
+          "command": "fuser -k 9977/tcp 2>/dev/null; pkill -f '[t]gsou-go-linux-arm64' 2>/dev/null; sleep 1; if fuser 9977/tcp 2>/dev/null | grep -q .; then echo '⚠️ 仍在运行'; else echo '✅ 已停止，9977 端口已释放'; fi; exit 0",
           "auto_execute": false,
           "show_output": true
         }
-      ],
-      "downloads": [
-        {
-          "arch": "arm64-v8a",
-          "url": "https://github.com/ecocoinsch/files/raw/2a76ebe5efc47ff5432e6e93c6a00dbb894107f9/frp_0.67.0_android_arm64.7z",
-          "size": "4.32 MB",
-          "mirrors": {
-            "other": "https://yydf.540734621.xyz/ejz/frp_0.67.0_android_arm64.zip"
-          },
-          "version": "0.67.0"
-        }
-      ],
-      "cmd_name": "frp"
+      ]
     },
     {
-      "name": "aria2",
-      "group": "network",
-      "version": "1.37.0",
-      "icon": "https://wsrv.nl/?url=https://store-images.s-microsoft.com/image/apps.11619.14635839640377203.9a7358e8-a286-4e0f-964a-606f3d488405.9df10642-71e6-4181-98b9-e96899a98b92&w=240&h=240&output=png",
+      "name": "tgautodown",
+      "runtime": "ubuntu",
+      "group": "tools",
+      "version": "1.1.0",
+      "icon": "https://img.icons8.com/?size=240&id=63306&format=png&color=000000",
+      "info": "一款用于下载TG上视频、音乐、图片、文档、磁力链的TG机器人；只需将所需的资源转发给机器人，机器人会自动完成下载，并且会在完成后回复消息通知你。",
       "auto_install": false,
-      "mkdir": "{sdcard}/WebHTV/aria2",
-      "available": true,
+      "install_required": false,
       "show": true,
-      "info": "一个轻量级的多协议多源命令行下载工具，支持HTTP/HTTPS、FTP、SFTP、BitTorrent和Metalink",
-      "binary_path": "bin/aria2c",
-      "var_path": {
-        "ARIA2_DATA": "{dataPath}/aria2",
-        "ARIA2_SESSION": "{dataPath}/aria2/session.dat",
-        "ARIA2_LOG": "{dataPath}/logs/aria2.log"
-      },
+      "available": true,
+      "downloads": [],
       "commands": [
         {
-          "id": "rpc_server",
-          "name": "启动RPC服务",
-          "description": "启动aria2 RPC服务，支持远程管理，会保留运行状态",
-          "command": "aria2c --enable-rpc --rpc-listen-all=true --rpc-listen-port={port} --rpc-secret={secret} -d {download_dir} --input-file={session_file} --save-session={session_file} --save-session-interval=60 --continue=true --max-connection-per-server=16 --split=16 --min-split-size=1M --console-log-level=warn --summary-interval=0",
+          "id": "init_server",
+          "name": "🎵第一步：TG音乐转存初始化(必须)",
+          "description": "创建 /boot/tgautodown/目录并克隆项目并编译二进制文件，给予可执行权限，为后续运行做准备！",
+          "command": "export http_proxy={proxy_addr} https_proxy={proxy_addr}; mkdir -p /boot/tgautodown/ && cd /boot/tgautodown/; if command -v git >/dev/null 2>&1; then echo 'git already installed'; else apt -o Acquire::http::Proxy={proxy_addr} -o Acquire::https::Proxy={proxy_addr} update && apt -o Acquire::http::Proxy={proxy_addr} -o Acquire::https::Proxy={proxy_addr} install -y git; fi; REQUIRED_GO_VERSION=1.23.4; if command -v go >/dev/null 2>&1; then CURRENT_GO_VERSION=$(go version | awk '{print $3}' | sed 's/go//'); if dpkg --compare-versions \"$CURRENT_GO_VERSION\" ge \"$REQUIRED_GO_VERSION\"; then echo 'go version OK'; else echo 'go version too old, installing new'; apt remove -y golang-go golang-1.22 golang-src golang-doc 2>/dev/null || true; INSTALL_GO=true; fi; else echo 'go not installed'; INSTALL_GO=true; fi; if [ \"$INSTALL_GO\" = true ]; then ARCH=$(uname -m); case $ARCH in x86_64) GOARCH=amd64;; aarch64) GOARCH=arm64;; armv7l|armv8l) GOARCH=armv6l;; *) echo 'Unsupported arch'; exit 1;; esac; GO_VERSION=1.23.4; URL=https://go.dev/dl/go${GO_VERSION}.linux-${GOARCH}.tar.gz; if command -v wget >/dev/null 2>&1; then wget -O /tmp/go.tar.gz \"$URL\"; elif command -v curl >/dev/null 2>&1; then curl -L \"$URL\" -o /tmp/go.tar.gz; else echo 'Need wget or curl'; exit 1; fi; rm -rf /usr/local/go; tar -C /usr/local -xzf /tmp/go.tar.gz; export PATH=/usr/local/go/bin:$PATH; fi; rm -rf tgautodown && git clone https://github.com/nasbump/tgautodown.git && cd tgautodown && export CGO_ENABLED=0 && export GOPROXY=https://goproxy.cn,direct && go build -o tgautodown . && chmod +x tgautodown",
+          "auto_execute": false,
+          "show_output": true,
+          "variables": [
+            {
+              "key": "proxy_addr",
+              "name": "HTTP代理地址",
+              "type": "text",
+              "default": "http://127.0.0.1:7890",
+              "hint": "格式: http://IP:端口 (留空则直连，但apt不支持socks5，请使用http代理)",
+              "required": false
+            }
+          ]
+        },
+        {
+          "id": "tgautodown",
+          "name": "🎵第二步：TG音乐转存本地器",
+          "description": "启动服务（前台运行，日志持续输出）",
+          "command": "cd /boot/tgautodown/tgautodown/ && ./tgautodown -httpaddr {httpaddr} -cfg {cfg} -names {channel_id} -proxy {proxy_addr} -f2a {f2a_password} -retrycnt {retrycnt}",
+          "check_command": "pgrep -f '[t]gautodown server'",
+          "stop_command": "pkill -f '[t]gautodown server' 2>/dev/null; fuser -k 5244/tcp 2>/dev/null; exit 0",
+          "auto_execute": false,
+          "show_output": true,
+          "background": true,
+          "variables": [
+            {
+              "key": "cfg",
+              "name": "config文件路径",
+              "type": "file",
+              "default": "/boot/tgautodown/tgautodown/data/config.json",
+              "hint": "配置文件，默认为: /boot/tgautodown/tgautodown/app/data/config.json",
+              "required": true
+            },
+            {
+              "key": "httpaddr",
+              "name": "Web管理端口",
+              "type": "number",
+              "default": "2020",
+              "hint": "用于访问Web登录界面的端口",
+              "required": true
+            },
+            {
+              "key": "retrycnt",
+              "name": "失败时最大重试次数",
+              "type": "number",
+              "default": "10",
+              "hint": "失败时最大重试次数",
+              "required": true
+            },
+            {
+              "key": "channel_id",
+              "name": "频道邀请链接",
+              "type": "text",
+              "default": "+mGri3bFDPII2ZjU9",
+              "hint": "频道名，支持公开频道和私有频道,可以传多个频道，以,号隔; 如 -names abc,+def 这表示接收公共频道abc和私有频道+def中的消息,建议使用自建的私有频道，减少噪音",
+              "required": true
+            },
+            {
+              "key": "proxy_addr",
+              "name": "SOCKS5代理地址",
+              "type": "text",
+              "default": "socks5://127.0.0.1:7890",
+              "hint": "格式: socks5://IP:端口 (留空则直连)",
+              "required": false
+            },
+            {
+              "key": "f2a_password",
+              "name": "两步验证密码",
+              "type": "text",
+              "default": "070543",
+              "hint": "留空表示未开启两步验证",
+              "required": false,
+              "password": true
+            }
+          ],
+          "clicks": [
+            {
+              "title": "🌐 打开管理页面",
+              "action": "webview",
+              "value": "http://0.0.0.0:{httpaddr}"
+            },
+            {
+              "title": "📱 生成二维码",
+              "action": "qrcode",
+              "value": "http://0.0.0.0:{httpaddr}"
+            },
+            {
+              "title": "📋 复制地址",
+              "action": "copy",
+              "value": "http://0.0.0.0:{httpaddr}"
+            }
+          ]
+        },
+        {
+          "id": "stop_tgautodown",
+          "name": "🎵停止tgautodown服务",
+          "description": "停止所有正在运行的 tgautodown 进程",
+          "command": "pkill -f '[t]gautodown' 2>/dev/null && echo '✅ tgautodown 已停止' || echo '❌ 没有运行的 tgautodown 进程'; exit 0",
+          "auto_execute": false,
+          "show_output": true
+        }
+      ]
+    },
+    {
+      "name": "simpletorrent",
+      "runtime": "ubuntu",
+      "group": "tools",
+      "version": "1.0.0",
+      "icon": "https://img.icons8.com/?size=240&id=39063&format=png&color=000000",
+      "info": "Go 磁力流媒体引擎，基于 anacrolix/torrent。支持 /list 和 /play 接口实现边下边播，内置 Web 管理面板、文件过滤、定时清理和壳子回调。",
+      "auto_install": false,
+      "install_required": false,
+      "show": true,
+      "available": true,
+      "commands": [
+        {
+          "id": "init_server",
+          "name": "🧲第一步：初始化(必须)",
+          "description": "创建 /boot/simpletorrent/目录并拷贝二进制文件，给予可执行权限，为后续运行做准备！",
+          "command": "mkdir -p /boot/simpletorrent/ && cp {simple_torrent_file} /boot/simpletorrent/simple_torrent && cd /boot/simpletorrent/ && chmod +x simple_torrent",
+          "auto_execute": false,
+          "show_output": true,
+          "variables": [
+            {
+              "key": "simple_torrent_file",
+              "name": "simple_torrent文件",
+              "type": "directory",
+              "default": "/storage/emulated/0/WebHTV/EnvFiles/simple_torrent",
+              "hint": "simple_torrent二进制文件",
+              "required": true
+            }
+          ]
+        },
+        {
+          "id": "server",
+          "name": "🧲第二步：启动磁力流媒体引擎服务",
+          "description": "启动磁力流媒体引擎，提供 /list（解析文件列表）和 /play（边下边播）接口",
+          "command": "cd /boot/simpletorrent/ && chmod +x simple_torrent && ./simple_torrent --listen :{port} -d {download_dir} --extensions \"{extensions}\" --min-size {min_size} --box-port {boxport} --cache-clean-min {cache_clean_min} --clean-on-exit={clean_exit} --tracker-list-url \"{tracker_url}\" --dns {dns}",
+          "check_command": "pgrep -f '[s]imple_torrent server'",
+          "stop_command": "pkill -f '[s]imple_torrent server' 2>/dev/null; fuser -k 5244/tcp 2>/dev/null; exit 0",
           "auto_execute": false,
           "show_output": false,
           "background": true,
           "variables": [
             {
               "key": "port",
-              "name": "RPC端口",
+              "name": "服务端口",
               "type": "number",
-              "default": "6800",
-              "hint": "RPC服务监听端口",
+              "default": "4000",
+              "hint": "HTTP 服务监听端口",
               "required": true,
               "min": 1024,
               "max": 65535
             },
             {
-              "key": "secret",
-              "name": "RPC密钥",
-              "type": "text",
-              "default": "aria2secret",
-              "hint": "RPC访问密钥（留空表示无密钥）",
-              "required": false
-            },
-            {
               "key": "download_dir",
               "name": "下载目录",
               "type": "directory",
-              "default": "/storage/emulated/0/Download",
-              "hint": "文件下载保存目录",
+              "default": "/storage/emulated/0/Download/SimpleTorrent",
+              "hint": "种子文件下载保存目录",
               "required": true
             },
             {
-              "key": "session_file",
-              "name": "会话文件",
-              "type": "file",
-              "default": "{sdcard}/WebHTV/aria2/session.dat",
-              "hint": "保存下载任务的会话文件",
+              "key": "extensions",
+              "name": "允许的后缀",
+              "type": "text",
+              "default": ".mp4,.mkv,.avi,.ts",
+              "hint": "只下载这些后缀的文件，逗号分隔，留空下载全部",
+              "required": false
+            },
+            {
+              "key": "min_size",
+              "name": "最小文件(MB)",
+              "type": "number",
+              "default": "50",
+              "hint": "低于此大小(MB)的文件不下载，0=不限制",
+              "required": false,
+              "min": 0
+            },
+            {
+              "key": "boxport",
+              "name": "壳子端口",
+              "type": "number",
+              "default": "9978",
+              "hint": "壳子回调端口，/list 完成后通知刷新详情页，0=不回调",
+              "required": false,
+              "min": 0,
+              "max": 65535
+            },
+            {
+              "key": "cache_clean_min",
+              "name": "清理间隔(分钟)",
+              "type": "number",
+              "default": "30",
+              "hint": "定时清理空闲种子的下载文件（正在播放的不清理），0=不清理",
+              "required": false,
+              "min": 0
+            },
+            {
+              "key": "clean_exit",
+              "name": "停止时清空下载",
+              "type": "switch",
+              "default": "true",
+              "hint": "停止服务时自动删除下载目录中的所有文件，释放磁盘空间",
+              "required": false
+            },
+            {
+              "key": "tracker_url",
+              "name": "Tracker列表地址",
+              "type": "text",
+              "default": "https://cdn.jsdelivr.net/gh/ngosang/trackerslist@master/trackers_best.txt",
+              "hint": "远程 Tracker 列表 URL，留空使用内置列表",
+              "required": false
+            },
+            {
+              "key": "dns",
+              "name": "DNS 服务器",
+              "type": "text",
+              "default": "223.5.5.5",
+              "hint": "自定义 DNS 服务器，解决 DHT/Tracker 域名无法解析的问题（推荐: 223.5.5.5 阿里DNS / 8.8.8.8 谷歌DNS）",
               "required": false
             }
           ],
           "clicks": [
             {
-              "title": "WebUI管理面板",
+              "title": "管理面板",
               "action": "webview",
-              "value": "http://ariang.js.org/#!/settings/rpc/set/http/0.0.0.0:{port}/jsonrpc/{secret}",
+              "value": "http://127.0.0.1:{port}",
               "style": "dialog"
             },
             {
-              "title": "复制RPC地址",
-              "action": "copy",
-              "value": "http://0.0.0.0:{port}/jsonrpc"
-            },
-            {
-              "title": "使用说明",
-              "action": "alert",
-              "value": "RPC服务启动后会保持运行状态\n密钥: {secret}\n端口: {port}\n下载目录: {download_dir}"
+              "title": "服务状态",
+              "action": "toast",
+              "value": "SimpleTorrent 引擎监听端口: {port}"
             }
           ]
-        },
+        }
+      ]
+    },
+    {
+      "name": "tingreader",
+      "runtime": "ubuntu",
+      "group": "tools",
+      "version": "1.5.9",
+      "icon": "https://gh-proxy.org/https://raw.githubusercontent.com/dqsq2e2/ting-reader/main/frontend/public/logo.png",
+      "info": "Ting Reader（听悦）轻量级自托管有声书平台，后端 Rust 重写。支持自动刮削元数据、多端播放进度同步、沉浸式播放（跳过片头片尾）、书架/收藏/搜索、后台管理。二进制运行于 Ubuntu Rootfs /boot/ting-reader/，数据目录在外部存储 /storage/emulated/0/WebHTV/ting-reader/。",
+      "mkdir": "/storage/emulated/0/WebHTV/ting-reader",
+      "auto_install": false,
+      "install_required": false,
+      "show": true,
+      "available": true,
+      "downloads": [],
+      "commands": [
         {
-          "id": "download",
-          "name": "下载文件",
-          "description": "使用aria2下载文件",
-          "command": "aria2c -d {download_dir} -o {filename} {url}",
+          "id": "install",
+          "name": "📥第一步：下载安装(必须)",
+          "description": "下载 Ting Reader 后端(arm64)+前端到 /boot/ting-reader/ 并解压，生成 config.toml（端口3001），幂等：已存在则跳过下载",
+          "command": "export V=1.5.9; mkdir -p /boot/ting-reader/ {tingreader_dir}/data {tingreader_dir}/temp {tingreader_dir}/storage; cd /boot/ting-reader/; if [ ! -f ting-reader ]; then curl -fL --retry 3 -o backend.tar.gz https://gh-proxy.org/https://github.com/dqsq2e2/ting-reader/releases/download/v${V}/ting-reader-backend-linux-arm64-${V}.tar.gz && curl -fL --retry 3 -o frontend.tar.gz https://gh-proxy.org/https://github.com/dqsq2e2/ting-reader/releases/download/v${V}/ting-reader-frontend-${V}.tar.gz && tar -xzf backend.tar.gz && tar -xzf frontend.tar.gz && chmod +x ting-reader && rm -f backend.tar.gz frontend.tar.gz; fi; mkdir -p plugins preinstalled-plugins logs; if [ -d preinstalled-plugins ]; then cp -a preinstalled-plugins/. /boot/ting-reader/preinstalled-plugins/ 2>/dev/null || true; fi; cat > config.toml <<'CFG'\nversion = \"1.5.9\"\n\n[server]\nhost = \"0.0.0.0\"\nport = {port}\nmax_connections = 100\nrequest_timeout = 30\n\n[database]\npath = \"{tingreader_dir}/data/ting-reader.db\"\nconnection_pool_size = 10\nbusy_timeout = 30000\n\n[plugins]\nplugin_dir = \"/boot/ting-reader/plugins\"\npreinstalled_dir = \"/boot/ting-reader/preinstalled-plugins\"\nenable_hot_reload = true\nmax_memory_per_plugin = 536870912\nmax_execution_time = 300\n\n[task_queue]\nmax_concurrent_tasks = 10\ndefault_retry_count = 3\ntask_timeout = 600\n\n[logging]\nlevel = \"info\"\nformat = \"json\"\noutput = \"stdout\"\nlog_file = \"/boot/ting-reader/logs/ting-reader.log\"\nmax_file_size = 10485760\nmax_backups = 5\n\n[security]\nenable_auth = false\napi_key = \"\"\nallowed_origins = [\"*\"]\nrate_limit_requests = 100\nrate_limit_window = 60\nenable_hsts = false\nhsts_max_age = 31536000\n\n[storage]\ndata_dir = \"{tingreader_dir}/data\"\ntemp_dir = \"{tingreader_dir}/temp\"\nlocal_storage_root = \"{tingreader_dir}/storage\"\nlocal_library_roots = []\nmax_disk_usage = 2147483648\n\n[audio]\ncache_enabled = true\ncache_size = 104857600\nbuffer_size = 65536",
           "auto_execute": false,
           "show_output": true,
           "variables": [
             {
-              "key": "url",
-              "name": "下载链接",
-              "type": "text",
-              "default": "",
-              "hint": "输入要下载的文件URL",
-              "required": true
+              "key": "port",
+              "name": "服务端口",
+              "type": "number",
+              "default": "3001",
+              "hint": "HTTP 服务监听端口",
+              "required": true,
+              "min": 1024,
+              "max": 65535
             },
             {
-              "key": "download_dir",
-              "name": "下载目录",
+              "key": "tingreader_dir",
+              "name": "有声书存储库目录：",
               "type": "directory",
-              "default": "/storage/emulated/0/Download",
-              "hint": "选择下载保存目录",
+              "default": "/storage/emulated/0/WebHTV/ting-reader",
+              "hint": "有声书存储库目录",
               "required": true
+            }
+          ]
+        },
+        {
+          "id": "run",
+          "name": "▶️第二步：启动服务",
+          "description": "启动 Ting Reader 有声书服务（端口3001，后台运行）",
+          "command": "cd /boot/ting-reader/ && export STATIC_DIR=/boot/ting-reader/static DATA_DIR={tingreader_dir}/data && ./ting-reader --config /boot/ting-reader/config.toml",
+          "check_command": "pgrep -f '[t]ing-reader --config'",
+          "stop_command": "pkill -f '[t]ing-reader' 2>/dev/null; fuser -k 3001/tcp 2>/dev/null; exit 0",
+          "auto_execute": false,
+          "show_output": false,
+          "background": true,
+          "min_version": 110,
+          "variables": [
+            {
+              "key": "port",
+              "name": "服务端口",
+              "type": "number",
+              "default": "3001",
+              "hint": "HTTP 服务监听端口",
+              "required": true,
+              "min": 1024,
+              "max": 65535
             },
             {
-              "key": "filename",
-              "name": "文件名",
-              "type": "text",
-              "default": "",
-              "hint": "保存的文件名（留空自动识别）",
-              "required": false
+              "key": "tingreader_dir",
+              "name": "有声书存储库目录：",
+              "type": "directory",
+              "default": "/storage/emulated/0/WebHTV/ting-reader",
+              "hint": "有声书存储库目录",
+              "required": true
+            }
+          ],
+          "clicks": [
+            {
+              "title": "打开有声书面板",
+              "action": "webview",
+              "value": "http://127.0.0.1:{port}",
+              "style": "dialog"
             }
           ]
         },
         {
           "id": "version",
           "name": "查看版本",
-          "description": "显示 aria2 版本信息",
-          "command": "aria2c --version",
+          "description": "显示 Ting Reader 版本信息",
+          "command": "/boot/ting-reader/ting-reader --version",
           "auto_execute": false,
           "show_output": true
         },
         {
-          "id": "status",
-          "name": "查看状态",
-          "description": "通过RPC查看当前下载状态",
-          "command": "curl -X POST http://0.0.0.0:{port}/jsonrpc -H 'Content-Type: application/json' -d '{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"aria2.tellActive\",\"params\":[\"{secret}\"]}'",
+          "id": "help",
+          "name": "查看帮助",
+          "description": "显示 Ting Reader 帮助信息",
+          "command": "/boot/ting-reader/ting-reader --help",
           "auto_execute": false,
-          "show_output": true,
-          "variables": [
-            {
-              "key": "port",
-              "name": "RPC端口",
-              "type": "number",
-              "default": "6800",
-              "hint": "RPC服务端口",
-              "required": true
-            },
-            {
-              "key": "secret",
-              "name": "RPC密钥",
-              "type": "text",
-              "default": "aria2secret",
-              "hint": "RPC访问密钥",
-              "required": false
-            }
-          ]
-        }
-      ],
-      "downloads": [
-        {
-          "arch": "arm64-v8a",
-          "url": "https://github.com/ecocoinsch/files/raw/2a76ebe5efc47ff5432e6e93c6a00dbb894107f9/aria2-android-arm64.7z",
-          "size": "1.74 MB",
-          "mirrors": {
-            "other": "https://yydf.540734621.xyz/ejz/aria2-android-arm64-v8a.zip"
-          }
+          "show_output": true
         }
       ]
     }
