@@ -390,17 +390,13 @@ public final class LabEnv {
         }
         if (item != null && item.isUbuntu()) {
             // ubuntu 条目的环境装在 rootfs 内，宿主侧看不到任何二进制：
-            // 1) 先认 install 阶段写的标记文件（lab.json 约定 {package_dir}/.installed）
-            if (new File(packageDir(context, item), ".installed").exists()) return true;
-            // 2) 兜底：从 install.check_command 里取 `command -v xxx` 的程序名，
-            //    直接看 rootfs 内有没有这个可执行文件（apt 真装上了就算装上了）
+            // 1) 主判据：rootfs 内有没有这个可执行文件（apt 真装上了就算装上了）
             String bin = ubuntuBinary(item);
-            if (bin == null || bin.isEmpty()) return false;
-            File rootfs = LabUbuntu.rootfsDir(context);
-            for (String dir : new String[]{"usr/bin/", "usr/sbin/", "usr/local/bin/", "bin/", "sbin/"}) {
-                if (new File(rootfs, dir + bin).exists()) return true;
-            }
-            return false;
+            if (!TextUtils.isEmpty(bin) && rootfsHasBinary(LabUbuntu.rootfsDir(context), bin)) return true;
+            // 2) 兜底：install 阶段写的标记文件（lab.json 约定 {package_dir}/.installed）。
+            //    这里只查不建 —— 状态检测不该在共享存储里创建 {root}/lab 目录。
+            File entryDir = new File(new File(localRoot(), "lab"), item.name);
+            return new File(entryDir, ".installed").exists();
         }
         File bin = binary(context, item);
         if (bin != null && bin.exists()) return true;
@@ -417,6 +413,28 @@ public final class LabEnv {
                 .compile("command\\s+-v\\s+([A-Za-z0-9_.\\-]+)")
                 .matcher(item.install.check_command);
         return matcher.find() ? matcher.group(1) : "";
+    }
+
+    /**
+     * rootfs 内是否装了某个可执行文件。
+     *
+     * <p>不能只用 {@code File.exists()}：Debian/Ubuntu 的 php 由 update-alternatives 管理，
+     * {@code /usr/bin/php} 是指向绝对路径 {@code /etc/alternatives/php} 的符号链接，宿主侧
+     * exists() 会顺着这条绝对链跑到安卓自己的 /etc/alternatives（压根没有）→ 明明装好了却
+     * 判成「未安装」。所以这里额外认「该路径本身是个符号链接」= 包已经把它链出来了。
+     */
+    private static boolean rootfsHasBinary(File rootfs, String bin) {
+        if (rootfs == null || TextUtils.isEmpty(bin)) return false;
+        for (String dir : new String[]{"usr/bin/", "usr/sbin/", "usr/local/bin/", "bin/", "sbin/"}) {
+            File candidate = new File(rootfs, dir + bin);
+            if (candidate.exists()) return true;
+            try {
+                android.system.StructStat stat = android.system.Os.lstat(candidate.getAbsolutePath());
+                if (stat != null && android.system.OsConstants.S_ISLNK(stat.st_mode)) return true;
+            } catch (Exception ignored) {
+            }
+        }
+        return false;
     }
 
     private static boolean nonEmpty(File dir) {
