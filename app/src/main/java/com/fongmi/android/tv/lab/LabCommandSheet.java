@@ -291,7 +291,9 @@ public final class LabCommandSheet implements LabRunner.OutputListener {
 
     private void updatePreview() {
         if (sheetCommandPreview == null) return;
-        sheetCommandPreview.setText("$ " + LabRunner.expand(activity, item, command.command, vars));
+        // 预览里带上"这条命令实际走什么代理"，省得用户猜（优先级：命令变量 > 全局开关）
+        sheetCommandPreview.setText("$ " + LabRunner.expand(activity, item, command.command, vars)
+                + "\n\n# 生效代理: " + LabProxy.describe(vars));
     }
 
     private String expand(String value) {

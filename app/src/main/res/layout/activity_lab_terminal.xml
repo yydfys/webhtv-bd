@@ -68,7 +68,7 @@
         android:layout_height="0dp"
         android:fillViewport="true"
         android:layout_weight="1">
-        <HorizontalScrollView
+        <com.fongmi.android.tv.lab.LabTerminalScrollView
             android:id="@+id/termHScroll"
             android:scrollbars="none"
             android:layout_width="match_parent"
@@ -86,7 +86,7 @@
                 android:fontFamily="monospace"
                 android:paddingStart="8dp"
                 android:paddingEnd="8dp"/>
-        </HorizontalScrollView>
+        </com.fongmi.android.tv.lab.LabTerminalScrollView>
     </ScrollView>
     <HorizontalScrollView
         android:id="@+id/historyScroll"

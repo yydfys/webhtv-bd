@@ -173,19 +173,27 @@ public final class LabRunner {
                               Map<String, String> vars, OutputListener listener) {
         String key = item.name + "/" + command.id;
         String expanded = expand(context, item, command.command, vars);
-        return runShellCommand(context, item, key, expanded, listener);
+        return runShellCommand(context, item, key, expanded, vars, listener);
     }
 
     public static Process runCustom(Context context, LabModels.Item item, String commandText,
                                     Map<String, String> vars, String key, OutputListener listener) {
         String expanded = expand(context, item, commandText, vars);
-        return runShellCommand(context, item, key, expanded, listener);
+        return runShellCommand(context, item, key, expanded, vars, listener);
     }
 
     /** runtime=ubuntu 的命令包进 proot 容器；包装不可用时退回原命令（不静默丢弃）。 */
     public static String shellOf(Context context, LabModels.Item item, String command) {
+        return shellOf(context, item, command, null);
+    }
+
+    /**
+     * runtime=ubuntu 的命令包进 proot 容器，并把"生效代理"作为容器内环境变量注入
+     * （env -i 会清空宿主环境，所以必须在 proot 的 env 参数里带上）。
+     */
+    public static String shellOf(Context context, LabModels.Item item, String command, Map<String, String> vars) {
         if (item == null || !item.isUbuntu() || TextUtils.isEmpty(command)) return command;
-        String wrapped = LabUbuntu.prootCommand(context, command);
+        String wrapped = LabUbuntu.prootCommand(context, command, vars);
         return TextUtils.isEmpty(wrapped) ? command : wrapped;
     }
 
@@ -219,9 +227,9 @@ public final class LabRunner {
         String cmd = expand(context, item, checkCommand, vars);
         Process process = null;
         try {
-            ProcessBuilder builder = new ProcessBuilder("/system/bin/sh", "-c", shellOf(context, item, cmd));
+            ProcessBuilder builder = new ProcessBuilder("/system/bin/sh", "-c", shellOf(context, item, cmd, vars));
             builder.redirectErrorStream(true);
-            applyEnv(builder.environment(), context, item);
+            applyEnv(builder.environment(), context, item, vars);
             process = builder.start();
             java.io.InputStream in = process.getInputStream();
             byte[] buf = new byte[512];
@@ -252,15 +260,20 @@ public final class LabRunner {
 
     public static Process runShellCommand(Context context, LabModels.Item item, String key,
                                           String command, OutputListener listener) {
+        return runShellCommand(context, item, key, command, null, listener);
+    }
+
+    public static Process runShellCommand(Context context, LabModels.Item item, String key,
+                                          String command, Map<String, String> vars, OutputListener listener) {
         stop(key);
         try {
             if (TextUtils.isEmpty(command)) throw new IOException("命令为空");
             File cwd = LabEnv.packageRoot(context, item);
-            String cmdline = shellOf(context, item, command);
+            String cmdline = shellOf(context, item, command, vars);
             ProcessBuilder builder = new ProcessBuilder("/system/bin/setsid", "/system/bin/sh", "-c", cmdline);
             builder.directory(cwd);
             builder.redirectErrorStream(true);
-            applyEnv(builder.environment(), context, item);
+            applyEnv(builder.environment(), context, item, vars);
             Process process = builder.start();
             RUNNING.put(key, process);
             try {
@@ -305,6 +318,10 @@ public final class LabRunner {
     }
 
     public static void applyEnv(Map<String, String> env, Context context, LabModels.Item item) {
+        applyEnv(env, context, item, null);
+    }
+
+    public static void applyEnv(Map<String, String> env, Context context, LabModels.Item item, Map<String, String> vars) {
         LabEnv.ensure7z(context);
         LabEnv.ensureProot(context);
         File packageDir = LabEnv.packageRoot(context, item);
@@ -384,7 +401,7 @@ public final class LabRunner {
             }
         }
         applyBinEnvVars(env, context);
-        applyGlobalProxy(env, item);
+        LabProxy.applyToProcessEnv(env, item, vars);
         if (item.name != null && "nodejs".equalsIgnoreCase(item.name)) {
             putIfAbsent(env, "HOME", packageDir.getAbsolutePath());
             String nodeOptions = env.get("NODE_OPTIONS");
@@ -407,26 +424,6 @@ public final class LabRunner {
             if (bin.exists()) {
                 env.put(other.name.toUpperCase(Locale.ROOT) + "_BIN", bin.getAbsolutePath());
             }
-        }
-    }
-
-    private static void applyGlobalProxy(Map<String, String> env, LabModels.Item item) {
-        if (!LabConfig.get().getGlobalProxy()) return;
-        if (item.name != null && "mihomo".equalsIgnoreCase(item.name)) return;
-        int port = LabConfig.get().getGlobalProxyPort();
-        if (port <= 0) return;
-        String http = "http://127.0.0.1:" + port;
-        String socks = "socks5://127.0.0.1:" + (port + 1);
-        putIfAbsent(env, "http_proxy", http);
-        putIfAbsent(env, "https_proxy", http);
-        putIfAbsent(env, "HTTP_PROXY", http);
-        putIfAbsent(env, "HTTPS_PROXY", http);
-        putIfAbsent(env, "all_proxy", socks);
-        putIfAbsent(env, "ALL_PROXY", socks);
-        String noProxy = LabConfig.get().getGlobalProxyNoProxy();
-        if (!TextUtils.isEmpty(noProxy)) {
-            putIfAbsent(env, "no_proxy", noProxy);
-            putIfAbsent(env, "NO_PROXY", noProxy);
         }
     }
 

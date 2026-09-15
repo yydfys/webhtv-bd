@@ -17,6 +17,7 @@ import java.security.MessageDigest;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.util.Locale;
+import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -560,6 +561,16 @@ public final class LabUbuntu {
      * {@code --kill-on-exit} 退出时清掉容器内子进程。
      */
     public static String prootCommand(Context context, String inner) {
+        return prootCommand(context, inner, null);
+    }
+
+    /**
+     * 包进 proot 容器执行。
+     *
+     * @param vars 本条命令的变量值，用于解析"生效代理"（优先级：命令变量 &gt; 全局开关）；
+     *             传 null 表示只按全局开关走（如交互式终端）。
+     */
+    public static String prootCommand(Context context, String inner, Map<String, String> vars) {
         File proot = LabEnv.ensureProot(context);
         if (proot == null) return null;
         if (TextUtils.isEmpty(inner)) inner = "/bin/bash -l";
@@ -600,6 +611,11 @@ public final class LabUbuntu {
         sb.append(" /usr/bin/env -i HOME=/root");
         sb.append(" PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin");
         sb.append(" TERM=xterm-256color LANG=C.UTF-8 LC_ALL=C.UTF-8");
+        // 代理必须在这里注入：env -i 把宿主环境清空了，宿主侧设的 http_proxy 进不了容器。
+        // 直连时注入的是空值（显式清空），避免脚本里的 requests 之类去捡环境变量偷偷走代理。
+        for (Map.Entry<String, String> entry : LabProxy.containerEnv(vars).entrySet()) {
+            sb.append(' ').append(entry.getKey()).append('=').append(quote(entry.getValue()));
+        }
         sb.append(" /bin/bash -lc ").append(quote(inner));
         return sb.toString();
     }

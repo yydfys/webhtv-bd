@@ -375,6 +375,9 @@ public class LabTerminalActivity extends AppCompatActivity implements LabTermina
         mBinding.btnAutoWrap.setAlpha(wrap ? 1f : 0.7f);
         mBinding.btnAutoWrap.setContentDescription(wrap ? "自动换行已开启" : "自动换行已关闭");
         // 换行开 → 文本按屏宽折行；换行关 → 文本按最长行撑开，横向拖动查看
+        // 关键：HorizontalScrollView 默认用 UNSPECIFIED 量孩子，TextView 会按最长行撑开、永不折行，
+        // 所以必须让容器在"换行开"时按父宽 EXACTLY 量子视图（见 LabTerminalScrollView）。
+        mBinding.termHScroll.setWrapEnabled(wrap);
         ViewGroup.LayoutParams params = mBinding.termOutput.getLayoutParams();
         int width = wrap ? ViewGroup.LayoutParams.MATCH_PARENT : ViewGroup.LayoutParams.WRAP_CONTENT;
         if (params.width != width) {
