@@ -36,7 +36,8 @@ public final class LabTerminalWriter {
     private static final int TRIM_TO = 200000;
 
     /**
-     * OSC / CSI / 双字符转义 / 其余控制字符（保留 \t \n \r）。
+     * OSC / CSI / 双字符转义 / 其余控制字符（保留 {@code \t \n \r \b}——退格要留给
+     * 光标逻辑处理，剥掉就成了"删字符"的另一层语义，会串味）。
      * 注意别写成 {@code [@-Z\\-_]} 这种范围简写——末尾的 {@code \\-} 会被当成范围，
      * 把 {@code ]} 也一起剥掉。
      */
@@ -46,7 +47,7 @@ public final class LabTerminalWriter {
                     + "|\u001B[@-Z]"
                     + "|\u001B\\\\"
                     + "|\u001B_"
-                    + "|[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]");
+                    + "|[\u0000-\u0007\u000B\u000C\u000E-\u001F\u007F]");
 
     /** 字节级泵的回调：每读到一段完整字符就回调一次（可能不是完整的一行）。 */
     public interface ChunkListener {
