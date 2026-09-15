@@ -319,7 +319,13 @@ public class LabDetailActivity extends AppCompatActivity implements LabCommandAd
      */
     private String wrapInstall(String command, java.io.File packageDir) {
         String dir = packageDir.getAbsolutePath().replace("'", "'\\''");
-        return "{ " + command + " ; } ; __lab_ec=$?; "
+        // 上一次 apt/dpkg 被中断（装到一半被杀、app 被系统回收）会在 rootfs 里留下
+        // half-configured 状态与残留锁，报 `E: dpkg was interrupted, you must manually run
+        // 'dpkg --configure -a'`，之后所有安装全被挡住 → 每次安装前先清锁 + 修 dpkg 状态（幂等）。
+        String repair = "for __lab_lock in /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock "
+                + "/var/cache/apt/archives/lock; do [ -e \"$__lab_lock\" ] && rm -f \"$__lab_lock\"; done; "
+                + "dpkg --configure -a >/dev/null 2>&1; ";
+        return repair + "{ " + command + " ; } ; __lab_ec=$?; "
                 + "echo \"[lab] install exit=$__lab_ec\"; "
                 + "if [ $__lab_ec -eq 0 ]; then mkdir -p '" + dir + "' && "
                 + "touch '" + dir + "/.installed' && echo \"[lab] marker ok: " + dir + "/.installed\"; "
