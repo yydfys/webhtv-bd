@@ -59,7 +59,8 @@ public final class LabOutputDialog implements LabRunner.OutputListener {
             int range = Math.max(0, scroll.getChildAt(0).getHeight() - scroll.getHeight());
             boolean atBottom = scroll.getScrollY() >= range - 4;
             output.append(text);
-            if (atBottom) scroll.fullScroll(View.FOCUS_DOWN);
+            // 与终端窗口共用「自动滚动」开关：开着就始终跟随最新输出
+            if (LabTerminalPrefs.autoScroll() || atBottom) scroll.fullScroll(View.FOCUS_DOWN);
         });
     }
 

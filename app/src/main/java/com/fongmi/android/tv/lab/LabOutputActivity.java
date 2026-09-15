@@ -2,14 +2,18 @@ package com.fongmi.android.tv.lab;
 
 import android.content.Context;
 import android.content.Intent;
+import android.content.res.ColorStateList;
+import android.graphics.Color;
 import android.os.Bundle;
 import android.text.TextUtils;
 import android.view.View;
+import android.view.ViewGroup;
 import android.view.inputmethod.EditorInfo;
 import android.widget.EditText;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
+import android.widget.Toast;
 
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.widget.NestedScrollView;
@@ -20,7 +24,11 @@ import com.fongmi.android.tv.databinding.ActivityLabOutputBinding;
 
 import java.util.HashMap;
 
-public class LabOutputActivity extends AppCompatActivity {
+public class LabOutputActivity extends AppCompatActivity implements LabTerminalPrefs.Listener {
+
+    /** 开关高亮色 / 置灰色（与终端窗口同一套配色）。 */
+    private static final int COLOR_ON = Color.parseColor("#FF8A65");
+    private static final int COLOR_OFF = Color.parseColor("#666666");
 
     private static LabOutputActivity sInstance;
 
@@ -70,6 +78,19 @@ public class LabOutputActivity extends AppCompatActivity {
         mBinding.btnClose.setOnClickListener(v -> finish());
         mBinding.btnStop.setOnClickListener(v -> stop());
         mBinding.btnSend.setOnClickListener(v -> sendInput());
+        // 两个显示开关（照 VodPlus 终端）：自动滚动 / 自动换行；状态全局共享，多窗口实时同步
+        mBinding.btnAutoScroll.setOnClickListener(v -> {
+            boolean next = !LabTerminalPrefs.autoScroll();
+            LabTerminalPrefs.setAutoScroll(next);
+            Toast.makeText(this, next ? "已开启自动滚动" : "已关闭自动滚动", Toast.LENGTH_SHORT).show();
+        });
+        mBinding.btnAutoWrap.setOnClickListener(v -> {
+            boolean next = !LabTerminalPrefs.autoWrap();
+            LabTerminalPrefs.setAutoWrap(next);
+            Toast.makeText(this, next ? "已开启自动换行" : "已关闭自动换行", Toast.LENGTH_SHORT).show();
+        });
+        LabTerminalPrefs.addListener(this);
+        applyTerminalPrefs();
         mBinding.inputEdit.setOnEditorActionListener((v, actionId, event) -> {
             if (actionId == EditorInfo.IME_ACTION_SEND || actionId == EditorInfo.IME_ACTION_GO) {
                 sendInput();
@@ -116,11 +137,38 @@ public class LabOutputActivity extends AppCompatActivity {
     private void append(String text) {
         App.post(() -> {
             mBinding.outputText.append(text);
-            NestedScrollView scroll = mBinding.outputScroll;
-            int range = Math.max(0, scroll.getChildAt(0).getHeight() - scroll.getHeight());
-            boolean atBottom = scroll.getScrollY() >= range - 4;
-            if (atBottom) scroll.fullScroll(View.FOCUS_DOWN);
+            if (LabTerminalPrefs.autoScroll()) scrollToBottom();
         });
+    }
+
+    /** 自动滚动开关变化（含其它终端窗口触发的变更）→ 同步按钮外观并立即套用显示效果。 */
+    @Override
+    public void onTerminalPrefsChanged() {
+        App.post(this::applyTerminalPrefs);
+    }
+
+    private void applyTerminalPrefs() {
+        boolean scroll = LabTerminalPrefs.autoScroll();
+        boolean wrap = LabTerminalPrefs.autoWrap();
+        mBinding.btnAutoScroll.setImageTintList(ColorStateList.valueOf(scroll ? COLOR_ON : COLOR_OFF));
+        mBinding.btnAutoScroll.setAlpha(scroll ? 1f : 0.7f);
+        mBinding.btnAutoScroll.setContentDescription(scroll ? "自动滚动已开启" : "自动滚动已关闭");
+        mBinding.btnAutoWrap.setImageTintList(ColorStateList.valueOf(wrap ? COLOR_ON : COLOR_OFF));
+        mBinding.btnAutoWrap.setAlpha(wrap ? 1f : 0.7f);
+        mBinding.btnAutoWrap.setContentDescription(wrap ? "自动换行已开启" : "自动换行已关闭");
+        // 换行开 → 按屏宽折行；换行关 → 按最长行撑开，横向拖动查看
+        ViewGroup.LayoutParams params = mBinding.outputText.getLayoutParams();
+        int width = wrap ? ViewGroup.LayoutParams.MATCH_PARENT : ViewGroup.LayoutParams.WRAP_CONTENT;
+        if (params.width != width) {
+            params.width = width;
+            mBinding.outputText.setLayoutParams(params);
+        }
+        mBinding.outputText.setHorizontallyScrolling(!wrap);
+        if (scroll) scrollToBottom();
+    }
+
+    private void scrollToBottom() {
+        mBinding.outputScroll.post(() -> mBinding.outputScroll.fullScroll(View.FOCUS_DOWN));
     }
 
     private void onExit(int code) {
@@ -148,6 +196,7 @@ public class LabOutputActivity extends AppCompatActivity {
 
     @Override
     protected void onDestroy() {
+        LabTerminalPrefs.removeListener(this);
         if (sInstance == this) sInstance = null;
         super.onDestroy();
     }

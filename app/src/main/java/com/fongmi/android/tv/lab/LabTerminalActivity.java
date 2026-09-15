@@ -2,11 +2,13 @@ package com.fongmi.android.tv.lab;
 
 import android.content.Context;
 import android.content.Intent;
+import android.content.res.ColorStateList;
 import android.graphics.Color;
 import android.os.Bundle;
 import android.text.TextUtils;
 import android.view.KeyEvent;
 import android.view.View;
+import android.view.ViewGroup;
 import android.view.inputmethod.EditorInfo;
 import android.view.inputmethod.InputMethodManager;
 import android.widget.EditText;
@@ -15,6 +17,7 @@ import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
+import android.widget.Toast;
 
 import androidx.appcompat.app.AppCompatActivity;
 
@@ -31,7 +34,11 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.LinkedList;
 
-public class LabTerminalActivity extends AppCompatActivity {
+public class LabTerminalActivity extends AppCompatActivity implements LabTerminalPrefs.Listener {
+
+    /** 开关高亮色 / 置灰色（与顶栏其它图标同一套配色）。 */
+    private static final int COLOR_ON = Color.parseColor("#FF8A65");
+    private static final int COLOR_OFF = Color.parseColor("#666666");
 
     private static final String EXTRA_TITLE = "title";
     private static final String EXTRA_PACKAGE = "package";
@@ -102,6 +109,19 @@ public class LabTerminalActivity extends AppCompatActivity {
             mBinding.termOutput.setText("");
             renderHistory();
         });
+        // 两个显示开关（照 VodPlus 终端）：自动滚动 / 自动换行。状态全局共享，多窗口实时同步。
+        mBinding.btnAutoScroll.setOnClickListener(v -> {
+            boolean next = !LabTerminalPrefs.autoScroll();
+            LabTerminalPrefs.setAutoScroll(next);
+            Toast.makeText(this, next ? "已开启自动滚动" : "已关闭自动滚动", Toast.LENGTH_SHORT).show();
+        });
+        mBinding.btnAutoWrap.setOnClickListener(v -> {
+            boolean next = !LabTerminalPrefs.autoWrap();
+            LabTerminalPrefs.setAutoWrap(next);
+            Toast.makeText(this, next ? "已开启自动换行" : "已关闭自动换行", Toast.LENGTH_SHORT).show();
+        });
+        LabTerminalPrefs.addListener(this);
+        applyTerminalPrefs();
         mBinding.btnSend.setOnClickListener(v -> runInput());
         mBinding.termInput.setImeOptions(EditorInfo.IME_ACTION_SEND);
         mBinding.termInput.setOnEditorActionListener((v, actionId, event) -> {
@@ -335,15 +355,43 @@ public class LabTerminalActivity extends AppCompatActivity {
     private void append(String text) {
         App.post(() -> {
             mBinding.termOutput.append(text);
-            ScrollView scroll = mBinding.termScroll;
-            int range = Math.max(0, scroll.getChildAt(0).getHeight() - scroll.getHeight());
-            boolean atBottom = scroll.getScrollY() >= range - 4;
-            if (atBottom) scroll.fullScroll(View.FOCUS_DOWN);
+            if (LabTerminalPrefs.autoScroll()) scrollToBottom();
         });
+    }
+
+    /** 自动滚动开关变化（含其它终端窗口触发的变更）→ 同步按钮外观并立即套用显示效果。 */
+    @Override
+    public void onTerminalPrefsChanged() {
+        App.post(this::applyTerminalPrefs);
+    }
+
+    private void applyTerminalPrefs() {
+        boolean scroll = LabTerminalPrefs.autoScroll();
+        boolean wrap = LabTerminalPrefs.autoWrap();
+        mBinding.btnAutoScroll.setImageTintList(ColorStateList.valueOf(scroll ? COLOR_ON : COLOR_OFF));
+        mBinding.btnAutoScroll.setAlpha(scroll ? 1f : 0.7f);
+        mBinding.btnAutoScroll.setContentDescription(scroll ? "自动滚动已开启" : "自动滚动已关闭");
+        mBinding.btnAutoWrap.setImageTintList(ColorStateList.valueOf(wrap ? COLOR_ON : COLOR_OFF));
+        mBinding.btnAutoWrap.setAlpha(wrap ? 1f : 0.7f);
+        mBinding.btnAutoWrap.setContentDescription(wrap ? "自动换行已开启" : "自动换行已关闭");
+        // 换行开 → 文本按屏宽折行；换行关 → 文本按最长行撑开，横向拖动查看
+        ViewGroup.LayoutParams params = mBinding.termOutput.getLayoutParams();
+        int width = wrap ? ViewGroup.LayoutParams.MATCH_PARENT : ViewGroup.LayoutParams.WRAP_CONTENT;
+        if (params.width != width) {
+            params.width = width;
+            mBinding.termOutput.setLayoutParams(params);
+        }
+        mBinding.termOutput.setHorizontallyScrolling(!wrap);
+        if (scroll) scrollToBottom();
+    }
+
+    private void scrollToBottom() {
+        mBinding.termScroll.post(() -> mBinding.termScroll.fullScroll(View.FOCUS_DOWN));
     }
 
     @Override
     protected void onDestroy() {
+        LabTerminalPrefs.removeListener(this);
         stopProcess();
         super.onDestroy();
     }
