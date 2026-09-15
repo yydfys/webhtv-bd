@@ -24,13 +24,17 @@ import com.fongmi.android.tv.databinding.ActivityLabOutputBinding;
 
 import java.util.HashMap;
 
-public class LabOutputActivity extends AppCompatActivity implements LabTerminalPrefs.Listener {
+public class LabOutputActivity extends AppCompatActivity implements LabTerminalPrefs.Listener, LabRunner.OutputListener {
 
     /** 开关高亮色 / 置灰色（与终端窗口同一套配色）。 */
     private static final int COLOR_ON = Color.parseColor("#FF8A65");
     private static final int COLOR_OFF = Color.parseColor("#666666");
 
-    private static LabOutputActivity sInstance;
+    /**
+     * 一命令一窗口（照 VodPlus 的多终端模型）：每个命令的日志窗各自独立、可同时开着，
+     * 各自只收自己命令的输出流；同一命令重复打开时复用已有窗口（SINGLE_TOP）。
+     */
+    private static final java.util.Map<String, LabOutputActivity> INSTANCES = new java.util.concurrent.ConcurrentHashMap<>();
 
     private ActivityLabOutputBinding mBinding;
     private LabModels.Item item;
@@ -44,15 +48,9 @@ public class LabOutputActivity extends AppCompatActivity implements LabTerminalP
         intent.putExtra("item", itemName);
         intent.putExtra("command", commandId);
         intent.putExtra("vars", vars);
+        // 已有该命令的窗口 → 直接拿到前台，不再叠新实例
+        intent.addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_REORDER_TO_FRONT);
         context.startActivity(intent);
-    }
-
-    public static void appendGlobal(String text) {
-        if (sInstance != null) sInstance.append(text);
-    }
-
-    public static void onExitGlobal(int code) {
-        if (sInstance != null) sInstance.onExit(code);
     }
 
     private String key() {
@@ -64,13 +62,15 @@ public class LabOutputActivity extends AppCompatActivity implements LabTerminalP
         super.onCreate(savedInstanceState);
         mBinding = ActivityLabOutputBinding.inflate(getLayoutInflater());
         setContentView(mBinding.getRoot());
-        sInstance = this;
 
         itemName = getIntent().getStringExtra("item");
         commandId = getIntent().getStringExtra("command");
         //noinspection unchecked
         vars = (HashMap<String, String>) getIntent().getSerializableExtra("vars");
         if (vars == null) vars = new HashMap<>();
+        INSTANCES.put(key(), this);
+        // 自己订阅该命令的输出流：窗口开着就实时刷，关掉即退订（不影响命令继续跑）
+        LabRunner.addListener(key(), this);
 
         item = findItem(itemName);
         command = findCommand(item, commandId);
@@ -99,14 +99,21 @@ public class LabOutputActivity extends AppCompatActivity implements LabTerminalP
             return false;
         });
 
-        mBinding.outputTitle.setText(command == null ? (commandId == null ? "输出" : commandId)
-                : (command.name == null ? command.description : command.name));
-
         String log = LabRunner.getLog(key());
         if (!TextUtils.isEmpty(log)) mBinding.outputText.setText(log);
 
         boolean running = LabRunner.isRunning(key());
         showRunning(running);
+        updateTitle();
+    }
+
+    /** 标题带状态：命令名 · 运行中 / 已结束，一眼看出这条终端还活着没。 */
+    private void updateTitle() {
+        String base = command == null ? (commandId == null ? "输出" : commandId)
+                : (command.name == null ? command.description : command.name);
+        boolean running = LabRunner.isRunning(key());
+        String suffix = running ? " · 运行中" : (TextUtils.isEmpty(LabRunner.getLog(key())) ? "" : " · 已结束");
+        mBinding.outputTitle.setText(base + suffix);
     }
 
     private LabModels.Item findItem(String name) {
@@ -132,6 +139,7 @@ public class LabOutputActivity extends AppCompatActivity implements LabTerminalP
         mBinding.btnStop.setVisibility(running ? View.VISIBLE : View.GONE);
         boolean interactive = running && command != null && command.isShowOutput() && !command.isBackground();
         mBinding.inputContainer.setVisibility(interactive ? View.VISIBLE : View.GONE);
+        updateTitle();
     }
 
     private void append(String text) {
@@ -171,10 +179,19 @@ public class LabOutputActivity extends AppCompatActivity implements LabTerminalP
         mBinding.outputScroll.post(() -> mBinding.outputScroll.fullScroll(View.FOCUS_DOWN));
     }
 
-    private void onExit(int code) {
+    /** 命令输出流回调（本窗自己订阅）。 */
+    @Override
+    public void onOutput(String text) {
+        append(text);
+    }
+
+    /** 命令结束回调（本窗自己订阅）。 */
+    @Override
+    public void onExit(int code) {
         App.post(() -> {
             append("\n[进程结束，退出码 " + code + "]\n");
             showRunning(false);
+            updateTitle();
         });
     }
 
@@ -197,7 +214,8 @@ public class LabOutputActivity extends AppCompatActivity implements LabTerminalP
     @Override
     protected void onDestroy() {
         LabTerminalPrefs.removeListener(this);
-        if (sInstance == this) sInstance = null;
+        LabRunner.removeListener(key(), this);
+        INSTANCES.remove(key(), this);
         super.onDestroy();
     }
 }

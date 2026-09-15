@@ -30,7 +30,46 @@ public final class LabRunner {
     private static final Map<String, StringBuilder> LOGS = new ConcurrentHashMap<>();
     private static final Map<String, java.io.OutputStream> STDIN = new ConcurrentHashMap<>();
 
+    /**
+     * 同一个 key 的输出可以有**多个监听者**：该命令自己的终端窗 + 命令面板。
+     * 这样多个终端窗可以同时开着看不同命令的日志，互不抢流。
+     */
+    private static final Map<String, java.util.concurrent.CopyOnWriteArrayList<OutputListener>> LISTENERS = new ConcurrentHashMap<>();
+
     private LabRunner() {
+    }
+
+    public static void addListener(String key, OutputListener listener) {
+        if (key == null || listener == null) return;
+        LISTENERS.computeIfAbsent(key, k -> new java.util.concurrent.CopyOnWriteArrayList<>()).addIfAbsent(listener);
+    }
+
+    public static void removeListener(String key, OutputListener listener) {
+        if (key == null || listener == null) return;
+        java.util.concurrent.CopyOnWriteArrayList<OutputListener> list = LISTENERS.get(key);
+        if (list != null) list.remove(listener);
+    }
+
+    private static void broadcastOutput(String key, String text) {
+        java.util.concurrent.CopyOnWriteArrayList<OutputListener> list = LISTENERS.get(key);
+        if (list == null) return;
+        for (OutputListener listener : list) {
+            try {
+                listener.onOutput(text);
+            } catch (Throwable ignored) {
+            }
+        }
+    }
+
+    private static void broadcastExit(String key, int code) {
+        java.util.concurrent.CopyOnWriteArrayList<OutputListener> list = LISTENERS.get(key);
+        if (list == null) return;
+        for (OutputListener listener : list) {
+            try {
+                listener.onExit(code);
+            } catch (Throwable ignored) {
+            }
+        }
     }
 
     public static boolean isRunning(String key) {
@@ -231,7 +270,8 @@ public final class LabRunner {
             String cmdId = key.contains("/") ? key.substring(key.indexOf('/') + 1) : key;
             LabProcManager.track(key, pidOf(process), item.name, cmdId);
             LabProcManager.updateService();
-            pump(process, key, command, listener);
+            addListener(key, listener);
+            pump(process, key, command);
             return process;
         } catch (Exception e) {
             if (listener != null) {
@@ -252,7 +292,8 @@ public final class LabRunner {
             Process process = builder.start();
             RUNNING.put(key, process);
             LabProcManager.updateService();
-            pump(process, key, shell, listener);
+            addListener(key, listener);
+            pump(process, key, shell);
             return process;
         } catch (Exception e) {
             if (listener != null) {
@@ -414,7 +455,7 @@ public final class LabRunner {
         }
     }
 
-    private static void pump(Process process, String key, String command, OutputListener listener) {
+    private static void pump(Process process, String key, String command) {
         StringBuilder log = LOGS.computeIfAbsent(key, k -> new StringBuilder());
         File logFile = LabProcManager.logFor(key);
         java.io.FileWriter fileWriter = null;
@@ -432,7 +473,7 @@ public final class LabRunner {
             try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8))) {
                 String line;
                 while ((line = reader.readLine()) != null) {
-                    if (listener != null) listener.onOutput(line + "\n");
+                    broadcastOutput(key, line + "\n");
                     if (writer != null) {
                         try {
                             writer.write(line + "\n");
@@ -477,12 +518,12 @@ public final class LabRunner {
                     }
                 }
                 if (daemon) {
-                    if (listener != null) listener.onOutput("\n[命令已转入后台运行]\n");
+                    broadcastOutput(key, "\n[命令已转入后台运行]\n");
                     LabProcManager.updateService();
                 } else {
                     LabProcManager.untrack(key);
                     LabProcManager.updateService();
-                    if (listener != null) listener.onExit(code);
+                    broadcastExit(key, code);
                 }
             } catch (InterruptedException ignored) {
             }

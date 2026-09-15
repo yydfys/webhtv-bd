@@ -138,6 +138,8 @@ public final class LabCommandSheet implements LabRunner.OutputListener {
         }
         dialog.setOnDismissListener(d -> {
             mStateHandler.removeCallbacks(mStateRunnable);
+            // 面板关掉就退订输出流（日志由各命令自己的终端窗继续收，互不影响）
+            LabRunner.removeListener(key(), this);
             if (running) return;
             saveCached();
             if (callback != null) callback.onChanged();
@@ -395,7 +397,8 @@ public final class LabCommandSheet implements LabRunner.OutputListener {
         running = true;
         syncRunning();
         if (!command.isShowOutput()) {
-            Toast.makeText(activity, "已在后台运行: " + command.name, Toast.LENGTH_SHORT).show();
+            // 后台命令照样有自己的终端窗（照 VodPlus），这里只提示一句日志去哪看
+            Toast.makeText(activity, "已在终端窗口运行: " + command.name, Toast.LENGTH_SHORT).show();
         }
         if (dialog != null && dialog.isShowing()) dialog.dismiss();
         if (callback != null) callback.onChanged();
@@ -413,7 +416,8 @@ public final class LabCommandSheet implements LabRunner.OutputListener {
         sheetRunningTag.setVisibility(running ? View.VISIBLE : View.GONE);
         sheetBtnRun.setVisibility(running ? View.GONE : View.VISIBLE);
         sheetBtnStop.setVisibility(running ? View.VISIBLE : View.GONE);
-        sheetBtnOutput.setVisibility(running ? View.VISIBLE : View.GONE);
+        // 「终端/日志」入口常驻：命令跑完也能随时点开回看历史日志（照 VodPlus 的常驻终端入口）
+        sheetBtnOutput.setVisibility(View.VISIBLE);
         boolean ready = LabEnv.ready(activity, item);
         boolean supported = command.isSupported(LabEnv.appVersionCode(activity));
         sheetBtnRun.setEnabled(ready && supported);
@@ -427,13 +431,12 @@ public final class LabCommandSheet implements LabRunner.OutputListener {
 
     @Override
     public void onOutput(String text) {
-        LabOutputActivity.appendGlobal(text);
+        // 输出由各命令自己的终端窗接收（多窗口并存）；面板不再转发到单例窗口
     }
 
     @Override
     public void onExit(int code) {
         running = false;
-        LabOutputActivity.onExitGlobal(code);
         App.post(() -> {
             syncRunning();
             if (callback != null) callback.onChanged();
