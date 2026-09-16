@@ -301,7 +301,7 @@ public class LabDetailActivity extends AppCompatActivity implements LabCommandAd
         // install.command 里带 {package_dir} 等占位符，必须先展开再进容器，
         // 否则 touch {package_dir}/.installed 会写成字面路径，安装状态永远点不亮。
         String expanded = LabRunner.expand(this, item, item.install.command, null);
-        String cmd = LabUbuntu.prootCommand(this, wrapInstall(item, expanded, LabEnv.packageDir(this, item)));
+        String cmd = LabUbuntu.prootTerminalCommand(this, wrapInstall(item, expanded, LabEnv.packageDir(this, item)));
         if (cmd == null || cmd.isEmpty()) {
             Toast.makeText(this, "proot 未就绪", Toast.LENGTH_SHORT).show();
             return;
@@ -373,7 +373,7 @@ public class LabDetailActivity extends AppCompatActivity implements LabCommandAd
         // 卸载前先停掉该条目所有运行中的命令（否则 php -S / node 这些还在占用文件与端口）
         LabActions.stopItem(item);
         String expanded = LabRunner.expand(this, item, item.install.uninstall_command, null);
-        String cmd = LabUbuntu.prootCommand(this, wrapUninstall(item, expanded, LabEnv.packageDir(this, item)));
+        String cmd = LabUbuntu.prootTerminalCommand(this, wrapUninstall(item, expanded, LabEnv.packageDir(this, item)));
         if (cmd == null || cmd.isEmpty()) {
             Toast.makeText(this, "proot 未就绪", Toast.LENGTH_SHORT).show();
             return;

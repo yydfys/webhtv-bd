@@ -556,12 +556,64 @@ public final class LabUbuntu {
     /* ===================== proot 包装 ===================== */
 
     /**
-     * 把一条命令包进 proot 容器。
+     * 终端类命令是否套 PTY（伪终端）。
+     *
+     * <p>不套 PTY 时容器内 bash 的 stdin/stdout 是宿主侧管道，它拿不到控制终端，于是：
+     * ① 启动时打印 "cannot set terminal process group / no job control"；
+     * ② Ctrl+C 送不进前台进程；
+     * ③ apt/curl 这类程序判定"非交互环境"，进度条不原地刷新。
+     * 套上 PTY 后这三样都恢复。置 false 可一键退回管道模式（老行为）。
+     */
+    private static final boolean PTY_SHELL = true;
+
+    /**
+     * pty 窗口尺寸（行×列）。经典 80×24：只影响容器内程序自己的排版（ls 分栏、apt 进度条宽度），
+     * 屏幕上的折行由终端控件自己管，改这个值没有实际收益。
+     */
+    private static final int PTY_ROWS = 24;
+    private static final int PTY_COLS = 80;
+
+    /** pty 是否启用：终端页据此决定"命令回显要不要自己打"（pty 下由容器内 readline 回显）。 */
+    public static boolean isPtyShell() {
+        return PTY_SHELL;
+    }
+
+    /**
+     * 把"交给 bash -lc 执行的脚本"改写成"先套一层 PTY 再执行"。
+     *
+     * <p>{@code /usr/bin/script -q -e -c "..." /dev/null}：-q 去掉 Script started/done 头尾，
+     * -e 把子进程退出码原样返回（安装/卸载靠它判成败），{@code exec} 让 bash 直接接替 sh
+     * 成为会话首进程，job control 才生效。rootfs 里万一没有 script，就原样执行（不比现在差）。
+     */
+    private static String ptyWrap(String inner) {
+        if (!PTY_SHELL) return inner;
+        String ptyCommand = "stty rows " + PTY_ROWS + " cols " + PTY_COLS + " 2>/dev/null; exec /bin/bash -lc " + quote(inner);
+        return "if command -v script >/dev/null 2>&1; then /usr/bin/script -q -e -c "
+                + quote(ptyCommand) + " /dev/null; else " + inner + "; fi";
+    }
+
+    /**
+     * 把一条命令包进 proot 容器（管道模式：输出被宿主逐字节读走，供解析/流式日志用）。
      * {@code -0} 伪造 root、{@code --link2symlink} 兼容 rootfs 里的硬链接、
      * {@code --kill-on-exit} 退出时清掉容器内子进程。
      */
     public static String prootCommand(Context context, String inner) {
-        return prootCommand(context, inner, null);
+        return prootCommand(context, inner, null, false);
+    }
+
+    /**
+     * 包进 proot 容器执行（管道模式）。
+     *
+     * @param vars 本条命令的变量值，用于解析"生效代理"（优先级：命令变量 &gt; 全局开关）；
+     *             传 null 表示只按全局开关走（如交互式终端）。
+     */
+    public static String prootCommand(Context context, String inner, Map<String, String> vars) {
+        return prootCommand(context, inner, vars, false);
+    }
+
+    /** 终端窗口专用：套 PTY 跑，拿回作业控制 / Ctrl+C / 进度条原地刷新。 */
+    public static String prootTerminalCommand(Context context, String inner) {
+        return prootCommand(context, inner, null, true);
     }
 
     /**
@@ -569,8 +621,10 @@ public final class LabUbuntu {
      *
      * @param vars 本条命令的变量值，用于解析"生效代理"（优先级：命令变量 &gt; 全局开关）；
      *             传 null 表示只按全局开关走（如交互式终端）。
+     * @param pty  是否给容器内 bash 套 PTY。终端窗口传 true；需要抓输出做解析的（LabRunner）必须传 false，
+     *             否则 pty 会把 {@code \n} 翻成 {@code \r\n} 并回显，解析结果会被污染。
      */
-    public static String prootCommand(Context context, String inner, Map<String, String> vars) {
+    public static String prootCommand(Context context, String inner, Map<String, String> vars, boolean pty) {
         File proot = LabEnv.ensureProot(context);
         if (proot == null) return null;
         if (TextUtils.isEmpty(inner)) inner = "/bin/bash -l";
@@ -616,13 +670,17 @@ public final class LabUbuntu {
         for (Map.Entry<String, String> entry : LabProxy.containerEnv(vars).entrySet()) {
             sb.append(' ').append(entry.getKey()).append('=').append(quote(entry.getValue()));
         }
-        sb.append(" /bin/bash -lc ").append(quote(inner));
+        // pty=true 时这里多套一层伪终端：容器内 bash 才是前台进程，Ctrl+C / 作业控制 / 进度条才正常
+        sb.append(" /bin/bash -lc ").append(quote(pty ? ptyWrap(inner) : inner));
         return sb.toString();
     }
 
-    /** 打开交互式 shell（-i 让容器内 bash 打印提示符并逐行读 stdin）。 */
+    /**
+     * 打开交互式 shell（-i 让容器内 bash 打印提示符并逐行读 stdin）。
+     * 走 PTY：终端窗口要的就是"真终端"手感（提示符、Ctrl+C、job control）。
+     */
     public static String shellCommand(Context context) {
-        return prootCommand(context, "/bin/bash -i");
+        return prootCommand(context, "/bin/bash -i", null, true);
     }
 
     public static String externalStorage() {

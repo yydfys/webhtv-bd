@@ -52,6 +52,8 @@ public class LabTerminalActivity extends AppCompatActivity implements LabTermina
     private final ArrayList<String> commandHistory = new ArrayList<>();
     private LabModels.Item item;
     private String commandLine;
+    /** 容器内 shell 是否跑在 PTY 上：跑 PTY 时命令回显由容器内 readline 负责，本地别再打一遍。 */
+    private final boolean ptyMode = LabUbuntu.isPtyShell();
 
     /** 输出落屏：合帧缓冲 + 终端语义写入器（\r 回行首覆盖 / 剥离 ANSI）。 */
     private final StringBuilder pendingOut = new StringBuilder();
@@ -223,7 +225,8 @@ public class LabTerminalActivity extends AppCompatActivity implements LabTermina
             char c = Character.toLowerCase(command.charAt(0));
             if (c >= 'a' && c <= 'z') {
                 writeRaw(new byte[]{(byte) (c - '`')});
-                append("^" + Character.toUpperCase(c) + "\n");
+                // PTY 下 ^C 由容器内 tty 自己回显（ECHOCTL），本地再打一遍就重了
+                if (!ptyMode) append("^" + Character.toUpperCase(c) + "\n");
             }
             mBinding.termInput.setText("");
             ctrlMode = false;
@@ -237,7 +240,8 @@ public class LabTerminalActivity extends AppCompatActivity implements LabTermina
         }
         historyIndex = commandHistory.size();
         renderHistory();
-        append("$ " + command + "\n");
+        // PTY 下命令由容器内 readline 回显（带着提示符一起），本地别再打 "$ cmd"，否则一行变两行
+        if (!ptyMode) append("$ " + command + "\n");
         try {
             if (process == null || !process.isAlive()) startShell();
             if (stdin != null) {
