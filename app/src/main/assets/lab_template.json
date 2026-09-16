@@ -238,7 +238,7 @@
                     "show_output": true,
                     "variables": [
                         {
-                            "default": "/storage/emulated/0/VodPlus/drpy-node/index.js",
+                            "default": "/storage/emulated/0/WebHTV/drpy-node/index.js",
                             "filter": "*.js",
                             "hint": "选择共享存储中的 JavaScript 文件",
                             "key": "script_path",
