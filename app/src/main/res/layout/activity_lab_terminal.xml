@@ -144,7 +144,7 @@
         <EditText
             android:textSize="13sp"
             android:textColor="#eeeeee"
-            android:textColorHint="#444444"
+            android:textColorHint="#6b6b6b"
             android:id="@+id/termInput"
             android:background="@android:color/transparent"
             android:layout_width="0dp"

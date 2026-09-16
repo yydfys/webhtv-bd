@@ -30,6 +30,7 @@ import java.io.File;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.LinkedList;
 
 public class LabTerminalActivity extends AppCompatActivity implements LabTerminalPrefs.Listener {
@@ -37,6 +38,12 @@ public class LabTerminalActivity extends AppCompatActivity implements LabTermina
     /** 开关高亮色 / 置灰色（与顶栏其它图标同一套配色）。 */
     private static final int COLOR_ON = Color.parseColor("#FF8A65");
     private static final int COLOR_OFF = Color.parseColor("#666666");
+    /** 终端提示符（输入框左边那个 $）：平时浅绿，Ctrl 模式开时变橙。 */
+    private static final int COLOR_PROMPT = Color.parseColor("#AAFFAA");
+    /** ^C 芯片：危险红，一眼能找到（终端里最常用的一个键）。 */
+    private static final int COLOR_CTRL_C = Color.parseColor("#FF5252");
+    private static final int COLOR_CHIP = Color.parseColor("#CCCCCC");
+    private static final int COLOR_CHIP_ON = Color.parseColor("#111111");
 
     private static final String EXTRA_TITLE = "title";
     private static final String EXTRA_PACKAGE = "package";
@@ -47,6 +54,8 @@ public class LabTerminalActivity extends AppCompatActivity implements LabTermina
     private OutputStream stdin;
     private boolean stopped;
     private boolean ctrlMode;
+    /** 快捷芯片引用（key → 芯片）：CTRL 需要在开/关时把自己点亮，不能再只靠输入框边上的小 $。 */
+    private final HashMap<String, TextView> shortcutChips = new HashMap<>();
     private int historyIndex = -1;
     private final LinkedList<String> history = new LinkedList<>();
     private final ArrayList<String> commandHistory = new ArrayList<>();
@@ -169,27 +178,46 @@ public class LabTerminalActivity extends AppCompatActivity implements LabTermina
     }
 
     private void buildShortcuts() {
-        String[] keys = {"ESC", "TAB", "CTRL", "↑", "↓", "←", "→", "/", "-", "|"};
+        // ^C/^D/^Z 是一键控制键（不用再"开 CTRL 模式→敲字母→发送"三步），放最前面；
+        // CTRL 是组合键模式开关，覆盖 ^A~^Z 里的其它字母。
+        String[] keys = {"^C", "ESC", "TAB", "CTRL", "↑", "↓", "←", "→", "^D", "^Z", "/", "-", "|"};
         float density = getResources().getDisplayMetrics().density;
         for (String key : keys) {
             TextView button = new TextView(this);
             LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, (int) (30 * density));
-            params.setMarginEnd((int) (2 * density));
+            params.setMarginEnd((int) (3 * density));
             button.setLayoutParams(params);
             button.setGravity(android.view.Gravity.CENTER);
-            button.setPadding((int) (10 * density), 0, (int) (10 * density), 0);
+            button.setPadding((int) (11 * density), 0, (int) (11 * density), 0);
             button.setText(key);
-            button.setTextColor(Color.parseColor("#CCCCCC"));
+            button.setTextColor(chipColor(key));
             button.setTextSize(11);
             button.setMaxLines(1);
             button.setBackground(null);
             button.setOnClickListener(v -> shortcut(key));
+            shortcutChips.put(key, button);
             mBinding.shortcutContainer.addView(button);
         }
     }
 
+    /** 芯片默认配色：^C 危险红（中断），^D/^Z 主题橙（其它控制键），其余灰。 */
+    private int chipColor(String key) {
+        if ("^C".equals(key)) return COLOR_CTRL_C;
+        if ("^D".equals(key) || "^Z".equals(key)) return COLOR_ON;
+        return COLOR_CHIP;
+    }
+
     private void shortcut(String key) {
         switch (key) {
+            case "^C":
+                tapControl(0x03, "C");
+                break;
+            case "^D":
+                tapControl(0x04, "D");
+                break;
+            case "^Z":
+                tapControl(0x1A, "Z");
+                break;
             case "ESC":
                 writeRaw(new byte[]{0x1b});
                 break;
@@ -197,8 +225,8 @@ public class LabTerminalActivity extends AppCompatActivity implements LabTermina
                 writeRaw(new byte[]{0x09});
                 break;
             case "CTRL":
-                ctrlMode = !ctrlMode;
-                mBinding.termPrompt.setTextColor(ctrlMode ? Color.parseColor("#FF8A65") : Color.parseColor("#AAFFAA"));
+                setCtrlMode(!ctrlMode);
+                if (ctrlMode) Toast.makeText(this, "Ctrl 模式已开：敲一个字母后点发送（c = 中断）", Toast.LENGTH_SHORT).show();
                 break;
             case "↑":
                 navigateHistory(-1);
@@ -218,22 +246,50 @@ public class LabTerminalActivity extends AppCompatActivity implements LabTermina
         }
     }
 
+    /** 一键控制键：直接发控制字节，并把 Ctrl 模式收掉（免得下一个字母被当成控制键）。 */
+    private void tapControl(int code, String name) {
+        writeControl(code, name);
+        setCtrlMode(false);
+    }
+
+    /** Ctrl 组合键模式：芯片自高亮 + 提示符变色 + 输入框 hint 一起变，避免"按了看不出来"。 */
+    private void setCtrlMode(boolean on) {
+        ctrlMode = on;
+        TextView chip = shortcutChips.get("CTRL");
+        if (chip != null) {
+            chip.setTextColor(on ? COLOR_CHIP_ON : COLOR_CHIP);
+            chip.setBackgroundResource(on ? R.drawable.shape_term_chip_on : 0);
+        }
+        mBinding.termPrompt.setTextColor(on ? COLOR_ON : COLOR_PROMPT);
+        mBinding.termInput.setHint(on ? "Ctrl 模式：敲一个字母后点发送（c 中断 / d 退出 / z 挂起）" : "输入命令，回车执行");
+    }
+
+    /** 发一个控制字节（^A=1 … ^Z=26）。PTY 下 ^X 由容器内 tty 自己回显，本地不再重复打。 */
+    private void writeControl(int code, String name) {
+        writeRaw(new byte[]{(byte) code});
+        if (!ptyMode) append("^" + name + "\n");
+    }
+
     private void runInput() {
         String command = mBinding.termInput.getText() == null ? "" : mBinding.termInput.getText().toString();
-        if (command.isEmpty()) return;
-        if (ctrlMode && command.length() > 0) {
-            char c = Character.toLowerCase(command.charAt(0));
-            if (c >= 'a' && c <= 'z') {
-                writeRaw(new byte[]{(byte) (c - '`')});
-                // PTY 下 ^C 由容器内 tty 自己回显（ECHOCTL），本地再打一遍就重了
-                if (!ptyMode) append("^" + Character.toUpperCase(c) + "\n");
+        if (ctrlMode) {
+            // Ctrl 模式下发空 = 用户不知道该敲字母：明说一句，别静默什么都不发生。
+            if (command.isEmpty()) {
+                Toast.makeText(this, "Ctrl 模式：先敲一个字母，例如 c（中断）", Toast.LENGTH_SHORT).show();
+                return;
             }
+            char c = Character.toLowerCase(command.charAt(0));
             mBinding.termInput.setText("");
-            ctrlMode = false;
-            mBinding.termPrompt.setTextColor(Color.parseColor("#AAFFAA"));
+            if (c >= 'a' && c <= 'z') writeControl(c - '`', String.valueOf(Character.toUpperCase(c)));
+            setCtrlMode(false);
             return;
         }
         mBinding.termInput.setText("");
+        if (command.isEmpty()) {
+            // 空回车：真终端里就是再给一个提示符（点了发送却毫无反应才是怪事）
+            writeRaw(new byte[]{'\n'});
+            return;
+        }
         if (commandHistory.isEmpty() || !commandHistory.get(commandHistory.size() - 1).equals(command)) {
             commandHistory.add(command);
             if (commandHistory.size() > 50) commandHistory.remove(0);
