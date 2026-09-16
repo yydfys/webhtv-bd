@@ -227,6 +227,60 @@
                     ]
                 },
                 {
+                    "id": "node_script1",
+                    "name": "运行道长DS",
+                    "auto_execute": false,
+                    "command": "node '{script_path}'",
+                    "background": true,
+                    "check_command": "pgrep -f '[d]rpy-node/index.js'",
+                    "stop_command": "pkill -f '[d]rpy-node/index.js' 2>/dev/null; fuser -k 5757/tcp 2>/dev/null; exit 0",
+                    "description": "需要先在 Ubuntu 设置中开启共享存储映射。",
+                    "show_output": true,
+                    "variables": [
+                        {
+                            "default": "/storage/emulated/0/VodPlus/drpy-node/index.js",
+                            "filter": "*.js",
+                            "hint": "选择共享存储中的 JavaScript 文件",
+                            "key": "script_path",
+                            "name": "脚本路径",
+                            "required": true,
+                            "type": "file"
+                        }
+                    ],
+                    "clicks": [
+                        {
+                            "title": "本机访问服务",
+                            "action": "open",
+                            "value": "http://127.0.0.1:5757"
+                        },
+                        {
+                            "title": "复制API代理",
+                            "action": "copy",
+                            "value": "http://127.0.0.1:5757"
+                        },
+                        {
+                            "title": "本地订阅地址",
+                            "action": "open",
+                            "value": "http://127.0.0.1:5757/config?healthy=1&pwd="
+                        },
+                        {
+                            "title": "Admin管理面板",
+                            "action": "open",
+                            "value": "http://127.0.0.1:5757/apps/admin/"
+                        },
+                        {
+                            "title": "本地包下载中心",
+                            "action": "open",
+                            "value": "http://127.0.0.1:5757/admin/download"
+                        },
+                        {
+                            "title": "内置订阅地址",
+                            "action": "open",
+                            "value": "http://127.0.0.1:5757/docs/sub.md"
+                        }
+                    ]
+                },
+                {
                     "id": "node_version",
                     "name": "查看 Node.js 版本",
                     "auto_execute": false,
