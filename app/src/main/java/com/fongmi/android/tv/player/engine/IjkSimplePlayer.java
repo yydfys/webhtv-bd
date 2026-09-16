@@ -1108,7 +1108,10 @@ class IjkSimplePlayer extends SimpleBasePlayer implements IMediaPlayer.Listener 
      *
      * <p>ffmpeg 只认一个 {@code http_proxy} 参数、没法自己按域名分流，所以判定放在壳内那个
      * 本地规则出口端点里；这里只在"确实命中规则"时才挂上，没命中就一个选项都不加
-     * （行为与以前完全一致）。
+     * （行为与以前完全一致）。每次开播都会重算，所以中途开关开关也能跟上。
+     *
+     * <p>不主动清空旧值：端点进程内常驻，命中过的端点地址一直有效（未命中时由端点直连），
+     * 残留值最多多一跳，不会把播放弄挂。
      */
     private void applyShellProxy(String url) {
         String proxy;

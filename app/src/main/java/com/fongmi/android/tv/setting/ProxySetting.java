@@ -11,6 +11,7 @@ import com.github.catvod.bean.Proxy;
 import com.github.catvod.crawler.SpiderDebug;
 import com.github.catvod.net.OkHttp;
 import com.github.catvod.net.OkProxySelector;
+import com.github.catvod.net.ProxyHealth;
 import com.github.catvod.utils.Path;
 import com.github.catvod.utils.Json;
 import com.google.gson.JsonArray;
@@ -34,6 +35,17 @@ public class ProxySetting {
     private static final Pattern URL_PATTERN = Pattern.compile("(?i)(?:https?:)?//[^\\s\"'<>\\\\]+");
     private static volatile String cachedKey;
     private static volatile List<Proxy> cachedRules;
+    private static final java.util.Map<String, Long> upstreamLogAt = new java.util.concurrent.ConcurrentHashMap<>();
+
+    /** 上游不可达只提示一次（30 秒节流），避免每个请求刷一行日志。 */
+    private static void logUnreachable(String host, int port) {
+        long now = System.currentTimeMillis();
+        String key = host + ":" + port;
+        Long last = upstreamLogAt.get(key);
+        if (last != null && now - last < 30000) return;
+        upstreamLogAt.put(key, now);
+        SpiderDebug.log("proxy", "upstream %s:%s unreachable -> direct", host, port);
+    }
 
     public static void apply() {
         // 先把自己装成 JVM 全局默认选择器，再刷规则：这样壳内所有没显式挂 selector 的
@@ -54,12 +66,18 @@ public class ProxySetting {
             OkHttp.selector().addAll(rules);
             SpiderDebug.log("proxy", "app proxy enabled rules=%s defaultUrl=%s", rules.size(), safeUrl(Setting.getShellProxyUrl()));
         }
-        // 壳内四条吃不到 Java 选择器的通道（WebView / IJK / MPV / python / node）统一走本地
-        // 规则出口：开关关掉即停止监听，保持"不开代理时行为与以前完全一致"。
+        // 壳内四条吃不到 Java 选择器的通道（WebView / IJK / MPV）统一走本地规则出口。
+        // 端点进程内常驻（开关关掉也留着监听）：开关只决定"命中规则时走上游还是直连"，
+        // 这样 IJK/MPV 这类"只能配一个固定端点"的通道不会出现"端点已停但配置还指着它"的
+        // 断裂；开关关闭时端点对每个域名都直连，功能上等价于没开代理。
         boolean active = enabled && !rules.isEmpty();
-        if (!active) WebViewProxy.clear();
-        RuleProxyServer.sync(active);
+        RuleProxyServer.sync(true);
+        // 设置一变就先作废上游健康缓存：否则"刚打开 VPN/内核"后的头几秒还会按旧结论
+        // （上游不可用）走直连，看着像没生效。
+        com.github.catvod.net.ProxyHealth.invalidate();
         if (active) WebViewProxy.sync();
+        else WebViewProxy.clear();
+        // node 侧读状态文件的 enabled 字段：关掉时它走原路，等于没打补丁
         RuleProxyServer.writeState(active);
     }
 
@@ -118,6 +136,12 @@ public class ProxySetting {
             if (address.getPort() <= 0) continue;
             // 上游写成规则出口自己会死循环，直接当直连处理
             if (address.getPort() == RuleProxyServer.port() && isLoopback(address.getHostString())) continue;
+            // 上游不可达（开关开着但 VPN/内核没起）→ 当直连处理：宁可该走代理的漏成直连，
+            // 也不能把命中规则的域名全堵死（那是整条通道不可用）。
+            if (!ProxyHealth.isUp(address.getHostString(), address.getPort())) {
+                logUnreachable(address.getHostString(), address.getPort());
+                return "";
+            }
             return (proxy.type() == java.net.Proxy.Type.SOCKS ? "socks5" : "http") + "://" + address.getHostString() + ":" + address.getPort();
         }
         return "";

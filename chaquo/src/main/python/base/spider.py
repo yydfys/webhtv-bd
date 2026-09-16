@@ -10,6 +10,36 @@ from abc import abstractmethod, ABCMeta
 from importlib.machinery import SourceFileLoader
 
 
+def shellProxyFor(url):
+    # 设置里的 proxy 规则（判定在 Java 侧，规则只有一份）：命中就返回 requests 用的
+    # proxies 字典，未命中 / 代理开关关闭返回 None —— 调用方保持直连。
+    try:
+        value = Proxy.shellProxyFor(url)
+    except Exception:
+        return None
+    return {'http': value, 'https': value} if value else None
+
+
+# python 源里大量直接写 requests.get(...)，只在 self.fetch 打点盖不住，
+# 所以给 Session.request 打补丁：命中规则才注入 proxies，其余一个字段都不动。
+_originalSessionRequest = requests.sessions.Session.request
+
+
+def _shellProxySessionRequest(self, method, url=None, **kwargs):
+    if url is None:
+        url = kwargs.pop('url', None)
+    if url is not None and kwargs.get('proxies') is None:
+        proxies = shellProxyFor(url)
+        if proxies:
+            kwargs['proxies'] = proxies
+    if url is None:
+        return _originalSessionRequest(self, method, **kwargs)
+    return _originalSessionRequest(self, method, url, **kwargs)
+
+
+requests.sessions.Session.request = _shellProxySessionRequest
+
+
 class Spider(metaclass=ABCMeta):
     _instance = None
 
@@ -95,11 +125,7 @@ class Spider(metaclass=ABCMeta):
     def shellProxy(self, url):
         # 设置里的 proxy 规则：命中（TW/HK 直播源、YouTube、GitHub 等）就用壳内本地规则出口
         # http://127.0.0.1:<port>，未命中返回 None 保持直连。判定在 Java 侧，规则只有一份。
-        try:
-            value = Proxy.shellProxyFor(url)
-        except Exception:
-            return None
-        return {'http': value, 'https': value} if value else None
+        return shellProxyFor(url)
 
     def fetch(self, url, params=None, cookies=None, headers=None, timeout=5, verify=True, stream=False, allow_redirects = True):
         rsp = requests.get(url, params=params, cookies=cookies, headers=headers, timeout=timeout, verify=verify, stream=stream, allow_redirects=allow_redirects, proxies=self.shellProxy(url))

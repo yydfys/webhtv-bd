@@ -88,26 +88,49 @@ final class NodeProxy {
                 };
               }
 
-              // http.request 支持的三种调用形式：string / URL / options
+              // http.request 支持的三种调用形式：string / URL / options，且
+              // request(url, options, cb) 时 options 要盖在 URL 之上（跟 Node 行为一致）
               function normalize(args) {
-                var options = null;
+                var base = null;
+                var extra = null;
                 var callback = null;
                 for (var i = 0; i < args.length; i++) {
                   var item = args[i];
                   if (typeof item === 'function') { callback = item; break; }
-                  if (!options && item instanceof URL) { options = fromUrl(item); continue; }
-                  if (!options && typeof item === 'string') { options = fromUrl(new URL(item)); continue; }
-                  if (!options && item && typeof item === 'object') options = Object.assign({}, item);
+                  if (item instanceof URL) { if (!base) base = fromUrl(item); continue; }
+                  if (typeof item === 'string') { if (!base) base = fromUrl(new URL(item)); continue; }
+                  if (item && typeof item === 'object') { extra = Object.assign({}, item); continue; }
                 }
-                return { options: options, callback: callback };
+                return { options: extra ? Object.assign({}, base || {}, extra) : base, callback: callback };
               }
 
-              function shape(options) {
-                var protocol = String(options.protocol || 'http:').toLowerCase();
-                var secure = protocol === 'https:';
-                var host = options.hostname || options.host || '';
+              function shape(options, secure) {
+                var host = String(options.hostname || options.host || '');
                 var port = options.port ? Number(options.port) : (secure ? 443 : 80);
-                return { secure: secure, host: String(host), port: port, path: options.path ? String(options.path) : '/' };
+                // host 里带端口（options 形式常见）要拆开，否则会被当成本机/异常主机而漏掉代理
+                if (host.indexOf('[') === 0) {
+                  var close = host.indexOf(']');
+                  if (close > 0) {
+                    if (!options.port && host.length > close + 2) port = Number(host.substring(close + 2)) || port;
+                    host = host.substring(1, close);
+                  }
+                } else if (host.indexOf(':') >= 0) {
+                  var split = host.split(':');
+                  if (!options.port) port = Number(split[1]) || port;
+                  host = split[0];
+                }
+                var path = options.path ? String(options.path) : '/';
+                // 有些库（axios 走代理时）直接把完整 URL 塞在 path 里
+                if (path.indexOf('://') > 0) {
+                  try {
+                    var built = new URL(path);
+                    host = built.hostname;
+                    port = built.port ? Number(built.port) : (secure ? 443 : 80);
+                    path = built.pathname + built.search;
+                  } catch (e) {
+                  }
+                }
+                return { secure: secure, host: host, port: port, path: path };
               }
 
               function absoluteUrl(item) {
@@ -159,7 +182,8 @@ final class NodeProxy {
                     var secured = tls.connect({
                       socket: socket,
                       servername: options.servername || options.host,
-                      rejectUnauthorized: options.rejectUnauthorized !== false,
+                      // 尊重进程级"关校验"开关（NODE_TLS_REJECT_UNAUTHORIZED=0），别把它盖回去
+                      rejectUnauthorized: process.env.NODE_TLS_REJECT_UNAUTHORIZED === '0' ? false : options.rejectUnauthorized !== false,
                       ca: options.ca,
                       cert: options.cert,
                       key: options.key
@@ -199,14 +223,14 @@ final class NodeProxy {
                   if (!parsed.options) return originalRequest.apply(mod, args);
                   var item;
                   try {
-                    item = shape(parsed.options);
+                    item = shape(parsed.options, secure);
                   } catch (e) {
                     return originalRequest.apply(mod, args);
                   }
                   if (!item.host || isLocal(item.host)) return originalRequest.apply(mod, args);
                   try {
                     notice(port);
-                    if (!item.secure) {
+                    if (!secure) {
                       var plain = Object.assign({}, parsed.options, {
                         protocol: 'http:',
                         hostname: '127.0.0.1',
@@ -258,7 +282,8 @@ final class NodeProxy {
                   var target = typeof input === 'string' ? input : (input && input.url) ? input.url : '';
                   var item;
                   try {
-                    item = shape(fromUrl(new URL(target)));
+                    var resolved = new URL(target);
+                    item = shape(fromUrl(resolved), String(resolved.protocol).toLowerCase() === 'https:');
                   } catch (e) {
                     return original.apply(globalThis, arguments);
                   }
@@ -277,6 +302,10 @@ final class NodeProxy {
                 var headers = {};
                 if (source && typeof source.forEach === 'function') source.forEach(function (value, key) { headers[key] = value; });
                 else Object.assign(headers, source);
+                // 自己拼 Response 时不能声明 gzip：原生 fetch 会解压，我们不会，留着就是乱码
+                Object.keys(headers).forEach(function (key) {
+                  if (key.toLowerCase() === 'accept-encoding') delete headers[key];
+                });
                 var hops = 0;
 
                 function once(url) {
@@ -306,8 +335,13 @@ final class NodeProxy {
                       });
                     });
                     request.on('error', reject);
-                    if (body) request.end(body);
-                    else request.end();
+                    if (body) {
+                      if (typeof body === 'string' || Buffer.isBuffer(body)) request.end(body);
+                      else if (body && typeof body.pipe === 'function') body.pipe(request);
+                      else request.end(String(body));
+                    } else {
+                      request.end();
+                    }
                   });
                 }
 

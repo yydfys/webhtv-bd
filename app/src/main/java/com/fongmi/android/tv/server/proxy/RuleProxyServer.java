@@ -4,7 +4,6 @@ import com.fongmi.android.tv.setting.ProxySetting;
 import com.github.catvod.crawler.SpiderDebug;
 import com.github.catvod.utils.Path;
 
-import java.io.BufferedInputStream;
 import java.io.BufferedOutputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
@@ -41,8 +40,9 @@ import java.util.concurrent.atomic.AtomicInteger;
  * 它们统一把请求交给本端点，由本端点按规则决定上游——命中规则的转发给上游代理，
  * 没命中的直接连目标，本机/局域网目标永远直连。
  *
- * <p>只监听回环地址，且只在 proxy 开关打开时才启动；关掉开关即停止监听，
- * 保证"不开代理时行为与以前完全一致"。
+ * <p>只监听回环地址。端点在 App 启动时拉起、进程内常驻：开关只决定"命中规则时走上游
+ * 还是直连"（关掉开关时对每个域名都直连）。之所以不随开关停掉——IJK/MPV 这类通道只能配
+ * 一个固定端点，端点一旦停了，残留的配置就会指向一个没人监听的端口而整条通道不可用。
  */
 public final class RuleProxyServer {
 
@@ -72,7 +72,7 @@ public final class RuleProxyServer {
         accept.start();
     }
 
-    /** 开关打开则起（已起则不动），关闭则停。 */
+    /** 确保端点就绪（已起则不动）；{@code on=false} 表示停掉，正常流程不再用，留给排障。 */
     public static synchronized void sync(boolean on) {
         if (!on) {
             stop();
@@ -124,7 +124,7 @@ public final class RuleProxyServer {
             return;
         }
         // 先写临时文件再改名：node 侧读数时不会读到半截内容
-        if (!temp.renameTo(target)) target.delete();
+        if (!temp.renameTo(target) && !(target.delete() && temp.renameTo(target))) log("state-failed", "rename failed");
     }
 
     private static void start() {
@@ -178,8 +178,10 @@ public final class RuleProxyServer {
     private void handle(Socket client) throws IOException {
         client.setSoTimeout(READ_TIMEOUT_MS);
         client.setTcpNoDelay(true);
-        InputStream in = new BufferedInputStream(client.getInputStream(), 8192);
-        String head = readHead(in);
+        // 注意：这里绝不能套 BufferedInputStream——它会预读把紧随头部的请求体/隧道数据
+        // 吞进缓冲区，后面换流做透传时那部分字节就丢了（POST 变空体、CONNECT 隧道直接坏）。
+        // 一个字节一个字节读，只取头部。
+        String head = readHead(client.getInputStream());
         if (head == null || head.isEmpty()) return;
         int end = head.indexOf("\r\n");
         String[] request = (end < 0 ? head : head.substring(0, end)).split(" ");
@@ -198,6 +200,12 @@ public final class RuleProxyServer {
             port = portOf(target, 80);
             int slash = target.indexOf('/', target.indexOf("//") + 3);
             if (target.contains("://") && slash > 0) path = target.substring(slash);
+            // 兜底：少数客户端用 origin-form（请求行只有路径），目标在 Host 头里
+            if (host.isEmpty()) {
+                String header = headerValue(head, "host");
+                host = hostOf(header);
+                port = portOf(header, port);
+            }
         }
         if (host == null || host.isEmpty()) {
             respond(client, "400 Bad Request");
@@ -338,13 +346,21 @@ public final class RuleProxyServer {
         if (end < 0) return head;
         StringBuilder out = new StringBuilder();
         out.append(method).append(' ').append(path).append(" HTTP/1.1\r\n");
+        boolean upgrade = false;
         for (String line : head.substring(end + 2).split("\r\n")) {
             if (line.isEmpty()) continue;
             String key = line.toLowerCase(Locale.ROOT);
-            if (key.startsWith("connection:") || key.startsWith("proxy-connection:") || key.startsWith("proxy-authorization:")) continue;
+            if (key.startsWith("proxy-connection:") || key.startsWith("proxy-authorization:")) continue;
+            if (key.startsWith("connection:")) {
+                // 客户端要升级协议（WebSocket）时必须把 Connection: Upgrade 带过去，
+                // 否则握手被目标服务器拒掉。
+                if (line.toLowerCase(Locale.ROOT).contains("upgrade")) upgrade = true;
+                continue;
+            }
+            if (key.startsWith("upgrade:") || key.startsWith("sec-websocket-")) upgrade = true;
             out.append(line).append("\r\n");
         }
-        out.append("Connection: close\r\n\r\n");
+        out.append("Connection: ").append(upgrade ? "Upgrade" : "close").append("\r\n\r\n");
         return out.toString();
     }
 
@@ -409,6 +425,15 @@ public final class RuleProxyServer {
         } catch (Throwable e) {
             return 7890;
         }
+    }
+
+    private static String headerValue(String head, String name) {
+        for (String line : head.split("\r\n")) {
+            int colon = line.indexOf(':');
+            if (colon <= 0) continue;
+            if (line.substring(0, colon).trim().equalsIgnoreCase(name)) return line.substring(colon + 1).trim();
+        }
+        return "";
     }
 
     private static String hostOf(String target) {

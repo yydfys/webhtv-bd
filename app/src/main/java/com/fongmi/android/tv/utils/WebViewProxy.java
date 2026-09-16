@@ -7,6 +7,7 @@ import androidx.webkit.WebViewFeature;
 
 import com.fongmi.android.tv.App;
 import com.fongmi.android.tv.server.proxy.RuleProxyServer;
+import com.fongmi.android.tv.setting.Setting;
 import com.github.catvod.crawler.SpiderDebug;
 
 /**
@@ -30,6 +31,12 @@ public final class WebViewProxy {
 
     /** 按规则出口当前状态同步（关代理/未启动时清掉覆盖）。 */
     public static void sync() {
+        // 规则出口是常驻的，所以这里必须自己看开关：开关关掉就别给 WebView 套代理，
+        // 保持"不开代理时行为与以前完全一致"。
+        if (!Setting.isShellProxy()) {
+            clear();
+            return;
+        }
         int port = RuleProxyServer.port();
         if (port <= 0) {
             clear();
@@ -52,10 +59,17 @@ public final class WebViewProxy {
                     .addBypassRule("172.16.*")
                     .addBypassRule("169.254.*")
                     .build();
-            ProxyController.getInstance().setProxyOverride(config, ContextCompat.getMainExecutor(App.get()), () -> {
+            // setProxyOverride 要求在主线程调用（apply() 可能在启动线程里跑）→ 统一投到主线程执行
+            ContextCompat.getMainExecutor(App.get()).execute(() -> {
+                try {
+                    ProxyController.getInstance().setProxyOverride(config, ContextCompat.getMainExecutor(App.get()), () -> {
+                    });
+                    if (!installed) SpiderDebug.log(TAG, "webview proxy override -> 127.0.0.1:%s", port);
+                    installed = true;
+                } catch (Throwable e) {
+                    SpiderDebug.log(TAG, "webview proxy override failed error=%s", e.toString());
+                }
             });
-            if (!installed) SpiderDebug.log(TAG, "webview proxy override -> 127.0.0.1:%s", port);
-            installed = true;
         } catch (Throwable e) {
             SpiderDebug.log(TAG, "webview proxy override failed error=%s", e.toString());
         }
@@ -64,10 +78,16 @@ public final class WebViewProxy {
     public static void clear() {
         try {
             if (!installed && !WebViewFeature.isFeatureSupported(WebViewFeature.PROXY_OVERRIDE)) return;
-            ProxyController.getInstance().clearProxyOverride(ContextCompat.getMainExecutor(App.get()), () -> {
+            ContextCompat.getMainExecutor(App.get()).execute(() -> {
+                try {
+                    ProxyController.getInstance().clearProxyOverride(ContextCompat.getMainExecutor(App.get()), () -> {
+                    });
+                    if (installed) SpiderDebug.log(TAG, "webview proxy override cleared");
+                } catch (Throwable e) {
+                    SpiderDebug.log(TAG, "webview proxy override clear failed error=%s", e.toString());
+                }
+                installed = false;
             });
-            if (installed) SpiderDebug.log(TAG, "webview proxy override cleared");
-            installed = false;
         } catch (Throwable e) {
             installed = false;
         }

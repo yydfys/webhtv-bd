@@ -36,6 +36,8 @@ import com.fongmi.android.tv.setting.PlayerSetting;
 import com.fongmi.android.tv.setting.MpvPerformanceSetting;
 import com.fongmi.android.tv.setting.PlaybackPerformanceCatalog;
 import com.fongmi.android.tv.setting.PlaybackPerformanceSetting;
+import com.fongmi.android.tv.setting.ProxySetting;
+import com.fongmi.android.tv.setting.Setting;
 import com.fongmi.android.tv.server.proxy.RuleProxyServer;
 import com.fongmi.android.tv.utils.ResUtil;
 import com.fongmi.android.tv.utils.Util;
@@ -180,6 +182,7 @@ public class MpvPlayerEngine implements PlayerEngine {
         this.retriedFormat = false;
         player.setPlaybackTraceId(spec.getPlaybackTraceId());
         PlaybackTrace.log("player-engine", getPlaybackTraceId(), "start mpv decode=%d position=%d play=%s urlLen=%d headers=%d", decode, position, playWhenReady, spec.getUrl() == null ? 0 : spec.getUrl().length(), spec.getHeaders() == null ? 0 : spec.getHeaders().size());
+        applyShellProxy(spec.getUrl());
         MediaItem item = ExoUtil.getMediaItem(spec, decode);
         if (position > 0) player.setMediaItem(item, position);
         else player.setMediaItem(item);
@@ -192,6 +195,24 @@ public class MpvPlayerEngine implements PlayerEngine {
     public void restart(PlaySpec spec, long position, boolean playWhenReady) {
         player.stop();
         start(spec, position, playWhenReady);
+    }
+
+    /**
+     * 开播时按媒体 URL 现算一次代理：引擎实例可能是在开关打开之前就建好的（配置里的
+     * http-proxy 那时还没挂上），这里补一次运行期设置。
+     *
+     * <p>只在"确实命中规则"时设置，从不主动清空——规则出口是常驻的，命中过的端点地址
+     * 一直有效（未命中时由端点直连），所以残留值不会把播放弄挂。
+     */
+    private void applyShellProxy(String url) {
+        try {
+            String proxy = ProxySetting.shellProxyForUrl(url);
+            if (proxy.isEmpty()) return;
+            if (MPVLib.setPropertyString("http-proxy", proxy) < 0) SpiderDebug.log("proxy", "mpv http-proxy rejected proxy=%s", proxy);
+            else SpiderDebug.log("proxy", "mpv http-proxy=%s (per-media)", proxy);
+        } catch (Throwable e) {
+            SpiderDebug.log("proxy", "mpv http-proxy set failed error=%s", e.toString());
+        }
     }
 
     @Override
@@ -1034,8 +1055,9 @@ public class MpvPlayerEngine implements PlayerEngine {
         }
         // 设置里的 proxy 规则：mpv（ffmpeg）只认一个 http-proxy，没法按域名分流，
         // 所以交给壳内本地规则出口端点判定——未命中规则的域名由它直连，本机/局域网也直连。
-        // 开关关闭时端点不监听，这里一个选项都不加，行为与以前一致。
-        String shellProxy = RuleProxyServer.url();
+        // 这里只在"开关开着"时才挂，开关关掉时一个选项都不加，行为与以前一致。
+        // （引擎可能比开关先建好，所以开播时还会按 URL 现算一次，见 applyShellProxy。）
+        String shellProxy = Setting.isShellProxy() ? RuleProxyServer.url() : "";
         if (!shellProxy.isEmpty()) {
             builder.option("http-proxy", shellProxy);
             SpiderDebug.log("proxy", "mpv http-proxy=%s", shellProxy);
