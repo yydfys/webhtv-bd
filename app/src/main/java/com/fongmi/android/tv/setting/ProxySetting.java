@@ -30,6 +30,10 @@ public class ProxySetting {
     private static final Pattern URL_PATTERN = Pattern.compile("(?i)(?:https?:)?//[^\\s\"'<>\\\\]+");
 
     public static void apply() {
+        // 先把自己装成 JVM 全局默认选择器，再刷规则：这样壳内所有没显式挂 selector 的
+        // 网络栈（源 jar 自建 OkHttp、Glide 图片、Media3、更新/刮削/驱动检查等）也一起吃规则。
+        // 关代理时保持安装状态即可——规则清空后 select() 直接回退系统默认（= 直连）。
+        OkHttp.selector().install();
         OkHttp.selector().remove(NAME);
         OkHttp.closeIdleConnections();
         if (!Setting.isShellProxy()) {

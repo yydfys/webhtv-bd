@@ -11,6 +11,7 @@ import java.net.ProxySelector;
 import java.net.SocketAddress;
 import java.net.URI;
 import java.util.List;
+import java.util.Locale;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.TimeUnit;
 
@@ -25,9 +26,26 @@ public class OkProxySelector extends ProxySelector {
 
     public OkProxySelector() {
         proxy = new CopyOnWriteArrayList<>();
-        system = ProxySelector.getDefault();
+        // 保存"原来的"系统选择器：若全局默认已经被自己占用（重复构造），要取它背后那个，
+        // 否则 fallback 会绕回自己形成死循环。
+        ProxySelector current = ProxySelector.getDefault();
+        system = current instanceof OkProxySelector ? ((OkProxySelector) current).system : current;
         debugLogLimiter = new DebugEventLimiter(64);
         Authenticator.setDefault(new ProxyAuthenticator(this));
+    }
+
+    /**
+     * 装成 JVM 全局默认选择器。
+     *
+     * <p>这样所有"自己没有显式设置 proxySelector"的网络栈都会走壳内规则分流：
+     * OkHttp 各类自建客户端（源 jar 里 new 的、Glide、Media3、更新/刮削/驱动检查等）、
+     * 以及 HttpsURLConnection。不需要逐处去挂 selector。
+     */
+    public synchronized void install() {
+        if (ProxySelector.getDefault() != this) {
+            ProxySelector.setDefault(this);
+            SpiderDebug.log("proxy", "installed as jvm default selector");
+        }
     }
 
     public synchronized void addAll(List<Proxy> items) {
@@ -65,7 +83,7 @@ public class OkProxySelector extends ProxySelector {
         String host = uri.getHost();
         if (proxy.isEmpty()) return fallback(uri, "no-rule");
         if (host == null) return fallback(uri, "no-host");
-        if ("127.0.0.1".equals(host) || "localhost".equalsIgnoreCase(host)) return fallback(uri, "local-target");
+        if (isDirectHost(host)) return fallback(uri, "local-target");
         for (Proxy item : proxy) {
             for (String rule : item.getHosts()) {
                 if (!matches(host, rule)) continue;
@@ -83,8 +101,56 @@ public class OkProxySelector extends ProxySelector {
         return selected;
     }
 
+    /**
+     * 本机 / 局域网目标永远直连，绝不进代理。
+     *
+     * <p>规则里一旦出现 {@code *} 或命中本机地址，壳内的本地服务（{@code 127.0.0.1:9978}、
+     * {@code http://192.168.x.x:9978}）、投屏/扫码等局域网设备就可能被自己绕进代理，
+     * 轻则多一跳、重则整个本地通道不可用。
+     */
+    private boolean isDirectHost(String host) {
+        if (host == null) return true;
+        String value = host.trim().toLowerCase(Locale.ROOT);
+        if (value.startsWith("[") && value.endsWith("]")) value = value.substring(1, value.length() - 1);
+        int zone = value.indexOf('%');
+        if (zone > 0) value = value.substring(0, zone);
+        if (value.isEmpty()) return true;
+        if ("localhost".equals(value) || "127.0.0.1".equals(value) || "0.0.0.0".equals(value) || "::1".equals(value) || "::".equals(value)) return true;
+        if (value.endsWith(".local") || value.endsWith(".lan") || value.endsWith(".home") || value.endsWith(".internal")) return true;
+        if (value.indexOf(':') >= 0) return value.startsWith("fe80:") || value.startsWith("fd") || value.startsWith("fc");
+        if (value.indexOf('.') < 0) return true;
+        String[] parts = value.split("\\.");
+        if (parts.length != 4) return false;
+        for (String part : parts) {
+            if (part.isEmpty() || part.length() > 3) return false;
+            for (int i = 0; i < part.length(); i++) if (Character.digit(part.charAt(i), 10) < 0) return false;
+        }
+        int a = Integer.parseInt(parts[0]);
+        int b = Integer.parseInt(parts[1]);
+        if (a == 0 || a == 10 || a == 127) return true;
+        if (a == 192 && b == 168) return true;
+        if (a == 169 && b == 254) return true;
+        return a == 172 && b >= 16 && b <= 31;
+    }
+
+    /**
+     * 规则匹配：域名按"自身或子域后缀"精确比对，通配/正则规则沿用宽松匹配。
+     *
+     * <p>原来的 {@code contains} 语义会把 {@code x.com} 命中 {@code xx.com}、
+     * {@code github.com} 命中 {@code notgithub.com}，等于把不该代理的域名也送进代理。
+     */
     private boolean matches(String host, String rule) {
-        return "*".equals(rule) || Util.containOrMatch(host, rule);
+        if (rule == null) return false;
+        String value = rule.trim().toLowerCase(Locale.ROOT);
+        if (value.isEmpty()) return false;
+        if ("*".equals(value)) return true;
+        if (value.indexOf('*') >= 0 || value.indexOf('|') >= 0 || value.indexOf('(') >= 0 || value.indexOf('[') >= 0 || value.indexOf('^') >= 0 || value.indexOf('$') >= 0) return Util.containOrMatch(host, value);
+        while (value.startsWith(".")) value = value.substring(1);
+        if (value.isEmpty()) return false;
+        String h = host.toLowerCase(Locale.ROOT);
+        if (h.equals(value) || h.endsWith("." + value)) return true;
+        // 不带点号的裸关键字（历史/手写规则，如 google）保留"包含"语义，避免升级后老规则失效
+        return value.indexOf('.') < 0 && h.contains(value);
     }
 
     @Override

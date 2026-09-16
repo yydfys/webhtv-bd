@@ -38,10 +38,16 @@
     },
     {
       "hosts": [
-        "google",
+        "google.com",
         "gstatic.com",
-        "youtube",
+        "googleapis.com",
+        "googleusercontent.com",
+        "googlevideo.com",
+        "gvt1.com",
+        "gvt2.com",
+        "youtube.com",
         "youtu.be",
+        "youtube-nocookie.com",
         "ytimg.com",
         "ggpht.com"
       ]
