@@ -110,8 +110,76 @@ public final class LabEnv {
             // /tmp 必须是 1777：apt / dpkg / debconf 都靠它放锁文件和临时脚本
             chmodMode(new File(rootfs, "tmp"), 01777);
             chmodMode(new File(rootfs, "var/tmp"), 01777);
+            ensureGroupNames(rootfs);
         } catch (Exception ignored) {
         }
+    }
+
+    /**
+     * 安卓的补充组被 proot 原样带进容器，而 Ubuntu 的 {@code /etc/group} 里没有这些编号，
+     * 于是每个碰组名的地方（{@code groups} / 登录脚本）都会刷一串
+     * "groups: cannot find name for group ID 3003"（联网 inet、媒体、存储、app 专属…）。
+     *
+     * <p>纯警告、功能与权限照旧（判定按数字走），但看着脏。这里读**宿主自己**的组编号，
+     * 把 rootfs {@code /etc/group} 里缺的补上名字：
+     * <ul>
+     *   <li>幂等——补过的编号第二次直接跳过；</li>
+     *   <li>每次起 proot 前都会跑（prepareRootfs 是自愈入口）→ 老 rootfs 不用重装也能消；</li>
+     *   <li>编号取自 {@code /proc/self/status}，换设备/换系统版本带来的新组编号自动跟上。</li>
+     * </ul>
+     */
+    private static void ensureGroupNames(File rootfs) {
+        try {
+            File group = new File(rootfs, "etc/group");
+            if (!group.exists() || !group.canWrite()) return;
+            java.util.Set<Integer> hostGids = hostGroupIds();
+            if (hostGids.isEmpty()) return;
+            String content = readSmall(group);
+            java.util.Set<Integer> known = new java.util.HashSet<>();
+            for (String line : content.split("\n")) {
+                String[] parts = line.trim().split(":");
+                // group(5) 格式：名称:口令:GID:成员列表；GID 在第 3 段
+                if (parts.length < 3) continue;
+                try {
+                    known.add(Integer.parseInt(parts[2].trim()));
+                } catch (Exception ignored) {
+                }
+            }
+            StringBuilder append = new StringBuilder();
+            for (Integer gid : hostGids) {
+                if (gid == null || known.contains(gid)) continue;
+                append.append("aid_").append(gid).append(":x:").append(gid).append(":\n");
+            }
+            if (append.length() == 0) return;
+            // 原文件末尾没有换行时先补一个，避免把新行拼到原有行尾巴上
+            if (content.length() > 0 && !content.endsWith("\n")) append.insert(0, "\n");
+            try (FileOutputStream out = new FileOutputStream(group, true)) {
+                out.write(append.toString().getBytes(StandardCharsets.UTF_8));
+            }
+        } catch (Exception ignored) {
+        }
+    }
+
+    /**
+     * 宿主进程的补充组编号（{@code /proc/self/status} 的 {@code Groups:} 行）。
+     * proot 不调用 setgroups，所以容器里看到的就是这一批 —— 也是要补名字的那一批。
+     */
+    private static java.util.Set<Integer> hostGroupIds() {
+        java.util.Set<Integer> gids = new java.util.HashSet<>();
+        try {
+            for (String line : readSmall(new File("/proc/self/status")).split("\n")) {
+                if (!line.startsWith("Groups:")) continue;
+                for (String part : line.substring("Groups:".length()).trim().split("\\s+")) {
+                    try {
+                        gids.add(Integer.parseInt(part));
+                    } catch (Exception ignored) {
+                    }
+                }
+                break;
+            }
+        } catch (Exception ignored) {
+        }
+        return gids;
     }
 
     /** 把 rootfs 内某个目录设成指定权限（proot 内 uid0，宿主侧就是 app 自己，能改）。 */
