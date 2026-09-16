@@ -29,6 +29,9 @@ public class SiteHealthReportSourceTest {
         assertTrue(source.contains("detailReasons"));
         assertTrue(source.contains("parseReasons"));
         assertTrue(source.contains("playReasons"));
+        assertTrue(source.contains("AdBlockStatsStore.getStats()"));
+        assertTrue(source.contains("public final long adBlockedTotal"));
+        assertTrue(source.contains("public final Map<String, Long> adBlockedByPipeline"));
 
         String score = methodBody(source, "private double score()");
         assertFalse("Sort score should not depend on parse metrics in the report-only slice", score.contains("parseSuccess"));
@@ -63,11 +66,34 @@ public class SiteHealthReportSourceTest {
         assertTrue(reportSource.contains("binding.sortRecent.setOnClickListener"));
         assertTrue(reportSource.contains("binding.sortRate.setOnClickListener"));
         assertTrue(reportSource.contains("binding.sortSamples.setOnClickListener"));
+        assertTrue(reportSource.contains("binding.clearAll.setOnClickListener"));
         assertTrue(reportSource.contains("root.setOnClickListener"));
         assertTrue(reportSource.contains("reasonLabel("));
         assertTrue(reportSource.contains("recentErrors("));
         assertTrue(reportSource.contains("confirmClearSite("));
         assertTrue(reportSource.contains("SiteHealthStore.clear(row.siteKey)"));
+        assertTrue(reportSource.contains("confirmClearAll()"));
+        assertTrue(reportSource.contains("SiteHealthStore.clear()"));
+        String m3u8Source = read(mainJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "server", "process", "M3u8.java")));
+        String mpvProxySource = read(mainJavaPath().resolve(Path.of("androidx", "media3", "mpvplayer", "MpvHlsProxy.java")));
+        assertTrue(m3u8Source.contains("AdBlockStatsStore.recordBlocks("));
+        assertTrue(m3u8Source.contains("clean.ruleCounts()"));
+        assertTrue(m3u8Source.contains("HlsAdblockNotice.shouldNotify("));
+        assertTrue(mpvProxySource.contains("AdBlockStatsStore.recordBlocks("));
+        assertTrue(mpvProxySource.contains("HlsAdblockNotice.shouldNotify("));
+        assertTrue(mpvProxySource.contains("Notify.show("));
+        assertTrue(m3u8Source.contains("Notify.show("));
+        String statsStoreSource = read(mainJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "api", "config", "AdBlockStatsStore.java")));
+        assertTrue(statsStoreSource.contains("HlsRuleConfig.getEntries()"));
+        assertTrue(statsStoreSource.contains("hls.legacy-fallback"));
+        assertTrue(statsStoreSource.contains("内置兜底规则"));
+        String clearConfirmationBody = methodBody(reportSource, "private void showClearConfirmation(");
+        assertTrue(clearConfirmationBody.contains("R.style.Theme_WebHTV_LightDialog"));
+        assertTrue(clearConfirmationBody.contains("LightDialog.apply(dialog)"));
+        String refreshBody = methodBody(reportSource, "private void refreshReport()");
+        assertTrue(refreshBody.indexOf("report = SiteHealthStore.report()") < refreshBody.indexOf("render()"));
+        assertTrue(methodBody(reportSource, "private void confirmClearSite(").contains("binding.root.post(this::refreshReport)"));
+        assertTrue(methodBody(reportSource, "private void confirmClearAll()").contains("binding.root.post(this::refreshReport)"));
         assertTrue(dialogLayout.contains("@+id/report"));
         assertTrue(dialogLayout.contains("@string/site_health_report_view"));
         assertTrue(reportLayout.contains("@+id/filterAll"));
@@ -77,14 +103,31 @@ public class SiteHealthReportSourceTest {
         assertTrue(reportLayout.contains("@+id/sortRecent"));
         assertTrue(reportLayout.contains("@+id/sortRate"));
         assertTrue(reportLayout.contains("@+id/sortSamples"));
+        assertTrue(reportLayout.contains("@+id/clearAll"));
         assertTrue(reportLayout.contains("@+id/rows"));
         assertTrue(strings.contains("name=\"site_health_report_title\""));
         assertTrue(strings.contains("name=\"site_health_filter_all\""));
         assertTrue(strings.contains("name=\"site_health_sort_failures\""));
         assertTrue(strings.contains("name=\"site_health_report_recent_errors\""));
         assertTrue(strings.contains("name=\"site_health_clear_site\""));
+        assertTrue(strings.contains("name=\"site_health_clear_all\""));
+        assertTrue(strings.contains("name=\"site_health_clear_all_title\""));
+        assertTrue(strings.contains("name=\"site_health_clear_all_message\""));
         assertTrue(strings.contains("name=\"site_health_reason_timeout\""));
         assertTrue(strings.contains("name=\"site_health_stage_parse\""));
+    }
+
+    @Test
+    public void healthReportExposesSiteRuleAndPipelineAdDimensions() throws Exception {
+        String store = read(mainJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "setting", "SiteHealthStore.java")));
+        String dialog = read(mainJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "dialog", "SiteHealthReportDialog.java")));
+
+        assertTrue(store.contains("public final Map<String, Long> adBlockedBySite;"));
+        assertTrue(store.contains("public final Map<String, Long> adBlockedByRule;"));
+        assertTrue(store.contains("public final Map<String, Long> adBlockedByPipeline;"));
+        assertTrue(dialog.contains("R.string.ad_site_rank"));
+        assertTrue(dialog.contains("R.string.ad_rule_rank"));
+        assertTrue(dialog.contains("R.string.ad_pipeline_rank"));
     }
 
     private static String methodBody(String source, String signature) {

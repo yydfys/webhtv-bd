@@ -17,6 +17,7 @@ import androidx.core.content.ContextCompat;
 
 import com.fongmi.android.tv.App;
 import com.fongmi.android.tv.BuildConfig;
+import com.fongmi.android.tv.api.config.VodConfig;
 import com.fongmi.android.tv.bean.AiConfig;
 import com.fongmi.android.tv.bean.AudioConfig;
 import com.fongmi.android.tv.bean.DanmakuMatchCache;
@@ -76,6 +77,9 @@ public class Setting {
     public static final int INTRO_SKIP_OFF = 0;
     public static final int INTRO_SKIP_AUTO = 1;
     public static final int INTRO_SKIP_CONFIRM = 2;
+    public static final int INTERFACE_FAILOVER_OFF = InterfaceFailoverPolicy.OFF;
+    public static final int INTERFACE_FAILOVER_AUTO = InterfaceFailoverPolicy.AUTO;
+    public static final int INTERFACE_FAILOVER_CONFIRM = InterfaceFailoverPolicy.CONFIRM;
     public static final int INTRO_SKIP_KIND_RECAP = 1;
     public static final int INTRO_SKIP_KIND_INTRO = 1 << 1;
     public static final int INTRO_SKIP_KIND_OUTRO = 1 << 2;
@@ -1303,6 +1307,16 @@ public class Setting {
 
     public static void putGlobalHistoryMode(int mode) {
         Prefers.put("global_history_mode", clampGlobalHistoryMode(mode));
+    }
+
+    public static int getInterfaceFailoverMode() {
+        return InterfaceFailoverPolicy.clampMode(Prefers.getInt("interface_failover_mode", InterfaceFailoverPolicy.DEFAULT_MODE));
+    }
+
+    public static void putInterfaceFailoverMode(int mode) {
+        int value = InterfaceFailoverPolicy.clampMode(mode);
+        Prefers.put("interface_failover_mode", value);
+        if (value == InterfaceFailoverPolicy.OFF) VodConfig.cancelFailover();
     }
 
     public static boolean isGlobalHistoryEnabled() {

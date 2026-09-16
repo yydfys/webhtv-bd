@@ -87,7 +87,7 @@ public class SiteDialog extends BaseAlertDialog implements SiteAdapter.OnClickLi
     @Override
     protected void initView() {
         SiteDialogTheme theme = SiteDialogTheme.resolve(binding.getRoot().getContext(), Setting.getDynamicColor());
-        binding.getRoot().setBackgroundColor(theme.surface());
+        binding.getRoot().setBackgroundResource(R.drawable.shape_site_dialog);
         binding.keyword.setTextColor(theme.onSurface());
         binding.keyword.setHintTextColor(theme.onSurfaceVariant());
         TextViewCompat.setCompoundDrawableTintList(binding.keyword, theme.accent());

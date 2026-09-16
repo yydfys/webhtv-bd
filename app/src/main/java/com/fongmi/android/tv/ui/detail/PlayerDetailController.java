@@ -35,6 +35,11 @@ public class PlayerDetailController extends BaseTmdbDetailModeController {
     }
 
     @Override
+    public void onExitFullscreen() {
+        host.closeDetailFullscreenPlayer();
+    }
+
+    @Override
     public void applyInitialLayout() {
         ActivityTmdbDetailBinding binding = (ActivityTmdbDetailBinding) host.binding();
 
@@ -44,4 +49,9 @@ public class PlayerDetailController extends BaseTmdbDetailModeController {
         binding.fusionActions.setVisibility(View.GONE);
         binding.detailActions.setVisibility(View.VISIBLE);
     }
+    @Override
+    public void play() {
+        host.playDetailFullscreen();
+    }
+
 }

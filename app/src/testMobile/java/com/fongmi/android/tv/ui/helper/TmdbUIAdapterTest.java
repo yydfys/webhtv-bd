@@ -891,18 +891,17 @@ public class TmdbUIAdapterTest {
         int contextGuard = source.indexOf("if (selectedFlag == null || selectedEpisode == null) return false;", cancelSwitch);
         int emptyContextGuard = source.indexOf("if (TextUtils.isEmpty(flag) || TextUtils.isEmpty(episodeUrl)) return false;", contextGuard);
         int generation = source.indexOf("int generation = ++inlinePlaybackGeneration;", emptyContextGuard);
-        int switchLoading = source.indexOf("inlinePlayerSwitchLoading = true;", generation);
-        int showLoading = source.indexOf("showInlineLoading();", switchLoading);
-        int position = source.indexOf("long position = player().getPosition();", showLoading);
+        int position = source.indexOf("long position = player().getPosition();", generation);
         int speed = source.indexOf("float speed = player().getSpeed();", position);
         int repeat = source.indexOf("boolean repeat = player().isRepeatOne();", speed);
         int request = source.indexOf("SiteApi.playerContent(key, flag, episodeUrl, playerType)", repeat);
         int staleGuard = source.indexOf("isInlinePlayerSwitchRequestCurrent(generation, key, flag, episodeUrl)", request);
         int lifecycleGuard = source.indexOf("private boolean isInlinePlayerSwitchRequestCurrent(int generation, String key, String flag, String episodeUrl)", staleGuard);
-        int pendingGuard = source.indexOf("return inlinePlayerSwitchLoading", lifecycleGuard);
-        int activeMode = source.indexOf("&& isInlinePlayerMode()", pendingGuard);
+        int activeInline = source.indexOf("return inlineStarted", lifecycleGuard);
+        int activeMode = source.indexOf("&& isInlinePlayerMode()", activeInline);
         int activeOwner = source.indexOf("&& isOwner()", activeMode);
-        int activePlayer = source.indexOf("&& !player().isEmpty()", activeOwner);
+        int activePlayer = source.indexOf("&& player() != null", activeOwner);
+        int activePlayback = source.indexOf("&& isInlinePlaybackRequestCurrent(generation, key, flag, episodeUrl)", activePlayer);
         int updateResult = source.indexOf("currentInlineResult = result;", staleGuard);
         int updateParse = source.indexOf("useParse = result.shouldUseParse();", updateResult);
         int switchResult = source.indexOf("player().switchPlayer(playerType, result, activePlaybackKey(), metadata, useParse, position, speed, repeat);", updateParse);
@@ -911,12 +910,16 @@ public class TmdbUIAdapterTest {
         assertTrue(sourcePath + " is missing refreshed inline player-kernel switching", switchMethod >= 0 && refreshCall > switchMethod && refreshMethod > refreshCall);
         assertTrue("choosing the active kernel must cancel only a pending kernel switch, while missing playback context must not invalidate the current playback request",
                 samePlayerGuard > refreshMethod && cancelSwitch > samePlayerGuard && contextGuard > cancelSwitch && emptyContextGuard > contextGuard && generation > emptyContextGuard);
-        assertTrue("inline kernel switching should expose a cancellable loading state and preserve playback state before refreshing the selected episode",
-                switchLoading > generation && showLoading > switchLoading && position > showLoading && speed > position && repeat > speed);
+        assertTrue("inline kernel switching should preserve playback state before refreshing the selected episode",
+                position > generation && speed > position && repeat > speed);
+        assertFalse("removed inline loading state must not be reintroduced solely for kernel switching",
+                source.substring(refreshMethod, request).contains("inlinePlayerSwitchLoading")
+                        || source.substring(refreshMethod, request).contains("showInlineLoading"));
         assertTrue("inline kernel switching should request a result resolved for the selected target kernel and ignore stale callbacks",
                 request > repeat && staleGuard > request);
-        assertTrue("inline kernel switch callbacks should require a pending switch and be ignored after leaving inline playback or losing player ownership",
-                lifecycleGuard > staleGuard && pendingGuard > lifecycleGuard && activeMode > pendingGuard && activeOwner > activeMode && activePlayer > activeOwner);
+        assertTrue("inline kernel switch callbacks should require active inline playback and be ignored after leaving inline playback or losing player ownership",
+                lifecycleGuard > staleGuard && activeInline > lifecycleGuard && activeMode > activeInline && activeOwner > activeMode
+                        && activePlayer > activeOwner && activePlayback > activePlayer);
         assertTrue("inline kernel switching should install the refreshed result before rebuilding the player",
                 updateResult > staleGuard && updateParse > updateResult && switchResult > updateParse);
         assertTrue("inline kernel switching must not fall back to rebuilding from the stale PlaySpec", oldFallback < 0);

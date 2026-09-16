@@ -61,21 +61,43 @@ public class AdBlockStatsDialog {
     private void configureWindow() {
         Window window = dialog.getWindow();
         if (window == null) return;
-        int width = Math.min(Math.round(ResUtil.getScreenWidth(activity) * 0.72f), ResUtil.dp2px(720));
-        int height = Math.min(Math.round(ResUtil.getScreenHeight(activity) * 0.82f), ResUtil.dp2px(680));
+        int horizontalMargin = ResUtil.dp2px(24);
+        int verticalMargin = ResUtil.dp2px(24);
+        int width = Math.max(1, ResUtil.getScreenWidth(activity) - horizontalMargin * 2);
+        int height = Math.max(1, ResUtil.getScreenHeight(activity) - verticalMargin * 2);
         WindowManager.LayoutParams params = window.getAttributes();
-        params.width = Math.max(width, ResUtil.dp2px(420));
-        params.height = Math.max(height, ResUtil.dp2px(360));
+        params.width = width;
+        params.height = height;
         params.gravity = Gravity.CENTER;
         window.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
         window.getDecorView().setPadding(0, 0, 0, 0);
         window.setAttributes(params);
         window.setLayout(params.width, params.height);
+        binding.getRoot().setMinimumHeight(height);
     }
 
     private void initView() {
         binding.reset.setOnClickListener(v -> onReset());
         binding.close.setOnClickListener(v -> dialog.dismiss());
+        if (binding.statsTabs.getTabCount() == 0) {
+            binding.statsTabs.addTab(binding.statsTabs.newTab().setText(R.string.ad_stats_overview));
+            binding.statsTabs.addTab(binding.statsTabs.newTab().setText(R.string.ad_site_rank));
+            binding.statsTabs.addTab(binding.statsTabs.newTab().setText(R.string.ad_rule_rank));
+            binding.statsTabs.addTab(binding.statsTabs.newTab().setText(R.string.ad_pipeline_rank));
+            binding.statsTabs.addOnTabSelectedListener(new com.google.android.material.tabs.TabLayout.OnTabSelectedListener() {
+                @Override public void onTabSelected(com.google.android.material.tabs.TabLayout.Tab tab) { showPage(tab.getPosition()); }
+                @Override public void onTabUnselected(com.google.android.material.tabs.TabLayout.Tab tab) {}
+                @Override public void onTabReselected(com.google.android.material.tabs.TabLayout.Tab tab) {}
+            });
+        }
+        showPage(binding.statsTabs.getSelectedTabPosition());
+    }
+
+    private void showPage(int position) {
+        binding.overviewPage.setVisibility(position == 0 ? View.VISIBLE : View.GONE);
+        binding.sitePage.setVisibility(position == 1 ? View.VISIBLE : View.GONE);
+        binding.rulePage.setVisibility(position == 2 ? View.VISIBLE : View.GONE);
+        binding.pipelinePage.setVisibility(position == 3 ? View.VISIBLE : View.GONE);
     }
 
     private void loadStats() {
@@ -92,8 +114,20 @@ public class AdBlockStatsDialog {
             binding.aiSuccessRate.setText("0%");
         }
 
-        // 站点拦截排行
+        // 站点维度统计概览与排行使用同一份快照
         List<SiteRankItem> siteRank = buildSiteRank(stats);
+        binding.siteCount.setText(String.valueOf(stats.getSiteBlocked().size()));
+        if (siteRank.isEmpty()) {
+            binding.topSite.setText("-");
+            binding.topSiteShare.setText("0%");
+        } else {
+            SiteRankItem top = siteRank.get(0);
+            binding.topSite.setText(top.getSiteKey());
+            double share = stats.getTotalBlocked() > 0 ? top.getCount() * 100.0 / stats.getTotalBlocked() : 0.0;
+            binding.topSiteShare.setText(String.format(Locale.getDefault(), "%.1f%%", share));
+        }
+
+        // 站点拦截排行
         if (siteRank.isEmpty()) {
             binding.siteRankEmpty.setVisibility(View.VISIBLE);
             binding.siteRankRecycler.setVisibility(View.GONE);
@@ -113,6 +147,17 @@ public class AdBlockStatsDialog {
             binding.ruleRankRecycler.setVisibility(View.VISIBLE);
             binding.ruleRankRecycler.setAdapter(new RuleRankAdapter(ruleRank));
         }
+
+        // 播放链路排行与站点、规则使用同一份�共享快照
+        List<SiteRankItem> pipelineRank = buildPipelineRank(stats);
+        if (pipelineRank.isEmpty()) {
+            binding.pipelineRankEmpty.setVisibility(View.VISIBLE);
+            binding.pipelineRankRecycler.setVisibility(View.GONE);
+        } else {
+            binding.pipelineRankEmpty.setVisibility(View.GONE);
+            binding.pipelineRankRecycler.setVisibility(View.VISIBLE);
+            binding.pipelineRankRecycler.setAdapter(new SiteRankAdapter(pipelineRank));
+        }
     }
 
     private List<SiteRankItem> buildSiteRank(AdBlockStats stats) {
@@ -120,6 +165,13 @@ public class AdBlockStatsDialog {
                 .map(entry -> new SiteRankItem(entry.getKey(), entry.getValue()))
                 .sorted(Comparator.comparingLong(SiteRankItem::getCount).reversed())
                 .limit(10)
+                .collect(Collectors.toList());
+    }
+
+    private List<SiteRankItem> buildPipelineRank(AdBlockStats stats) {
+        return stats.getPipelineCounts().entrySet().stream()
+                .map(entry -> new SiteRankItem(entry.getKey(), entry.getValue()))
+                .sorted(Comparator.comparingLong(SiteRankItem::getCount).reversed())
                 .collect(Collectors.toList());
     }
 

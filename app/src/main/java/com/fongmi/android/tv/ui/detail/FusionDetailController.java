@@ -53,4 +53,9 @@ public class FusionDetailController extends BaseTmdbDetailModeController {
         // TODO: 融合模式特有的播放开始逻辑
         // 目前留空，等 Phase 2 迁移具体逻辑
     }
+    @Override
+    public void play() {
+        host.playInline();
+    }
+
 }

@@ -15,11 +15,13 @@ public class AdBlockStats {
     private long aiAnalysisFailed;          // AI 分析失败次数
     private Map<String, Long> siteBlocked;  // 按站点统计拦截次数
     private Map<String, Long> ruleCounts;   // 按规则 ID 统计匹配次数
+    private Map<String, Long> pipelineCounts; // 按播放链路统计拦截次数
     private long lastResetAt;               // 上次重置时间
 
     public AdBlockStats() {
         this.siteBlocked = new HashMap<>();
         this.ruleCounts = new HashMap<>();
+        this.pipelineCounts = new HashMap<>();
         this.lastResetAt = System.currentTimeMillis();
     }
 
@@ -71,6 +73,14 @@ public class AdBlockStats {
         this.ruleCounts = ruleCounts;
     }
 
+    public Map<String, Long> getPipelineCounts() {
+        return pipelineCounts == null ? new HashMap<>() : pipelineCounts;
+    }
+
+    public void setPipelineCounts(Map<String, Long> pipelineCounts) {
+        this.pipelineCounts = pipelineCounts;
+    }
+
     public long getLastResetAt() {
         return lastResetAt;
     }
@@ -93,10 +103,26 @@ public class AdBlockStats {
     }
 
     public void incrementRuleCount(String ruleId) {
-        if (ruleId == null || ruleId.isEmpty()) return;
-        Map<String, Long> map = getRuleCounts();
-        map.put(ruleId, toLong(map.get(ruleId)) + 1);
-        this.ruleCounts = map;
+        incrementBlocks(null, null, ruleId, 1, false);
+    }
+
+    public void incrementBlocks(String siteKey, String pipeline, String ruleId, long count) {
+        incrementBlocks(siteKey, pipeline, ruleId, count, true);
+    }
+
+    private void incrementBlocks(String siteKey, String pipeline, String ruleId, long count, boolean includeTotal) {
+        if (count <= 0) return;
+        if (includeTotal) {
+            totalBlocked += count;
+            merge(siteBlocked = getSiteBlocked(), siteKey, count);
+            merge(pipelineCounts = getPipelineCounts(), pipeline, count);
+        }
+        merge(ruleCounts = getRuleCounts(), ruleId, count);
+    }
+
+    private static void merge(Map<String, Long> target, String key, long count) {
+        if (key == null || key.isEmpty() || count <= 0) return;
+        target.put(key, toLong(target.get(key)) + count);
     }
 
     /**
@@ -127,6 +153,7 @@ public class AdBlockStats {
         this.aiAnalysisFailed = 0;
         this.siteBlocked = new HashMap<>();
         this.ruleCounts = new HashMap<>();
+        this.pipelineCounts = new HashMap<>();
         this.lastResetAt = System.currentTimeMillis();
     }
 
@@ -138,6 +165,16 @@ public class AdBlockStats {
     public long getSiteBlockedCount(String siteKey) {
         if (siteKey == null || siteKey.isEmpty()) return 0;
         return toLong(getSiteBlocked().get(siteKey));
+    }
+
+    public long getRuleBlockedCount(String ruleId) {
+        if (ruleId == null || ruleId.isEmpty()) return 0;
+        return toLong(getRuleCounts().get(ruleId));
+    }
+
+    public long getPipelineBlockedCount(String pipeline) {
+        if (pipeline == null || pipeline.isEmpty()) return 0;
+        return toLong(getPipelineCounts().get(pipeline));
     }
 
     public int getAiAnalysisTotal() {
@@ -160,11 +197,12 @@ public class AdBlockStats {
                 aiAnalysisFailed == that.aiAnalysisFailed &&
                 lastResetAt == that.lastResetAt &&
                 Objects.equals(siteBlocked, that.siteBlocked) &&
-                Objects.equals(ruleCounts, that.ruleCounts);
+                Objects.equals(ruleCounts, that.ruleCounts) &&
+                Objects.equals(pipelineCounts, that.pipelineCounts);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(totalBlocked, aiRuleFeedbackCount, aiAnalysisSuccess, aiAnalysisFailed, siteBlocked, ruleCounts, lastResetAt);
+        return Objects.hash(totalBlocked, aiRuleFeedbackCount, aiAnalysisSuccess, aiAnalysisFailed, siteBlocked, ruleCounts, pipelineCounts, lastResetAt);
     }
 }
