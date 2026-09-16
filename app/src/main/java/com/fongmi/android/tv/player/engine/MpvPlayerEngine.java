@@ -36,6 +36,7 @@ import com.fongmi.android.tv.setting.PlayerSetting;
 import com.fongmi.android.tv.setting.MpvPerformanceSetting;
 import com.fongmi.android.tv.setting.PlaybackPerformanceCatalog;
 import com.fongmi.android.tv.setting.PlaybackPerformanceSetting;
+import com.fongmi.android.tv.server.proxy.RuleProxyServer;
 import com.fongmi.android.tv.utils.ResUtil;
 import com.fongmi.android.tv.utils.Util;
 import com.github.catvod.crawler.SpiderDebug;
@@ -1030,6 +1031,14 @@ public class MpvPlayerEngine implements PlayerEngine {
                     .gpuContext("android")
                     .gpuApi("opengl")
                     .openglEs(true);
+        }
+        // 设置里的 proxy 规则：mpv（ffmpeg）只认一个 http-proxy，没法按域名分流，
+        // 所以交给壳内本地规则出口端点判定——未命中规则的域名由它直连，本机/局域网也直连。
+        // 开关关闭时端点不监听，这里一个选项都不加，行为与以前一致。
+        String shellProxy = RuleProxyServer.url();
+        if (!shellProxy.isEmpty()) {
+            builder.option("http-proxy", shellProxy);
+            SpiderDebug.log("proxy", "mpv http-proxy=%s", shellProxy);
         }
         return builder.build();
     }

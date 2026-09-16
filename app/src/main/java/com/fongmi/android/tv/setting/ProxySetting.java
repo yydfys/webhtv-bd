@@ -4,16 +4,20 @@ import android.net.Uri;
 import android.text.TextUtils;
 
 import com.fongmi.android.tv.bean.Site;
+import com.fongmi.android.tv.server.proxy.RuleProxyServer;
+import com.fongmi.android.tv.utils.WebViewProxy;
 import com.github.catvod.crawler.DebugLogStore;
 import com.github.catvod.bean.Proxy;
 import com.github.catvod.crawler.SpiderDebug;
 import com.github.catvod.net.OkHttp;
+import com.github.catvod.net.OkProxySelector;
 import com.github.catvod.utils.Path;
 import com.github.catvod.utils.Json;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 
 import java.io.File;
+import java.net.InetSocketAddress;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -28,6 +32,8 @@ public class ProxySetting {
     private static final String NAME = "app";
     private static final int MAX_SUGGESTION_URLS = 200;
     private static final Pattern URL_PATTERN = Pattern.compile("(?i)(?:https?:)?//[^\\s\"'<>\\\\]+");
+    private static volatile String cachedKey;
+    private static volatile List<Proxy> cachedRules;
 
     public static void apply() {
         // 先把自己装成 JVM 全局默认选择器，再刷规则：这样壳内所有没显式挂 selector 的
@@ -36,17 +42,91 @@ public class ProxySetting {
         OkHttp.selector().install();
         OkHttp.selector().remove(NAME);
         OkHttp.closeIdleConnections();
-        if (!Setting.isShellProxy()) {
+        // 注册给 python 源用的判定入口（chaquo 里的 requests 吃不到 JVM 选择器）
+        com.github.catvod.Proxy.setRouter(ProxySetting::shellProxyForUrl);
+        boolean enabled = Setting.isShellProxy();
+        List<Proxy> rules = enabled ? rules() : List.of();
+        if (!enabled) {
             SpiderDebug.log("proxy", "app proxy disabled");
-            return;
-        }
-        List<Proxy> rules = getRules();
-        if (rules.isEmpty()) {
+        } else if (rules.isEmpty()) {
             SpiderDebug.log("proxy", "app proxy enabled but no valid rules defaultUrl=%s rulesLength=%s", safeUrl(Setting.getShellProxyUrl()), Setting.getShellProxyRules().length());
-            return;
+        } else {
+            OkHttp.selector().addAll(rules);
+            SpiderDebug.log("proxy", "app proxy enabled rules=%s defaultUrl=%s", rules.size(), safeUrl(Setting.getShellProxyUrl()));
         }
-        OkHttp.selector().addAll(rules);
-        SpiderDebug.log("proxy", "app proxy enabled rules=%s defaultUrl=%s", rules.size(), safeUrl(Setting.getShellProxyUrl()));
+        // 壳内四条吃不到 Java 选择器的通道（WebView / IJK / MPV / python / node）统一走本地
+        // 规则出口：开关关掉即停止监听，保持"不开代理时行为与以前完全一致"。
+        boolean active = enabled && !rules.isEmpty();
+        if (!active) WebViewProxy.clear();
+        RuleProxyServer.sync(active);
+        if (active) WebViewProxy.sync();
+        RuleProxyServer.writeState(active);
+    }
+
+    /**
+     * 本地规则出口：该 URL 命中规则时返回端点地址（形如 {@code http://127.0.0.1:7891}），
+     * 否则空串表示直连。供 IJK/MPV/python/node 这些"只能配一个代理端点"的通道使用。
+     */
+    public static String shellProxyForUrl(String url) {
+        return shellProxyForHost(TextUtils.isEmpty(url) ? "" : host(url));
+    }
+
+    public static String shellProxyForHost(String host) {
+        return upstreamForHost(host).isEmpty() ? "" : RuleProxyServer.url();
+    }
+
+    /**
+     * 该主机的规则上游（形如 {@code http://127.0.0.1:7890} / {@code socks5://host:port}），
+     * 空串表示直连——本机、局域网、未命中规则、开关关闭都会返回空串。
+     */
+    public static String upstreamForHost(String host) {
+        if (!Setting.isShellProxy()) return "";
+        if (TextUtils.isEmpty(host) || OkProxySelector.isLocalHost(host)) return "";
+        for (Proxy item : rules()) {
+            for (String rule : item.getHosts()) {
+                if (OkProxySelector.matchesHost(host, rule)) return upstream(item);
+            }
+        }
+        return "";
+    }
+
+    /**
+     * 规则缓存：WebView / 播放器 / python / node 每条请求都要问一次"这个域名走不走代理"，
+     * 每次都重新解析一遍规则 JSON 太亏。用原始串当 key，设置一变（apply 里重设）自然失效。
+     */
+    private static List<Proxy> rules() {
+        String key = Setting.isShellProxy() + "\n" + Setting.getShellProxyRules() + "\n" + Setting.getShellProxyUrl() + "\n" + Setting.getShellProxyHosts();
+        List<Proxy> cached = cachedRules;
+        if (cached != null && key.equals(cachedKey)) return cached;
+        List<Proxy> parsed = getRules();
+        cachedKey = key;
+        cachedRules = parsed;
+        return parsed;
+    }
+
+    private static String upstream(Proxy item) {
+        List<java.net.Proxy> proxies = item.getProxies();
+        if (proxies.isEmpty()) {
+            // 规则缓存里的对象可能还没被 addAll 初始化过
+            item.init();
+            proxies = item.getProxies();
+        }
+        for (java.net.Proxy proxy : proxies) {
+            if (proxy.type() == java.net.Proxy.Type.DIRECT) continue;
+            if (!(proxy.address() instanceof InetSocketAddress)) continue;
+            InetSocketAddress address = (InetSocketAddress) proxy.address();
+            if (address.getPort() <= 0) continue;
+            // 上游写成规则出口自己会死循环，直接当直连处理
+            if (address.getPort() == RuleProxyServer.port() && isLoopback(address.getHostString())) continue;
+            return (proxy.type() == java.net.Proxy.Type.SOCKS ? "socks5" : "http") + "://" + address.getHostString() + ":" + address.getPort();
+        }
+        return "";
+    }
+
+    private static boolean isLoopback(String host) {
+        if (TextUtils.isEmpty(host)) return false;
+        String value = host.trim().toLowerCase(Locale.ROOT);
+        return "localhost".equals(value) || "127.0.0.1".equals(value) || "::1".equals(value) || "0.0.0.0".equals(value);
     }
 
     public static List<Proxy> getRules() {

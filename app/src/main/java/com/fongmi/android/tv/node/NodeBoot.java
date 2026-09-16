@@ -2,6 +2,8 @@ package com.fongmi.android.tv.node;
 
 import android.content.Context;
 
+import com.fongmi.android.tv.server.proxy.RuleProxyServer;
+
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
@@ -24,6 +26,11 @@ final class NodeBoot {
         try (FileOutputStream out = new FileOutputStream(script)) {
             out.write(source(bundle, config, hostPort, listenPort).getBytes("UTF-8"));
         }
+        // proxy 规则接入脚本与 boot.js 同目录：boot.js 只 require 一行，补丁内容单独落盘便于排查
+        File proxy = new File(bundle.getParentFile(), "shell-proxy.js");
+        try (FileOutputStream out = new FileOutputStream(proxy)) {
+            out.write(NodeProxy.source(RuleProxyServer.stateFile().getAbsolutePath()).getBytes("UTF-8"));
+        }
         return script;
     }
 
@@ -38,8 +45,11 @@ final class NodeBoot {
         File data = new File(bundle.getParentFile(), "data");
         data.mkdirs();
         String dataEscaped = escape(data);
+        String proxyScript = escape(new File(bundle.getParentFile(), "shell-proxy.js"));
         return "'use strict';\n"
                 + "const http = require('http');\n"
+                // 壳内 proxy 规则：开关没开时补丁自己会走原路（等于没打），开了则按域名分流
+                + "try { require('" + proxyScript + "'); } catch (e) { console.error('shell-proxy load failed: ' + (e && e.message)); }\n"
                 // fastify 的 serverFactory 契约：拿到 (handler, opts) 返回一个 http.Server
                 // fastify 的 serverFactory 只该用 handler；第二个参数是 fastify 自己的
                 // 选项对象，塞给 http.createServer 会让 listen 建不起来

@@ -87,12 +87,26 @@ public class OkProxySelector extends ProxySelector {
         for (Proxy item : proxy) {
             for (String rule : item.getHosts()) {
                 if (!matches(host, rule)) continue;
-                List<java.net.Proxy> selected = item.getProxies().isEmpty() ? fallback(uri, "empty-proxy") : item.getProxies();
-                logSelection(uri, "hit", host, rule, item.getName(), selected.size());
-                return selected;
+                if (item.getProxies().isEmpty()) return fallback(uri, "empty-proxy");
+                // 命中规则但上游端口根本没在监听（最常见：内嵌 mihomo/VPN 开关没开）时，
+                // 硬走代理等于把本来能直连的域名一起弄挂 → 退回直连并把原因写进日志。
+                if (!reachable(item.getProxies())) return fallback(uri, "upstream-down");
+                logSelection(uri, "hit", host, rule, item.getName(), item.getProxies().size());
+                return item.getProxies();
             }
         }
         return fallback(uri, "no-match");
+    }
+
+    /** 规则命中的上游是否真的在监听（结果有缓存，不会每请求都握手）。 */
+    private boolean reachable(List<java.net.Proxy> selected) {
+        for (java.net.Proxy item : selected) {
+            if (item == null || item.type() == java.net.Proxy.Type.DIRECT) continue;
+            if (!(item.address() instanceof java.net.InetSocketAddress)) continue;
+            java.net.InetSocketAddress address = (java.net.InetSocketAddress) item.address();
+            if (!ProxyHealth.isUp(address.getHostString(), address.getPort())) return false;
+        }
+        return true;
     }
 
     private List<java.net.Proxy> fallback(URI uri, String reason) {
@@ -109,6 +123,11 @@ public class OkProxySelector extends ProxySelector {
      * 轻则多一跳、重则整个本地通道不可用。
      */
     private boolean isDirectHost(String host) {
+        return isLocalHost(host);
+    }
+
+    /** 本机 / 局域网目标判定（对外公开：本地规则出口与 python 源判定复用同一套语义）。 */
+    public static boolean isLocalHost(String host) {
         if (host == null) return true;
         String value = host.trim().toLowerCase(Locale.ROOT);
         if (value.startsWith("[") && value.endsWith("]")) value = value.substring(1, value.length() - 1);
@@ -140,7 +159,15 @@ public class OkProxySelector extends ProxySelector {
      * {@code github.com} 命中 {@code notgithub.com}，等于把不该代理的域名也送进代理。
      */
     private boolean matches(String host, String rule) {
-        if (rule == null) return false;
+        return matchesHost(host, rule);
+    }
+
+    /**
+     * 规则匹配（对外公开：壳内其它通道——本地规则出口、直连判断、python 源——都复用它，
+     * 保证"走不走代理"只有一套语义）。
+     */
+    public static boolean matchesHost(String host, String rule) {
+        if (host == null || rule == null) return false;
         String value = rule.trim().toLowerCase(Locale.ROOT);
         if (value.isEmpty()) return false;
         if ("*".equals(value)) return true;

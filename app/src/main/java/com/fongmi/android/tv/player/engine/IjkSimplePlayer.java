@@ -43,6 +43,7 @@ import com.fongmi.android.tv.setting.IjkPerformanceSetting;
 import com.fongmi.android.tv.setting.PlaybackPerformanceCatalog;
 import com.fongmi.android.tv.setting.PlaybackPerformanceSetting;
 import com.fongmi.android.tv.setting.PlayerSetting;
+import com.fongmi.android.tv.setting.ProxySetting;
 import com.fongmi.android.tv.utils.Task;
 import com.github.catvod.crawler.SpiderDebug;
 import com.google.common.collect.ImmutableList;
@@ -1043,6 +1044,7 @@ class IjkSimplePlayer extends SimpleBasePlayer implements IMediaPlayer.Listener 
         configureSoftDecodeOptions(appliedDecodeControlConfig.tuneMode());
         ijk.setOption(IjkMediaPlayer.OPT_CATEGORY_FORMAT, "dns_cache_clear", 1);
         ijk.setOption(IjkMediaPlayer.OPT_CATEGORY_FORMAT, "dns_cache_timeout", -1);
+        applyShellProxy(url);
         ijk.setOption(IjkMediaPlayer.OPT_CATEGORY_FORMAT, "fflags", "fastseek");
         // SegmentBase MP4 relies on HTTP byte-range seeks for sidx/moof access.
         ijk.setOption(IjkMediaPlayer.OPT_CATEGORY_FORMAT, "http-detect-range-support", dash ? 1 : 0);
@@ -1098,6 +1100,27 @@ class IjkSimplePlayer extends SimpleBasePlayer implements IMediaPlayer.Listener 
                     IjkDecodePressurePolicy.TuneMode.MILD;
             default -> IjkDecodePressurePolicy.TuneMode.OFF;
         };
+    }
+
+    /**
+     * 设置里的 proxy 规则：命中的域名（TW/HK 直播源、YouTube、GitHub…）走壳内本地规则出口，
+     * 未命中的保持直连。
+     *
+     * <p>ffmpeg 只认一个 {@code http_proxy} 参数、没法自己按域名分流，所以判定放在壳内那个
+     * 本地规则出口端点里；这里只在"确实命中规则"时才挂上，没命中就一个选项都不加
+     * （行为与以前完全一致）。
+     */
+    private void applyShellProxy(String url) {
+        String proxy;
+        try {
+            proxy = ProxySetting.shellProxyForUrl(url);
+        } catch (Throwable e) {
+            return;
+        }
+        if (proxy.isEmpty()) return;
+        ijk.setOption(IjkMediaPlayer.OPT_CATEGORY_FORMAT, "http_proxy", proxy);
+        ijk.setOption(IjkMediaPlayer.OPT_CATEGORY_FORMAT, "https_proxy", proxy);
+        SpiderDebug.log("proxy", "ijk proxy=%s host=%s", proxy, Uri.parse(url).getHost());
     }
 
     private void applyProbeOptions() {

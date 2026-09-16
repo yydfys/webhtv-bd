@@ -152,6 +152,9 @@ public class App extends Application implements Application.ActivityLifecycleCal
         SpiderDebug.log("startup", "background services start cost=%sms", System.currentTimeMillis() - time);
         Server.get().start();
         startMultiThreadProxy();
+        // WebView 的代理覆盖要等 WebView provider 就绪后再同步一次：onCreate 里那次
+        // 只是尽早生效，早期调用可能被 WebView 初始化挡住。
+        com.fongmi.android.tv.utils.WebViewProxy.sync();
         PlaybackRemoteSyncer.start();
         RemoteAgent.get().start();
         NsdDeviceDiscovery.register();
