@@ -393,7 +393,7 @@ public class LabActivity extends AppCompatActivity implements LabPackageAdapter.
         applySourceFields(input, folder, source);
         dropdown.setOnItemClickListener((parent, view, position, id) -> applySourceFields(input, folder, SOURCE_MODES[position]));
         folder.setOnClickListener(v -> openLocalPicker());
-        rootInput.setText(LabConfig.get().getRootOverride());
+        rootInput.setText(LabConfig.get().getValidRootOverride());
         foreground.setChecked(LabConfig.get().getForeground());
         battery.setChecked(LabConfig.get().getBattery());
         navEntry.setChecked(LabConfig.get().getNavEntry());
@@ -417,6 +417,10 @@ public class LabActivity extends AppCompatActivity implements LabPackageAdapter.
                         if (!url.isEmpty()) LabConfig.get().setUrl(url);
                     }
                     String rootText = rootInput.getText() == null ? "" : rootInput.getText().toString().trim();
+                    if (!rootText.isEmpty() && !LabConfig.isValidRoot(rootText)) {
+                        Toast.makeText(this, "根目录得是以 / 开头的绝对路径（如 /storage/emulated/0/WebHTV），已忽略：" + rootText, Toast.LENGTH_LONG).show();
+                        rootText = "";
+                    }
                     LabConfig.get().setRoot(rootText);
                     LabConfig.get().setForeground(foreground.isChecked());
                     LabConfig.get().setBattery(battery.isChecked());

@@ -94,11 +94,31 @@ public final class LabConfig {
     }
 
     /**
+     * 根目录得是 Android 绝对路径（以 / 开头、不含 URL scheme）。
+     *
+     * <p>设置弹窗是自由输入框，粘错成配置地址（http://127.0.0.1:9978/file/WebHTV/...）时，
+     * 这个串会被拼进 proot 的 -b 绑定、{package_dir} 和安装标记路径（java.io.File 还会把
+     * // 塌缩成 /、补前导 / → /http:/...），结果是 proot 报 can't sanitize binding、
+     * 标记文件写进容器里的鬼路径。所以非法值一律当作「没填」。
+     */
+    public static boolean isValidRoot(String path) {
+        if (TextUtils.isEmpty(path)) return false;
+        String value = path.trim();
+        return value.startsWith("/") && !value.contains("://");
+    }
+
+    /** 用户手填的根目录（已过滤非法值）：非法视为未填写，交给配置自带/推断的根目录。 */
+    public String getValidRootOverride() {
+        String override = getRootOverride();
+        return isValidRoot(override) ? override.trim() : "";
+    }
+
+    /**
      * 实际使用的根目录：用户手填 > 配置自带/推断 > 应用私有目录。
      * 最后一级只是保证路径合法（不再回落到其它应用的目录），此时通常还没有可用配置。
      */
     public String getRoot() {
-        String override = getRootOverride();
+        String override = getValidRootOverride();
         if (!TextUtils.isEmpty(override)) return override;
         if (configRoot != null && !configRoot.isEmpty()) return configRoot;
         return fallbackRoot();
@@ -378,7 +398,7 @@ public final class LabConfig {
      * 这样用户在文件管理器里能直接找到并编辑它。
      */
     private File templateRoot() {
-        String override = getRootOverride();
+        String override = getValidRootOverride();
         return new File(TextUtils.isEmpty(override) ? TEMPLATE_ROOT : override);
     }
 
