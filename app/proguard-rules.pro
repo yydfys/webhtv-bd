@@ -147,3 +147,21 @@
 
 # sherpa-onnx JNI resolves Java class and method names directly.
 -keep class com.k2fsa.sherpa.onnx.** { *; }
+
+
+# ============================================================
+# WebHTV 自定义块：消除"顶级短名" —— 修加固 jar 载荷撞名崩溃
+# ------------------------------------------------------------
+# 现象：同一份加固 jar（pro.jar 用 InMemoryDexClassLoader 加载载荷，
+#      类名解析父优先）在 OK影视 壳正常，在 WebHTV 壳只要走到 .so 就崩。
+# 根因：本工程 R8 会把第三方库压成 5000+ 个"顶级短名"类
+#      （La53; / Lsj1; / Lh11; ...），与载荷内部类名同家族 -> 撞车；
+#      载荷的类被壳的类顶掉 -> Guava 静态初始化环 -> NoClassDefFoundError。
+# 修法：1) -repackageclasses 把被混淆的类收进本项目独有的包（消灭顶级短名）
+#      2) -classobfuscationdictionary 用独有词表命名（简单名也不会撞）
+#      两者都与"jar 将来反射/生成什么名字"无关，是命名体系层面的通用修法。
+# 验收：新 APK 的 dex 里"顶级短名"类名数量 = 0（与 OK影视 形态一致）。
+# 回退：删掉本段 + app/webhtv-class-dict.txt 即可，不影响其它功能。
+# ============================================================
+-repackageclasses 'com.webhtv.obf'
+-classobfuscationdictionary webhtv-class-dict.txt
