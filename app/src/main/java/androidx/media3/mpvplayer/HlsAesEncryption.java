@@ -162,6 +162,28 @@ final class HlsAesEncryption {
         return data[0] == 0x47 && data[188] == 0x47 && data[376] == 0x47;
     }
 
+    /** 明文是否为 ISO BMFF（fMP4/CMAF 分片，前 8 字节是 box 长度 + box 类型）。 */
+    static boolean looksLikeIsoBmff(byte[] data) {
+        if (data == null || data.length < 12) return false;
+        long size = ((long) (data[0] & 0xFF) << 24) | ((data[1] & 0xFF) << 16)
+                | ((data[2] & 0xFF) << 8) | (data[3] & 0xFF);
+        if (size < 8 || size > data.length) return false;
+        String type = new String(data, 4, 4, java.nio.charset.StandardCharsets.US_ASCII);
+        return "ftyp".equals(type) || "moof".equals(type) || "styp".equals(type)
+                || "sidx".equals(type) || "moov".equals(type) || "mdat".equals(type)
+                || "free".equals(type) || "skip".equals(type) || "stsd".equals(type);
+    }
+
+    /**
+     * 解密结果是否像「可播放的明文分片」。
+     *
+     * <p>用于逐片自愈校验：TS（0x47 周期）或 fMP4/CMAF box 都算通过；都不像则说明
+     * 这次用的 IV 不对（或该源根本没有真加密），调用方应换候选 IV 或原样直通。
+     */
+    static boolean looksLikePlainSegment(byte[] data) {
+        return looksLikeTransportStream(data) || looksLikeIsoBmff(data);
+    }
+
     /** 剥掉 AES-128 的 {@code #EXT-X-KEY} 行（其它加密方式的标签原样保留）。 */
     static String stripKeyTags(String playlistText) {
         if (playlistText == null || playlistText.isEmpty()) return playlistText;
