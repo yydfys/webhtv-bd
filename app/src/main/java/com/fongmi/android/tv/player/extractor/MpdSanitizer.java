@@ -12,6 +12,13 @@ import java.util.Locale;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+/**
+ * 注意：本类刻意不使用 Matcher#appendReplacement / Matcher#appendTail ——
+ * 它们的 StringBuilder 重载是 Android 14（API 34）才加入的，在低版本机型上运行会抛
+ * NoSuchMethodError（表现为播放报错）。凡是"边扫描边替换"，一律手工 append：
+ * 记住 last 位置，命中时 append(原文, last, matcher.start()) 再 append 替换串，
+ * 结束后再补齐尾部。改动/合并上游时请保持此写法。
+ */
 public final class MpdSanitizer {
 
     private static final String MIME_TYPE = "data:application/dash+xml";
@@ -94,26 +101,31 @@ public final class MpdSanitizer {
     private static String removeInvalidFrameRates(String xml, int[] removed) {
         Matcher matcher = FRAME_RATE.matcher(xml);
         StringBuilder output = new StringBuilder(xml.length());
+        int last = 0;
         while (matcher.find()) {
             if (isValid(matcher.group(2))) continue;
-            matcher.appendReplacement(output, "");
+            output.append(xml, last, matcher.start());
+            last = matcher.end();
             removed[0]++;
         }
         if (removed[0] == 0) return xml;
-        matcher.appendTail(output);
+        output.append(xml, last, xml.length());
         return output.toString();
     }
 
     private static String removeInvalidAdaptationSetIds(String xml, int[] removed) {
         Matcher matcher = ADAPTATION_SET_ID.matcher(xml);
         StringBuilder output = new StringBuilder(xml.length());
+        int last = 0;
         while (matcher.find()) {
             if (isValidInteger(matcher.group(3))) continue;
-            matcher.appendReplacement(output, Matcher.quoteReplacement(matcher.group(1)));
+            output.append(xml, last, matcher.start());
+            output.append(matcher.group(1));
+            last = matcher.end();
             removed[1]++;
         }
         if (removed[1] == 0) return xml;
-        matcher.appendTail(output);
+        output.append(xml, last, xml.length());
         return output.toString();
     }
 
@@ -139,15 +151,17 @@ public final class MpdSanitizer {
     private static String removeTvHtml5VideoAdaptationSets(String xml, int[] removed) {
         Matcher matcher = ADAPTATION_SET.matcher(xml);
         StringBuilder output = new StringBuilder(xml.length());
+        int last = 0;
         while (matcher.find()) {
             String set = matcher.group();
             if (!set.contains("contentType='video'") && !set.contains("contentType=\"video\"")) continue;
             if (!containsClient(set, "TVHTML5")) continue;
-            matcher.appendReplacement(output, "");
+            output.append(xml, last, matcher.start());
+            last = matcher.end();
             removed[2]++;
         }
         if (removed[2] == 0) return xml;
-        matcher.appendTail(output);
+        output.append(xml, last, xml.length());
         return output.toString();
     }
 
@@ -166,25 +180,30 @@ public final class MpdSanitizer {
     private static String keepAndroidVrAudioTrack(String xml, int[] removed) {
         Matcher matcher = ADAPTATION_SET.matcher(xml);
         StringBuilder output = new StringBuilder(xml.length());
+        int last = 0;
         while (matcher.find()) {
             String set = matcher.group();
             if (!set.contains("contentType='audio'") && !set.contains("contentType=\"audio\"")) continue;
             if (!containsClient(set, "ANDROID_VR")) continue;
             Matcher urls = BASE_URL.matcher(set);
             StringBuilder filtered = new StringBuilder(set.length());
+            int urlLast = 0;
             int count = 0;
             while (urls.find()) {
                 if (containsClient(urls.group(), "ANDROID_VR")) continue;
-                urls.appendReplacement(filtered, "");
+                filtered.append(set, urlLast, urls.start());
+                urlLast = urls.end();
                 count++;
             }
             if (count == 0) continue;
-            urls.appendTail(filtered);
-            matcher.appendReplacement(output, Matcher.quoteReplacement(filtered.toString()));
+            filtered.append(set, urlLast, set.length());
+            output.append(xml, last, matcher.start());
+            output.append(filtered.toString());
+            last = matcher.end();
             removed[3] += count;
         }
         if (removed[3] == 0) return xml;
-        matcher.appendTail(output);
+        output.append(xml, last, xml.length());
         return output.toString();
     }
 
