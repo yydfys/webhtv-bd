@@ -4,6 +4,7 @@
       "hosts": [
         "hinet.net",
         "4gtv.tv",
+        ".*okokserver.*",
         "infini.money",
         ".*boku.*",
         ".*nivod.*",

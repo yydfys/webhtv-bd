@@ -34,6 +34,7 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.FilterInputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -43,6 +44,7 @@ import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -104,6 +106,8 @@ public final class MpvHlsProxy extends NanoHTTPD {
     private final Map<Integer, SessionStats> sessionStats;
     private final Map<String, Target> targets;
     private final Map<Integer, CompletableFuture<DashHlsPlan>> dashHlsPlans;
+    /** 仅 IJK 内核：AES-128 加密清单的服务端解密状态（MPV/其它内核不写入）。 */
+    private final Map<Integer, HlsAesSession> aesSessions;
     private final AtomicLong nextId;
     private final java.util.Set<String> preloading;
     private final MpvHlsPreloadGate preloadGate;
@@ -141,6 +145,7 @@ public final class MpvHlsProxy extends NanoHTTPD {
         sessionStats = new ConcurrentHashMap<>();
         targets = new ConcurrentHashMap<>();
         dashHlsPlans = new ConcurrentHashMap<>();
+        aesSessions = new ConcurrentHashMap<>();
         nextId = new AtomicLong();
         preloading = ConcurrentHashMap.newKeySet();
         preloadGate = new MpvHlsPreloadGate();
@@ -270,6 +275,7 @@ public final class MpvHlsProxy extends NanoHTTPD {
         sessionStats.clear();
         targets.clear();
         dashHlsPlans.clear();
+        aesSessions.clear();
         upstreamEstimator.reset();
         lastManualPreloadPositionMs = Long.MIN_VALUE;
         lastManualPreloadAtMs = 0;
@@ -1278,8 +1284,12 @@ public final class MpvHlsProxy extends NanoHTTPD {
                 stats(target.sessionId()).observeLiveMediaRequest(
                         target.url(), SystemClock.elapsedRealtime());
             }
-            String forwardedRange = targetPlaylist ? null : range;
-            if (!targetPlaylist && target.cacheable) {
+            HlsAesSession aes = aesSessions.get(target.sessionId);
+            boolean aesSegment = aes != null
+                    && !targetPlaylist
+                    && target.role() == HlsPlaylistRewriter.UriRole.MEDIA_SEGMENT;
+            String forwardedRange = targetPlaylist || aesSegment ? null : range;
+            if (!targetPlaylist && target.cacheable && !aesSegment) {
                 Response cached = serveCached(owner, target.url, range, foreground);
                 if (cached != null) {
                     recordCachedTarget(owner, target);
@@ -1322,6 +1332,15 @@ public final class MpvHlsProxy extends NanoHTTPD {
             boolean mayStripPngPrefix = MpvHlsSegmentContentPolicy.shouldProbePngPrefix(
                     type == null ? null : type.toString(),
                     target.role() == HlsPlaylistRewriter.UriRole.MEDIA_SEGMENT);
+            if (aesSegment) {
+                Response decrypted = serveAesSegment(target, aes, response, body, range);
+                if (decrypted != null) {
+                    recordItemResponse(target.sessionId, response.code(), target.url);
+                    response.close();
+                    foregroundHandedOff = true;
+                    return decrypted;
+                }
+            }
             recordItemResponse(target.sessionId, response.code(), target.url);
             long contentLength = body.contentLength();
             String mime = mayStripPngPrefix ? MIME_TS : mediaMimeFor(target.url, finalUrl, type);
@@ -1360,6 +1379,67 @@ public final class MpvHlsProxy extends NanoHTTPD {
         } finally {
             if (!foregroundHandedOff) foreground.close();
         }
+    }
+
+    /**
+     * AES-128 分片：整段取回 → 服务端解密 → 按播放器要的 Range 从明文里切出去。
+     *
+     * <p>返回 null 表示这次不接手（没有对应序号、上游失败、体积超限等），
+     * 调用方照旧走原来的直通逻辑。
+     */
+    @Nullable
+    private Response serveAesSegment(
+            Target target,
+            HlsAesSession aes,
+            okhttp3.Response response,
+            ResponseBody body,
+            @Nullable String range) {
+        byte[] iv = aes.ivFor(target.url());
+        if (iv == null) {
+            SpiderDebug.log(TAG, "aes passthrough reason=no-index url=%s", shortUrl(target.url()));
+            return null;
+        }
+        if (!response.isSuccessful()) return null;
+        long declared = body.contentLength();
+        if (declared > HlsAesSession.MAX_SEGMENT_BYTES) {
+            SpiderDebug.log(TAG, "aes passthrough reason=oversize length=%d url=%s", declared, shortUrl(target.url()));
+            return null;
+        }
+        byte[] raw;
+        try {
+            raw = readAll(body.byteStream(), HlsAesSession.MAX_SEGMENT_BYTES);
+        } catch (Throwable e) {
+            SpiderDebug.log(TAG, "aes read failed errorType=%s url=%s", e.getClass().getSimpleName(), shortUrl(target.url()));
+            return null;
+        }
+        byte[] plain = raw == null ? null : HlsAesEncryption.decrypt(raw, aes.key, iv);
+        if (plain == null) {
+            SpiderDebug.log(TAG, "aes decrypt failed bytes=%d url=%s", raw == null ? -1 : raw.length, shortUrl(target.url()));
+            return error(Status.INTERNAL_ERROR, "aes decrypt failed");
+        }
+        Range parsed = parseRange(range, plain.length);
+        if (range != null && parsed == null) {
+            Response invalid = error(Status.RANGE_NOT_SATISFIABLE, "invalid range");
+            invalid.addHeader("Content-Range", "bytes */" + plain.length);
+            return invalid;
+        }
+        long start = parsed == null ? 0 : parsed.start;
+        long end = parsed == null ? plain.length - 1 : parsed.end;
+        byte[] slice = start == 0 && end == plain.length - 1
+                ? plain : Arrays.copyOfRange(plain, (int) start, (int) end + 1);
+        Response result = newFixedLengthResponse(
+                parsed == null ? Status.OK : Status.PARTIAL_CONTENT, MIME_TS,
+                new ByteArrayInputStream(slice), slice.length);
+        result.addHeader("Access-Control-Allow-Origin", "*");
+        result.addHeader("Cache-Control", "no-cache");
+        result.addHeader("Connection", "close");
+        result.addHeader("Accept-Ranges", "bytes");
+        if (parsed != null) {
+            result.addHeader("Content-Range", "bytes " + start + "-" + end + "/" + plain.length);
+        }
+        SpiderDebug.log(TAG, "aes segment range=%s bytes=%d->%d url=%s",
+                range, raw.length, slice.length, shortUrl(target.url()));
+        return result;
     }
 
     private okhttp3.Response fetch(Session session, String url, @Nullable String range, boolean identityEncoding) throws IOException {
@@ -1420,11 +1500,113 @@ public final class MpvHlsProxy extends NanoHTTPD {
                     context.durationSeconds());
             return new HlsPlaylistRewriter.MappedUri(targetUrl, rewrittenUrl);
         });
-        recordPlaylistDetails(session, playlistUrl, text, result, inheritedVariant);
+        HlsPlaylistRewriter.Result details = result;
+        String output = result.text();
+        HlsAesSession aes = installAes(playlistUrl, text, session, result);
+        if (aes != null) {
+            // 服务端已解密：清单里不再暴露 #EXT-X-KEY，分片按明文 TS 下发；
+            // 分片列表一并清空，避免预加载/缓存去碰加密字节。
+            output = HlsAesEncryption.stripKeyTags(output);
+            details = new HlsPlaylistRewriter.Result(output, List.of(), result.variants(), List.of());
+            SpiderDebug.log(TAG, "aes enabled session=%d keyUri=%s iv=%s segments=%d url=%s",
+                    session, shortUrl(aes.keyUrl),
+                    aes.declaredIvVerified ? "declared" : "sequence+" + aes.sequenceOffset,
+                    result.segments().size(), shortUrl(playlistUrl));
+        }
+        recordPlaylistDetails(session, playlistUrl, text, details, inheritedVariant);
         if (!result.variants().isEmpty()) {
             SpiderDebug.log(TAG, "master playlist preserved variants session=%d variants=%d", session, result.variants().size());
         }
-        return result.text();
+        return output;
+    }
+
+    /**
+     * 给 IJK 内核的 AES-128 清单装上服务端解密。
+     *
+     * <p>先解析密钥地址、取回 16 字节密钥，再拿首个分片实测解密（校验 0x47 同步字）；
+     * 只有实测通过才登记解密状态，调用方随后把 {@code #EXT-X-KEY} 行剥掉——
+     * 这样解不开的场景（多密钥轮换、非常规容器）依旧退回原行为，不会有额外副作用。
+     */
+    @Nullable
+    private HlsAesSession installAes(
+            String playlistUrl,
+            String text,
+            int sessionId,
+            HlsPlaylistRewriter.Result result) {
+        if (kernel != PlayerSetting.IJK) return null;
+        HlsAesEncryption.KeyInfo info = HlsAesEncryption.parse(text);
+        if (info == null || !info.usable()) return null;
+        List<HlsPlaylistRewriter.Segment> segments = result.segments();
+        if (segments.isEmpty()) return null;
+        for (HlsPlaylistRewriter.Segment segment : segments) {
+            // 分片共享同一文件靠 BYTERANGE 切片时，URL 与序号的对应关系会歧义，不接手。
+            if (segment.byteRange()) return null;
+        }
+        Session owner = sessions.get(sessionId);
+        if (owner == null) return null;
+        String keyUrl = resolve(playlistUrl, info.keyUri);
+        HlsAesSession existing = aesSessions.get(sessionId);
+        if (existing != null && existing.keyUrl.equals(keyUrl)) {
+            existing.updateSequence(info.mediaSequence);
+            existing.recordSegments(segments);
+            return existing;
+        }
+        byte[] key = fetchAesKey(owner, keyUrl);
+        if (key == null) {
+            SpiderDebug.log(TAG, "aes skip session=%d reason=key-unavailable keyUri=%s", sessionId, shortUrl(keyUrl));
+            return null;
+        }
+        HlsAesSession candidate = new HlsAesSession(key, keyUrl, info.declaredIv, info.mediaSequence);
+        candidate.recordSegments(segments);
+        if (!probeAes(owner, candidate, segments.get(0).uri())) {
+            SpiderDebug.log(TAG, "aes skip session=%d reason=probe-failed keyUri=%s", sessionId, shortUrl(keyUrl));
+            return null;
+        }
+        aesSessions.put(sessionId, candidate);
+        return candidate;
+    }
+
+    @Nullable
+    private byte[] fetchAesKey(Session session, String keyUrl) {
+        try (okhttp3.Response response = fetch(session, keyUrl, null, true)) {
+            ResponseBody body = response.body();
+            if (!response.isSuccessful() || body == null) return null;
+            byte[] key = body.bytes();
+            return key.length == 16 ? key : null;
+        } catch (Throwable e) {
+            return null;
+        }
+    }
+
+    /** 用第一个分片实测解密，确定 IV 取法（声明 IV 优先，否则按媒体序号推、带 ±1 容错）。 */
+    private boolean probeAes(Session session, HlsAesSession aes, String firstSegmentUrl) {
+        byte[] probe;
+        try (okhttp3.Response response = fetch(session, firstSegmentUrl, null, true)) {
+            ResponseBody body = response.body();
+            if (!response.isSuccessful() || body == null) return false;
+            long length = body.contentLength();
+            if (length > HlsAesSession.MAX_SEGMENT_BYTES) return false;
+            probe = readAll(body.byteStream(), HlsAesSession.MAX_SEGMENT_BYTES);
+        } catch (Throwable e) {
+            return false;
+        }
+        if (probe == null || probe.length == 0) return false;
+        byte[] declaredIv = aes.declaredIv;
+        if (declaredIv != null
+                && HlsAesEncryption.looksLikeTransportStream(HlsAesEncryption.decrypt(probe, aes.key, declaredIv))) {
+            aes.verifyDeclaredIv();
+            return true;
+        }
+        for (int offset : new int[]{0, -1, 1}) {
+            long sequence = aes.mediaSequence + offset;
+            if (sequence < 0) continue;
+            byte[] plain = HlsAesEncryption.decrypt(probe, aes.key, HlsAesEncryption.ivForSequence(sequence));
+            if (HlsAesEncryption.looksLikeTransportStream(plain)) {
+                aes.verifySequenceIv(offset);
+                return true;
+            }
+        }
+        return false;
     }
 
     private String proxyItemUrl(
@@ -1829,10 +2011,14 @@ public final class MpvHlsProxy extends NanoHTTPD {
             if (now - entry.getValue().createdAtMs > SESSION_TTL_MS) {
                 sessions.remove(entry.getKey());
                 sessionStats.remove(entry.getKey());
+                aesSessions.remove(entry.getKey());
             }
         }
         for (Integer key : new ArrayList<>(dashHlsPlans.keySet())) {
             if (!sessions.containsKey(key)) dashHlsPlans.remove(key);
+        }
+        for (Integer key : new ArrayList<>(aesSessions.keySet())) {
+            if (!sessions.containsKey(key)) aesSessions.remove(key);
         }
         for (Map.Entry<String, Target> entry : targets.entrySet()) {
             Target target = entry.getValue();
@@ -2204,6 +2390,75 @@ public final class MpvHlsProxy extends NanoHTTPD {
         private double endSeconds() {
             return startSeconds + durationSeconds;
         }
+    }
+
+    /** IJK 专用：AES-128 清单的解密状态（密钥、IV 取法、分片序号表）。 */
+    private static final class HlsAesSession {
+
+        private static final long MAX_SEGMENT_BYTES = 64L * 1024 * 1024;
+
+        private final byte[] key;
+        private final String keyUrl;
+        private final byte[] declaredIv;
+        private final Map<String, Integer> segmentIndex = new ConcurrentHashMap<>();
+        private volatile long mediaSequence;
+        private volatile int sequenceOffset;
+        private volatile boolean declaredIvVerified;
+
+        HlsAesSession(byte[] key, String keyUrl, @Nullable byte[] declaredIv, long mediaSequence) {
+            this.key = key;
+            this.keyUrl = keyUrl;
+            this.declaredIv = declaredIv;
+            this.mediaSequence = mediaSequence;
+        }
+
+        void updateSequence(long sequence) {
+            mediaSequence = sequence;
+        }
+
+        void recordSegments(List<HlsPlaylistRewriter.Segment> segments) {
+            Map<String, Integer> indices = new LinkedHashMap<>();
+            for (int i = 0; i < segments.size(); i++) {
+                indices.putIfAbsent(segments.get(i).uri(), i);
+            }
+            segmentIndex.clear();
+            segmentIndex.putAll(indices);
+        }
+
+        void verifyDeclaredIv() {
+            declaredIvVerified = true;
+        }
+
+        void verifySequenceIv(int offset) {
+            sequenceOffset = offset;
+            declaredIvVerified = false;
+        }
+
+        /** 分片 IV：声明 IV 实测通过就用它，否则用「媒体序号 + 分片下标」推。 */
+        @Nullable
+        byte[] ivFor(String url) {
+            if (declaredIvVerified && declaredIv != null) return declaredIv;
+            Integer index = segmentIndex.get(url);
+            if (index == null) return null;
+            long sequence = mediaSequence + index + sequenceOffset;
+            return sequence < 0 ? null : HlsAesEncryption.ivForSequence(sequence);
+        }
+    }
+
+    /** 整段读入内存并设上限（AES 分片必须整体解密，不能边流边解）。 */
+    @Nullable
+    private static byte[] readAll(InputStream input, long limit) throws IOException {
+        ByteArrayOutputStream out = new ByteArrayOutputStream(64 * 1024);
+        byte[] buffer = new byte[16 * 1024];
+        long total = 0;
+        int count;
+        while ((count = input.read(buffer)) >= 0) {
+            if (count == 0) continue;
+            total += count;
+            if (total > limit) return null;
+            out.write(buffer, 0, count);
+        }
+        return out.toByteArray();
     }
 
     private record Range(long start, long end) {
