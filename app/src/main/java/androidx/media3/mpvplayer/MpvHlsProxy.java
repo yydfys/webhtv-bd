@@ -47,10 +47,13 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.regex.Matcher;
@@ -100,7 +103,7 @@ public final class MpvHlsProxy extends NanoHTTPD {
     private final Map<Integer, Session> sessions;
     private final Map<Integer, SessionStats> sessionStats;
     private final Map<String, Target> targets;
-    private final Map<Integer, DashHlsPlan> dashHlsPlans;
+    private final Map<Integer, CompletableFuture<DashHlsPlan>> dashHlsPlans;
     private final AtomicLong nextId;
     private final java.util.Set<String> preloading;
     private final MpvHlsPreloadGate preloadGate;
@@ -108,6 +111,7 @@ public final class MpvHlsProxy extends NanoHTTPD {
     private final PlaybackDiskBufferStore diskBufferStore;
     private final AtomicInteger activePreloadTransfers;
     private ExecutorService preloadExecutor;
+    private ExecutorService dashHlsPlanExecutor;
     private MpvHlsCacheCoordinator.ClientLease cacheClient;
     private PlaybackRouteRegistry.Registration routeRegistration;
     private int preloadThreads;
@@ -143,6 +147,30 @@ public final class MpvHlsProxy extends NanoHTTPD {
         upstreamEstimator = new MpvHlsUpstreamEstimator();
         diskBufferStore = PlaybackDiskBufferStore.process();
         activePreloadTransfers = new AtomicInteger();
+    }
+
+    /**
+     * DASH 转 HLS 的专用线程池。
+     *
+     * <p>开播流程跑在主线程上，而取 MPD、取 {@code SegmentBase@indexRange} 的 sidx 索引
+     * 都是网络请求——主线程同步发网络请求，安卓必抛 {@code NetworkOnMainThreadException}，
+     * 转换注定失败。所以转换整段丢到这个池子里跑，主线程只拿本地代理地址。
+     */
+    private synchronized ExecutorService dashHlsPlanExecutor() {
+        if (dashHlsPlanExecutor == null || dashHlsPlanExecutor.isShutdown()) {
+            dashHlsPlanExecutor = Executors.newFixedThreadPool(DASH_HLS_PLAN_THREADS, runnable -> {
+                Thread thread = new Thread(runnable, "mpv-proxy-dashhls");
+                thread.setDaemon(true);
+                return thread;
+            });
+        }
+        return dashHlsPlanExecutor;
+    }
+
+    private synchronized void releaseDashHlsPlanExecutor() {
+        if (dashHlsPlanExecutor == null) return;
+        dashHlsPlanExecutor.shutdownNow();
+        dashHlsPlanExecutor = null;
     }
 
     public synchronized String proxy(String url, Map<String, String> headers) throws IOException {
@@ -296,6 +324,7 @@ public final class MpvHlsProxy extends NanoHTTPD {
 
     public synchronized void release() {
         clear();
+        releaseDashHlsPlanExecutor();
         try {
             if (started) stop();
         } finally {
@@ -722,6 +751,12 @@ public final class MpvHlsProxy extends NanoHTTPD {
     /** 内嵌 DASH 转本地 HLS 时每个分片的目标时长（毫秒）。 */
     private static final long DASH_HLS_SEGMENT_MS = 15_000;
 
+    /** DASH 转 HLS 的并发线程数。 */
+    private static final int DASH_HLS_PLAN_THREADS = 2;
+
+    /** DASH 转 HLS 完成后，播放端等结果的上限（毫秒）。 */
+    private static final long DASH_HLS_PLAN_TIMEOUT_MS = 15_000L;
+
     /** ISO-8601 时长（MPD 的 mediaPresentationDuration，形如 PT1H23M45.6S）。 */
     private static final Pattern DASH_DURATION = Pattern.compile(
             "P(?:(\\d+)D)?T?(?:(\\d+)H)?(?:(\\d+)M)?(?:(\\d+(?:\\.\\d+)?)S)?");
@@ -733,8 +768,9 @@ public final class MpvHlsProxy extends NanoHTTPD {
      * 1003 / ERROR_CODE_UNSPECIFIED；这里把 MPD 的视频轨、音频轨各自翻成 HLS 分片清单
      * （fMP4 分片 + {@code #EXT-X-MAP} 初始化段），让 IJK 走它本来就支持的 hls 解复用器。
      *
-     * <p>转换在开播线程内同步完成：转不出来直接抛 IOException，调用方回退到原来的
-     * MPD 代理路径，保证不会比改动前更差。
+     * <p>转换整段丢后台线程跑（取 MPD、取 sidx 索引都是网络请求，在主线程上发必抛
+     * NetworkOnMainThreadException），这里立刻返回本地 HLS 地址；播放端真正请求
+     * index.m3u8 端点时再等转换结果，转不出来就报 502。
      */
     public synchronized String proxyDashHls(
             String url, Map<String, String> headers, String mediaKey) throws IOException {
@@ -758,23 +794,19 @@ public final class MpvHlsProxy extends NanoHTTPD {
         sessionStats.put(id, stats);
         pruneExpiredSessions(session.createdAtMs);
         pruneCache();
-        DashHlsPlan plan;
-        try {
-            plan = buildDashHlsPlan(id, session);
-        } catch (Throwable e) {
-            sessions.remove(id);
-            sessionStats.remove(id);
-            if (e instanceof IOException io) throw io;
-            throw new IOException(e);
-        }
-        dashHlsPlans.put(id, plan);
+        CompletableFuture<DashHlsPlan> future = new CompletableFuture<>();
+        dashHlsPlans.put(id, future);
+        dashHlsPlanExecutor().execute(() -> {
+            try {
+                future.complete(buildDashHlsPlan(id, session));
+            } catch (Throwable e) {
+                future.completeExceptionally(e);
+                SpiderDebug.log(TAG, "dash-hls failed session=%d errorType=%s url=%s",
+                        id, e.getClass().getSimpleName(), shortUrl(url));
+            }
+        });
         String proxyUrl = baseUrl() + "/mpv/dashhls/index.m3u8?s=" + id;
-        SpiderDebug.log(TAG,
-                "dash-hls enabled session=%d videoSegments=%d audioSegments=%d url=%s",
-                id,
-                plan.video.segmentCount(),
-                plan.audio == null ? 0 : plan.audio.segmentCount(),
-                shortUrl(url));
+        SpiderDebug.log(TAG, "dash-hls enabled session=%d url=%s", id, shortUrl(url));
         return proxyUrl;
     }
 
@@ -977,16 +1009,42 @@ public final class MpvHlsProxy extends NanoHTTPD {
         return builder.toString();
     }
 
+    /** 等后台线程把 DASH 翻成 HLS。跑在请求线程上（NanoHTTPD 工作线程），不碰主线程。 */
+    private DashHlsPlan awaitDashHlsPlan(int id) throws IOException {
+        CompletableFuture<DashHlsPlan> future = dashHlsPlans.get(id);
+        if (future == null) throw new IOException("session missing");
+        try {
+            return future.get(DASH_HLS_PLAN_TIMEOUT_MS, TimeUnit.MILLISECONDS);
+        } catch (TimeoutException e) {
+            throw new IOException("plan timeout");
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IOException(e);
+        } catch (ExecutionException e) {
+            Throwable cause = e.getCause();
+            if (cause instanceof IOException io) throw io;
+            throw new IOException(cause == null ? String.valueOf(e) : String.valueOf(cause));
+        }
+    }
+
     private Response serveDashHls(IHTTPSession httpSession) throws IOException {
         String path = httpSession.getUri();
         String action = dashHlsAction(path);
         int id = parseSessionId(httpSession);
         Session session = sessions.get(id);
-        DashHlsPlan plan = dashHlsPlans.get(id);
-        if (action == null || session == null || plan == null) {
+        if (action == null || session == null || dashHlsPlans.get(id) == null) {
             if (action == null) return error(Status.NOT_FOUND, "not found");
             dashHlsPlans.remove(id);
             return error(Status.NOT_FOUND, "expired dash-hls");
+        }
+        DashHlsPlan plan;
+        try {
+            plan = awaitDashHlsPlan(id);
+        } catch (IOException e) {
+            dashHlsPlans.remove(id);
+            SpiderDebug.log(TAG, "dash-hls serve failed session=%d errorType=%s reason=%s",
+                    id, e.getClass().getSimpleName(), e.getMessage());
+            return error(Status.INTERNAL_ERROR, "dash-hls unavailable");
         }
         if ("index".equals(action)) {
             recordPlaylistResponse(id, 200, "dash-hls:index", plan.master);
