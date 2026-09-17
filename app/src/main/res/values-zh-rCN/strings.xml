@@ -866,6 +866,10 @@
     <string name="setting_proxy_test_running">正在测试代理...</string>
     <string name="setting_proxy_test_success">代理测试通过：%1$s</string>
     <string name="setting_proxy_test_failed">代理测试失败：%1$s</string>
+    <string name="setting_proxy_restore_builtin">恢复内置</string>
+    <string name="setting_proxy_restore_confirm">将用内置规则覆盖当前规则（共 %1$d 条），确定吗？</string>
+    <string name="setting_proxy_restore_done">已恢复内置规则 %1$d 条</string>
+    <string name="setting_proxy_restore_failed">内置规则不可用</string>
     <string name="setting_one_key_sync">一键同步</string>
     <string name="setting_incognito">无痕模式</string>
     <string name="setting_vpn">VPN 代理</string>

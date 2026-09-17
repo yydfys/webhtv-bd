@@ -225,6 +225,7 @@ public class ShellProxyDialog extends BaseAlertDialog {
         binding.suggestRule.setOnClickListener(view -> showSuggestSiteDialog());
         binding.recognizeRule.setOnClickListener(view -> showRecognizeMode(true));
         binding.testRule.setOnClickListener(view -> testProxy());
+        binding.restoreBuiltin.setOnClickListener(view -> confirmRestoreBuiltin());
     }
 
     @Override
@@ -343,6 +344,7 @@ public class ShellProxyDialog extends BaseAlertDialog {
         binding.addRule.setVisibility(recognizeMode || textMode ? View.GONE : View.VISIBLE);
         binding.suggestRule.setVisibility(recognizeMode ? View.GONE : View.VISIBLE);
         binding.recognizeRule.setVisibility(recognizeMode ? View.GONE : View.VISIBLE);
+        binding.restoreBuiltin.setVisibility(recognizeMode ? View.GONE : View.VISIBLE);
         binding.testRule.setVisibility(recognizeMode ? View.GONE : View.VISIBLE);
         binding.modePanel.requestLayout();
         binding.modePanel.invalidate();
@@ -452,6 +454,32 @@ public class ShellProxyDialog extends BaseAlertDialog {
         syncTextFromRules();
         if (added > 0) scrollToRule(adapter.displayPosition(reverseOrder ? items.size() - 1 : firstAdded));
         Notify.show(ResUtil.getString(R.string.setting_proxy_suggest_added, added, hosts.size()));
+    }
+
+    private void confirmRestoreBuiltin() {
+        int count = Rule.parse(getBuiltinRules()).size();
+        if (count == 0) {
+            Notify.show(R.string.setting_proxy_restore_failed);
+            return;
+        }
+        syncTextFromRulesIfNeeded();
+        new MaterialAlertDialogBuilder(requireActivity(), R.style.ThemeOverlay_WebHTV_LightDialog)
+                .setTitle(R.string.setting_proxy_restore_builtin)
+                .setMessage(ResUtil.getString(R.string.setting_proxy_restore_confirm, count))
+                .setNegativeButton(R.string.dialog_negative, null)
+                .setPositiveButton(R.string.dialog_positive, (dialog, which) -> restoreBuiltinRules())
+                .show();
+    }
+
+    private void restoreBuiltinRules() {
+        List<Rule> items = Rule.parse(getBuiltinRules());
+        if (items.isEmpty()) {
+            Notify.show(R.string.setting_proxy_restore_failed);
+            return;
+        }
+        adapter.setItems(items);
+        syncTextFromRules();
+        Notify.show(ResUtil.getString(R.string.setting_proxy_restore_done, items.size()));
     }
 
     private boolean saveRecognizedRules() {

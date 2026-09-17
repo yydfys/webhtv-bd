@@ -869,6 +869,10 @@
     <string name="setting_proxy_test_running">Testing proxy...</string>
     <string name="setting_proxy_test_success">Proxy test passed: %1$s</string>
     <string name="setting_proxy_test_failed">Proxy test failed: %1$s</string>
+    <string name="setting_proxy_restore_builtin">Restore builtin</string>
+    <string name="setting_proxy_restore_confirm">Overwrite current rules with %1$d built-in rules?</string>
+    <string name="setting_proxy_restore_done">Restored %1$d built-in rules</string>
+    <string name="setting_proxy_restore_failed">Built-in rules unavailable</string>
     <string name="setting_one_key_sync">One-key sync</string>
     <string name="setting_incognito">Incognito mode</string>
     <string name="setting_vpn">VPN Proxy</string>

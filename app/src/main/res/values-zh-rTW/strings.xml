@@ -823,6 +823,10 @@
     <string name="setting_proxy_test_running">正在測試代理...</string>
     <string name="setting_proxy_test_success">代理測試通過：%1$s</string>
     <string name="setting_proxy_test_failed">代理測試失敗：%1$s</string>
+    <string name="setting_proxy_restore_builtin">恢復內置</string>
+    <string name="setting_proxy_restore_confirm">將用內置規則覆蓋當前規則（共 %1$d 條），確定嗎？</string>
+    <string name="setting_proxy_restore_done">已恢復內置規則 %1$d 條</string>
+    <string name="setting_proxy_restore_failed">內置規則不可用</string>
     <string name="setting_one_key_sync">一鍵同步</string>
     <string name="setting_incognito">無痕模式</string>
     <string name="setting_vpn">VPN 代理</string>
