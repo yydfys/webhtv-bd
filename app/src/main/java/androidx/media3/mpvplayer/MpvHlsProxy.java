@@ -979,37 +979,48 @@ public final class MpvHlsProxy extends NanoHTTPD {
 
     private Response serveDashHls(IHTTPSession httpSession) throws IOException {
         String path = httpSession.getUri();
+        String action = dashHlsAction(path);
         int id = parseSessionId(httpSession);
         Session session = sessions.get(id);
         DashHlsPlan plan = dashHlsPlans.get(id);
-        if (session == null || plan == null) {
+        if (action == null || session == null || plan == null) {
+            if (action == null) return error(Status.NOT_FOUND, "not found");
             dashHlsPlans.remove(id);
             return error(Status.NOT_FOUND, "expired dash-hls");
         }
-        if (path.endsWith("index.m3u8")) {
+        if ("index".equals(action)) {
             recordPlaylistResponse(id, 200, "dash-hls:index", plan.master);
             return noCache(textResponse(plan.master));
         }
-        String kind = dashHlsKind(httpSession);
+        String kind = dashHlsKind(httpSession.getParms().get("t"));
         DashHlsTrack track = dashHlsTrack(plan, kind);
         if (track == null) return error(Status.NOT_FOUND, "missing dash track");
-        if (path.endsWith("media.m3u8")) {
+        if ("media".equals(action)) {
             String text = "a".equals(kind) ? plan.audioPlaylist : plan.videoPlaylist;
             if (text == null) return error(Status.NOT_FOUND, "missing dash playlist");
             recordPlaylistResponse(id, 200, "dash-hls:" + kind, text);
             return noCache(textResponse(text));
         }
-        if (path.endsWith("init")) {
+        if ("init".equals(action)) {
             if (track.init == null) return error(Status.NOT_FOUND, "missing dash init");
-            return serveDashHlsRange(id, session, track, track.init, true);
+            return serveDashHlsRange(id, session, track, track.init.start(), track.init.end(), true, true);
         }
-        if (path.endsWith("seg")) {
-            if (track.wholeFile()) return serveDashHlsRange(id, session, track, null, false);
-            int index = parseIntValue(httpSession.getParms().get("i"), -1);
-            if (index < 0 || index >= track.segments.size()) return error(Status.NOT_FOUND, "missing dash segment");
-            return serveDashHlsRange(id, session, track, track.segments.get(index), false);
-        }
-        return error(Status.NOT_FOUND, "not found");
+        if (track.wholeFile()) return serveDashHlsRange(id, session, track, 0, 0, false, false);
+        int index = parseIntValue(httpSession.getParms().get("i"), -1);
+        if (index < 0 || index >= track.segments.size()) return error(Status.NOT_FOUND, "missing dash segment");
+        SidxRange segment = track.segments.get(index);
+        return serveDashHlsRange(id, session, track, segment.start(), segment.end(), true, false);
+    }
+
+    /** dash-hls 端点分派：index/media/init/seg，未知返回 null。 */
+    @Nullable
+    private static String dashHlsAction(@Nullable String path) {
+        if (path == null) return null;
+        if (path.endsWith("index.m3u8")) return "index";
+        if (path.endsWith("media.m3u8")) return "media";
+        if (path.endsWith("init")) return "init";
+        if (path.endsWith("seg")) return "seg";
+        return null;
     }
 
     /**
@@ -1020,8 +1031,9 @@ public final class MpvHlsProxy extends NanoHTTPD {
      * 返回整文件，这里自己跳过前缀再截断，绝不把整部片子灌给播放器。
      */
     private Response serveDashHlsRange(
-            int id, Session session, DashHlsTrack track, @Nullable ByteRange range, boolean init) throws IOException {
-        String rangeHeader = range == null ? null : "bytes=" + range.start + "-" + range.end;
+            int id, Session session, DashHlsTrack track,
+            long start, long end, boolean ranged, boolean init) throws IOException {
+        String rangeHeader = ranged ? "bytes=" + start + "-" + end : null;
         okhttp3.Response response = fetch(session, track.url, rangeHeader, true);
         ResponseBody body = response.body();
         if (body == null) {
@@ -1039,9 +1051,9 @@ public final class MpvHlsProxy extends NanoHTTPD {
         }
         long length = body.contentLength();
         InputStream source = body.byteStream();
-        if (range != null && response.code() != 206 && response.header("Content-Range") == null) {
-            skipFully(source, range.start);
-            length = range.end - range.start + 1;
+        if (ranged && dashHlsTrimNeeded(response.code(), response.header("Content-Range"))) {
+            skipFully(source, start);
+            length = end - start + 1;
             source = new LimitedInputStream(source, length);
         }
         InputStream stream = new CloseResponseInputStream(source, response);
@@ -1058,14 +1070,18 @@ public final class MpvHlsProxy extends NanoHTTPD {
         return result;
     }
 
+    /** 上游收到 Range 却不当回事（返回 200 且没有 Content-Range）时，得自己跳过前缀再截断。 */
+    private static boolean dashHlsTrimNeeded(int code, @Nullable String contentRange) {
+        return code != 206 && TextUtils.isEmpty(contentRange);
+    }
+
     private Response textResponse(String text) {
         byte[] data = text.getBytes(StandardCharsets.UTF_8);
         return newFixedLengthResponse(Status.OK, MIME_M3U8, new ByteArrayInputStream(data), data.length);
     }
 
-    private static String dashHlsKind(IHTTPSession httpSession) {
-        String kind = httpSession.getParms().get("t");
-        return "a".equals(kind) ? "a" : "v";
+    private static String dashHlsKind(@Nullable String value) {
+        return "a".equals(value) ? "a" : "v";
     }
 
     @Nullable
