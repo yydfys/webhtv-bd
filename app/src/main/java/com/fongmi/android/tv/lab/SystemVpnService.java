@@ -72,6 +72,8 @@ public class SystemVpnService extends VpnService {
     private static final String APP_GENERATED_MARKER = HOME_DIR + "/config.yaml.app_generated";
     private static final String GEOIP_PATH = HOME_DIR + "/GeoIP.dat";
     private static final String GEOSITE_PATH = HOME_DIR + "/GeoSite.dat";
+    /** mihomo 混合口默认端口（壳内「规则代理」的本机上游就是 127.0.0.1:<这个>）。 */
+    private static final int DEFAULT_PROXY_PORT = 7890;
 
     private static volatile boolean proxyState = false;
     private static volatile boolean vpnState = false;
@@ -161,6 +163,32 @@ public class SystemVpnService extends VpnService {
     /** 兼容旧调用：设置弹窗旧逻辑读 isRunning 判断 VPN 是否开 */
     public static boolean isRunning() {
         return vpnState;
+    }
+
+    /** 壳内「规则代理」的本机上游端口（mihomo 混合口）。零 I/O，可在主线程调用。 */
+    public static int getProxyPort() {
+        try {
+            int port = LabConfig.get().getGlobalProxyPort();
+            return port > 0 && port <= 65535 ? port : DEFAULT_PROXY_PORT;
+        } catch (Throwable ignored) {
+            return DEFAULT_PROXY_PORT;
+        }
+    }
+
+    /**
+     * 🔴 内核是否真的在跑（供网络栈判断本机上游 127.0.0.1:7890 可不可用）。
+     *
+     * <p>**零 I/O，允许在主线程调用** —— 这里绝对不能发网络请求：主线程发 socket 会被
+     * 安卓抛 {@code NetworkOnMainThreadException}，判定就会变成"上游不通"，
+     * mihomo 开着也会被误降级成直连（2026-09-18 修的老 bug 就是这条）。
+     */
+    public static boolean isCoreRunning() {
+        if (proxyState) return true;
+        try {
+            return nativeIsProxyRunning() > 0;
+        } catch (Throwable ignored) {
+            return false;
+        }
     }
 
     /** 🔴 开关状态对账（进程重启/打开弹窗时调用）：

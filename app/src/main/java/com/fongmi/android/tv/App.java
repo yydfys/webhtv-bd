@@ -31,6 +31,7 @@ import com.fongmi.android.tv.utils.WebViewDataDirectoryGuard;
 import com.fongmi.hook.Hook;
 import com.github.catvod.crawler.DebugLogStore;
 import com.github.catvod.crawler.SpiderDebug;
+import com.github.catvod.net.ProxyHealth;
 import com.github.catvod.Init;
 import com.google.gson.Gson;
 
@@ -114,6 +115,13 @@ public class App extends Application implements Application.ActivityLifecycleCal
             PreviousProcessExitLogger.log(this);
         }
         Notify.createChannel();
+        // 🔴 本机上游（mihomo 混合口）的可用性 = 内核在不在跑：零 I/O、可由主线程安全调用。
+        // ProxyHealth 禁止在调用线程（含播放启动的主线程）做 socket 探测，所以必须由壳注入这个状态；
+        // 否则主线程探测必抛 NetworkOnMainThreadException → 误判"7890 不通" → 全部降级直连。
+        ProxyHealth.setStatusProvider(port -> {
+            if (port != com.fongmi.android.tv.lab.SystemVpnService.getProxyPort()) return ProxyHealth.StatusProvider.STATE_UNKNOWN;
+            return com.fongmi.android.tv.lab.SystemVpnService.isCoreRunning() ? ProxyHealth.StatusProvider.STATE_RUNNING : ProxyHealth.StatusProvider.STATE_STOPPED;
+        });
         ProxySetting.apply();
         // 🔴 进程重启对账：本服务与 app 同进程，新进程里 mihomo/VPN 必然都没在跑，
         // 清掉上次进程被杀时残留的开关值，避免设置弹窗显示与真实状态不符。
