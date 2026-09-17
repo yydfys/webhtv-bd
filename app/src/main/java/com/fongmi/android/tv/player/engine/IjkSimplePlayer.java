@@ -737,12 +737,14 @@ class IjkSimplePlayer extends SimpleBasePlayer implements IMediaPlayer.Listener 
             resourceClassification = PlaybackResourceClassifier.classifyRequest(playableUrl, mediaItem.localConfiguration.mimeType, mediaItem.localConfiguration.mimeType);
             resourceObservationActive = true;
             boolean dash = isLikelyDash(mediaItem, playableUrl);
-            boolean embeddedDash = dash && isEmbeddedDash(playableUrl);
             boolean dashNative = false;
             currentDash = dash;
-            if (embeddedDash) {
-                // 内嵌 DASH 清单（data: 地址）转本地 HLS 播：IJK 自带 ffmpeg 没有 dash 解复用器，
-                // 走 MPD 必报 1003/ERROR_CODE_UNSPECIFIED，翻成 hls 才是它能吃的。
+            if (dash) {
+                // IJK 自带 ffmpeg 没编 dash 解复用器，MPD 直接交给 native 必报
+                // ERROR_CODE_UNSPECIFIED / PARSING_CONTAINER_MALFORMED。
+                // 所以凡是 DASH 一律先在本地翻成 HLS（fMP4 分片 + 初始化段 + 音轨分离），
+                // 用 IJK 本来就支持的 hls 解复用器播；转不出来才回退原来的 MPD 代理路径
+                // （回退后与改动前行为完全一致，不会更差）。
                 try {
                     playableUrl = hlsProxy.proxyDashHls(
                             playableUrl, headers,
@@ -757,12 +759,6 @@ class IjkSimplePlayer extends SimpleBasePlayer implements IMediaPlayer.Listener 
                             "proxy action=enabled mode=dash fallback=hls-failed errorType=%s",
                             e.getClass().getSimpleName());
                 }
-            } else if (dash) {
-                dashNative = true;
-                playableUrl = hlsProxy.proxyDash(
-                        playableUrl, headers,
-                        PlaybackDiskBufferStore.mediaKey(mediaItem));
-                SpiderDebug.log("ijk", "proxy action=enabled mode=dash");
             } else if (shouldProxyHls(mediaItem, playableUrl)) {
                 playableUrl = hlsProxy.proxy(
                         playableUrl, headers,
@@ -1186,11 +1182,6 @@ class IjkSimplePlayer extends SimpleBasePlayer implements IMediaPlayer.Listener 
         }
         String lower = uri == null ? "" : uri.toLowerCase(Locale.US);
         return lower.contains("m3u8");
-    }
-
-    /** 整份 DASH 清单被塞进 data: 地址（几十 KB）——只有这种才值得转本地 HLS。 */
-    private boolean isEmbeddedDash(String uri) {
-        return uri != null && uri.regionMatches(true, 0, "data:", 0, 5);
     }
 
     private boolean isLikelyDash(MediaItem item, String uri) {
