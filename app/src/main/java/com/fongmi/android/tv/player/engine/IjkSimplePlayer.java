@@ -737,8 +737,28 @@ class IjkSimplePlayer extends SimpleBasePlayer implements IMediaPlayer.Listener 
             resourceClassification = PlaybackResourceClassifier.classifyRequest(playableUrl, mediaItem.localConfiguration.mimeType, mediaItem.localConfiguration.mimeType);
             resourceObservationActive = true;
             boolean dash = isLikelyDash(mediaItem, playableUrl);
+            boolean embeddedDash = dash && isEmbeddedDash(playableUrl);
+            boolean dashNative = false;
             currentDash = dash;
-            if (dash) {
+            if (embeddedDash) {
+                // 内嵌 DASH 清单（data: 地址）转本地 HLS 播：IJK 自带 ffmpeg 没有 dash 解复用器，
+                // 走 MPD 必报 1003/ERROR_CODE_UNSPECIFIED，翻成 hls 才是它能吃的。
+                try {
+                    playableUrl = hlsProxy.proxyDashHls(
+                            playableUrl, headers,
+                            PlaybackDiskBufferStore.mediaKey(mediaItem));
+                    SpiderDebug.log("ijk", "proxy action=enabled mode=dash-hls");
+                } catch (Throwable e) {
+                    dashNative = true;
+                    playableUrl = hlsProxy.proxyDash(
+                            playableUrl, headers,
+                            PlaybackDiskBufferStore.mediaKey(mediaItem));
+                    SpiderDebug.log("ijk",
+                            "proxy action=enabled mode=dash fallback=hls-failed errorType=%s",
+                            e.getClass().getSimpleName());
+                }
+            } else if (dash) {
+                dashNative = true;
                 playableUrl = hlsProxy.proxyDash(
                         playableUrl, headers,
                         PlaybackDiskBufferStore.mediaKey(mediaItem));
@@ -769,7 +789,7 @@ class IjkSimplePlayer extends SimpleBasePlayer implements IMediaPlayer.Listener 
                     mediaItem.localConfiguration.mimeType,
                     headers.size());
             currentPlayableUrl = playableUrl;
-            configureOptions(sourceUri, dash);
+            configureOptions(sourceUri, dashNative);
             bindVideoOutput();
             ijk.setDataSource(App.get(), Uri.parse(playableUrl), headers);
             advanceOpenStage(IjkPlayerEngine.OpenStage.SOURCE_SET);
@@ -1166,6 +1186,11 @@ class IjkSimplePlayer extends SimpleBasePlayer implements IMediaPlayer.Listener 
         }
         String lower = uri == null ? "" : uri.toLowerCase(Locale.US);
         return lower.contains("m3u8");
+    }
+
+    /** 整份 DASH 清单被塞进 data: 地址（几十 KB）——只有这种才值得转本地 HLS。 */
+    private boolean isEmbeddedDash(String uri) {
+        return uri != null && uri.regionMatches(true, 0, "data:", 0, 5);
     }
 
     private boolean isLikelyDash(MediaItem item, String uri) {

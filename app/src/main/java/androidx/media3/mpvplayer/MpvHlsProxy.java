@@ -100,6 +100,7 @@ public final class MpvHlsProxy extends NanoHTTPD {
     private final Map<Integer, Session> sessions;
     private final Map<Integer, SessionStats> sessionStats;
     private final Map<String, Target> targets;
+    private final Map<Integer, DashHlsPlan> dashHlsPlans;
     private final AtomicLong nextId;
     private final java.util.Set<String> preloading;
     private final MpvHlsPreloadGate preloadGate;
@@ -135,6 +136,7 @@ public final class MpvHlsProxy extends NanoHTTPD {
         sessions = new ConcurrentHashMap<>();
         sessionStats = new ConcurrentHashMap<>();
         targets = new ConcurrentHashMap<>();
+        dashHlsPlans = new ConcurrentHashMap<>();
         nextId = new AtomicLong();
         preloading = ConcurrentHashMap.newKeySet();
         preloadGate = new MpvHlsPreloadGate();
@@ -239,6 +241,7 @@ public final class MpvHlsProxy extends NanoHTTPD {
         sessions.clear();
         sessionStats.clear();
         targets.clear();
+        dashHlsPlans.clear();
         upstreamEstimator.reset();
         lastManualPreloadPositionMs = Long.MIN_VALUE;
         lastManualPreloadAtMs = 0;
@@ -484,6 +487,7 @@ public final class MpvHlsProxy extends NanoHTTPD {
             if (path == null) return error(Status.NOT_FOUND, "missing path");
             if (path.startsWith("/mpv/index.m3u8")) return servePlaylist(session);
             if (path.startsWith("/mpv/index.mpd")) return serveDash(session);
+            if (path.startsWith("/mpv/dashhls/")) return serveDashHls(session);
             if (path.startsWith("/mpv/dash-item/")) return serveItem(session, dashItemId(path));
             if (path.startsWith("/mpv/item")) return serveItem(session, null);
             return error(Status.NOT_FOUND, "not found");
@@ -713,6 +717,449 @@ public final class MpvHlsProxy extends NanoHTTPD {
             }
         }
         for (Node node : remove) if (node.getParentNode() != null) node.getParentNode().removeChild(node);
+    }
+
+    /** 内嵌 DASH 转本地 HLS 时每个分片的目标时长（毫秒）。 */
+    private static final long DASH_HLS_SEGMENT_MS = 15_000;
+
+    /** ISO-8601 时长（MPD 的 mediaPresentationDuration，形如 PT1H23M45.6S）。 */
+    private static final Pattern DASH_DURATION = Pattern.compile(
+            "P(?:(\\d+)D)?T?(?:(\\d+)H)?(?:(\\d+)M)?(?:(\\d+(?:\\.\\d+)?)S)?");
+
+    /**
+     * 内嵌 DASH 清单（data: URI）转成本地 HLS 播放。
+     *
+     * <p>壳里的 IJK 自带 ffmpeg 没编 dash 解复用器，把 MPD 直接交给 native 必报
+     * 1003 / ERROR_CODE_UNSPECIFIED；这里把 MPD 的视频轨、音频轨各自翻成 HLS 分片清单
+     * （fMP4 分片 + {@code #EXT-X-MAP} 初始化段），让 IJK 走它本来就支持的 hls 解复用器。
+     *
+     * <p>转换在开播线程内同步完成：转不出来直接抛 IOException，调用方回退到原来的
+     * MPD 代理路径，保证不会比改动前更差。
+     */
+    public synchronized String proxyDashHls(
+            String url, Map<String, String> headers, String mediaKey) throws IOException {
+        ensureStarted();
+        refreshCacheCoordinator();
+        int id = ++this.sessionId;
+        upstreamEstimator.reset();
+        Session session = new Session(
+                url, sanitize(headers), System.currentTimeMillis(),
+                resolveMediaKey(mediaKey, url));
+        diskBufferStore.reset(session.mediaKey());
+        sessions.put(id, session);
+        SessionStats stats = new SessionStats();
+        stats.classification = PlaybackResourceClassifier.classify(
+                baseUrl() + "/mpv/dashhls/index.m3u8?s=" + id,
+                url,
+                MIME_M3U8,
+                "hls",
+                Map.of(),
+                null);
+        sessionStats.put(id, stats);
+        pruneExpiredSessions(session.createdAtMs);
+        pruneCache();
+        DashHlsPlan plan;
+        try {
+            plan = buildDashHlsPlan(id, session);
+        } catch (Throwable e) {
+            sessions.remove(id);
+            sessionStats.remove(id);
+            if (e instanceof IOException io) throw io;
+            throw new IOException(e);
+        }
+        dashHlsPlans.put(id, plan);
+        String proxyUrl = baseUrl() + "/mpv/dashhls/index.m3u8?s=" + id;
+        SpiderDebug.log(TAG,
+                "dash-hls enabled session=%d videoSegments=%d audioSegments=%d url=%s",
+                id,
+                plan.video.segmentCount(),
+                plan.audio == null ? 0 : plan.audio.segmentCount(),
+                shortUrl(url));
+        return proxyUrl;
+    }
+
+    /**
+     * 解析 MPD 并翻出本地 HLS 计划。
+     *
+     * <p>分片边界来自 {@code SegmentBase@indexRange} 指向的 sidx 索引（哔哩go 那类源都是这种），
+     * 按 {@link #DASH_HLS_SEGMENT_MS} 合并成段；索引确实拿不到时才退化成"整文件一段"，
+     * 但如果 MPD 声明了索引却取失败，则直接失败（不能让上游忽略 Range 时把整部片子当一段灌下去）。
+     */
+    private DashHlsPlan buildDashHlsPlan(int id, Session session) throws IOException {
+        Manifest manifest = readManifest(session);
+        if (manifest.code < 200 || manifest.code >= 300 || TextUtils.isEmpty(manifest.text)) {
+            throw new IOException("dash http " + manifest.code);
+        }
+        String text = manifest.text;
+        if (!text.toLowerCase(Locale.US).contains("<mpd")) throw new IOException("invalid dash");
+        DashHlsTrack video = null;
+        DashHlsTrack audio = null;
+        long totalMs = 0;
+        try {
+            DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
+            factory.setNamespaceAware(true);
+            Document document = factory.newDocumentBuilder().parse(new InputSource(new StringReader(text)));
+            pruneDashAlternatives(document);
+            totalMs = parseDashDurationMs(document.getDocumentElement().getAttribute("mediaPresentationDuration"));
+            NodeList sets = document.getElementsByTagNameNS("*", "AdaptationSet");
+            for (int i = 0; i < sets.getLength(); i++) {
+                Element set = (Element) sets.item(i);
+                String type = dashContentType(set);
+                if ("video".equals(type) && video == null) video = readDashHlsTrack(session, manifest, set);
+                else if ("audio".equals(type) && audio == null) audio = readDashHlsTrack(session, manifest, set);
+            }
+        } catch (Throwable e) {
+            if (e instanceof IOException io) throw io;
+            throw new IOException(e);
+        }
+        if (video == null) throw new IOException("dash no video track");
+        String videoPlaylist = buildDashHlsPlaylist(id, video, "v", totalMs);
+        String audioPlaylist = audio == null ? null : buildDashHlsPlaylist(id, audio, "a", totalMs);
+        String master = audioPlaylist == null ? videoPlaylist : buildDashHlsMaster(id, video, audio);
+        SpiderDebug.log(TAG,
+                "dash-hls plan session=%d video=%d/%s audio=%s%s url=%s",
+                id,
+                video.segmentCount(),
+                video.codecs,
+                audio == null ? "none" : Integer.toString(audio.segmentCount()),
+                audio == null ? "" : "/" + audio.codecs,
+                shortUrl(session.url));
+        return new DashHlsPlan(master, videoPlaylist, audioPlaylist, video, audio);
+    }
+
+    @Nullable
+    private DashHlsTrack readDashHlsTrack(Session session, Manifest manifest, Element set) {
+        Element representation = chooseDashRepresentation(set);
+        if (representation == null) return null;
+        Element baseUrl = directChild(representation, "BaseURL");
+        if (baseUrl == null) baseUrl = directChild(set, "BaseURL");
+        if (baseUrl == null) return null;
+        String target = resolve(manifest.baseUrl, baseUrl.getTextContent().trim());
+        if (TextUtils.isEmpty(target)) return null;
+        String mime = representation.getAttribute("mimeType");
+        if (TextUtils.isEmpty(mime)) mime = set.getAttribute("mimeType");
+        String codecs = representation.getAttribute("codecs");
+        if (TextUtils.isEmpty(codecs)) codecs = set.getAttribute("codecs");
+        long bandwidth = Math.max(
+                parseLongValue(representation.getAttribute("bandwidth"), 0),
+                parseLongValue(set.getAttribute("bandwidth"), 0));
+        Element segmentBase = directChild(representation, "SegmentBase");
+        if (segmentBase == null) segmentBase = directChild(set, "SegmentBase");
+        if (segmentBase == null) {
+            return new DashHlsTrack(target, mime, codecs, bandwidth, null, null, 0);
+        }
+        Element initialization = directChild(segmentBase, "Initialization");
+        ByteRange init = initialization == null ? null : ByteRange.parse(initialization.getAttribute("range"));
+        ByteRange index = ByteRange.parse(segmentBase.getAttribute("indexRange"));
+        if (index == null) {
+            return new DashHlsTrack(target, mime, codecs, bandwidth, null, null, 0);
+        }
+        Sidx sidx;
+        try {
+            sidx = fetchSidx(session, target, index);
+        } catch (Throwable e) {
+            SpiderDebug.log(TAG, "dash-hls sidx failed errorType=%s url=%s", e.getClass().getSimpleName(), shortUrl(target));
+            return null;
+        }
+        if (sidx == null || sidx.ranges.isEmpty()) {
+            SpiderDebug.log(TAG, "dash-hls sidx unusable url=%s", shortUrl(target));
+            return null;
+        }
+        return new DashHlsTrack(target, mime, codecs, bandwidth, init, sidx.grouped(DASH_HLS_SEGMENT_MS), sidx.timescale);
+    }
+
+    /**
+     * 同一条轨的多个 Representation 里挑一个：先比编码能不能解（h264 &gt; hevc &gt; vp9，av01 垫底），
+     * 同档次挑带宽大的。没写 codecs 属性的按中性处理，绝不因为缺属性就整轨放弃。
+     */
+    @Nullable
+    private static Element chooseDashRepresentation(Element set) {
+        Element chosen = null;
+        int bestScore = -1;
+        long bestBandwidth = -1;
+        for (Node node = set.getFirstChild(); node != null; node = node.getNextSibling()) {
+            if (!(node instanceof Element representation)) continue;
+            if (!"Representation".equals(representation.getLocalName())) continue;
+            int score = dashCodecScore(representation.getAttribute("codecs"));
+            long bandwidth = parseLongValue(representation.getAttribute("bandwidth"), 0);
+            if (score > bestScore || (score == bestScore && bandwidth >= bestBandwidth)) {
+                bestScore = score;
+                bestBandwidth = bandwidth;
+                chosen = representation;
+            }
+        }
+        return chosen;
+    }
+
+    private static int dashCodecScore(String codecs) {
+        String value = codecs == null ? "" : codecs.toLowerCase(Locale.US).trim();
+        if (TextUtils.isEmpty(value)) return 1;
+        if (value.startsWith("avc") || value.startsWith("h264")) return 5;
+        if (value.startsWith("hev") || value.startsWith("hvc")) return 4;
+        if (value.startsWith("vp09") || value.startsWith("vp9")) return 3;
+        if (value.startsWith("mp4a") || value.startsWith("aac")) return 5;
+        if (value.startsWith("opus") || value.startsWith("flac") || value.startsWith("ac-3") || value.startsWith("ec-3")) return 4;
+        if (value.startsWith("av01")) return 0;
+        return 2;
+    }
+
+    /** 判断 AdaptationSet 是视频还是音频：先看 contentType/mimeType，再按 codecs、宽高兜底。 */
+    private static String dashContentType(Element set) {
+        String type = set.getAttribute("contentType");
+        if (!TextUtils.isEmpty(type)) return type.toLowerCase(Locale.US);
+        Element component = directChild(set, "ContentComponent");
+        if (component != null && !TextUtils.isEmpty(component.getAttribute("contentType"))) {
+            return component.getAttribute("contentType").toLowerCase(Locale.US);
+        }
+        String mime = set.getAttribute("mimeType");
+        Element representation = directChild(set, "Representation");
+        if (TextUtils.isEmpty(mime) && representation != null) mime = representation.getAttribute("mimeType");
+        if (mime.startsWith("video/")) return "video";
+        if (mime.startsWith("audio/")) return "audio";
+        if (representation == null) return "";
+        String codecs = representation.getAttribute("codecs").toLowerCase(Locale.US);
+        if (codecs.startsWith("mp4a") || codecs.startsWith("aac") || codecs.startsWith("opus")
+                || codecs.startsWith("flac") || codecs.startsWith("ac-3") || codecs.startsWith("ec-3")) {
+            return "audio";
+        }
+        if (codecs.startsWith("avc") || codecs.startsWith("hev") || codecs.startsWith("hvc")
+                || codecs.startsWith("vp0") || codecs.startsWith("av01")) {
+            return "video";
+        }
+        if (representation.hasAttribute("height") || representation.hasAttribute("width")) return "video";
+        return "";
+    }
+
+    private String buildDashHlsPlaylist(int id, DashHlsTrack track, String kind, long totalMs) {
+        int count = track.segmentCount();
+        StringBuilder builder = new StringBuilder(count * 96 + 320);
+        builder.append("#EXTM3U\n#EXT-X-VERSION:7\n#EXT-X-PLAYLIST-TYPE:VOD\n#EXT-X-INDEPENDENT-SEGMENTS\n");
+        double longest = 0;
+        for (int i = 0; i < count; i++) longest = Math.max(longest, dashSegmentSeconds(track, i, totalMs));
+        builder.append("#EXT-X-TARGETDURATION:").append((long) Math.max(1, Math.ceil(longest))).append('\n');
+        builder.append("#EXT-X-MEDIA-SEQUENCE:0\n");
+        if (!track.wholeFile() && track.init != null) {
+            builder.append("#EXT-X-MAP:URI=\"").append(dashHlsUrl(id, "init", kind, -1)).append("\"\n");
+        }
+        for (int i = 0; i < count; i++) {
+            builder.append(String.format(Locale.US, "#EXTINF:%.3f,\n", dashSegmentSeconds(track, i, totalMs)));
+            builder.append(dashHlsUrl(id, "seg", kind, i)).append('\n');
+        }
+        builder.append("#EXT-X-ENDLIST\n");
+        return builder.toString();
+    }
+
+    private double dashSegmentSeconds(DashHlsTrack track, int index, long totalMs) {
+        if (track.wholeFile()) return totalMs > 0 ? totalMs / 1000.0 : 600.0;
+        long timescale = track.timescale;
+        if (timescale <= 0) return 6.0;
+        return track.segments.get(index).duration() / (double) timescale;
+    }
+
+    private String buildDashHlsMaster(int id, DashHlsTrack video, DashHlsTrack audio) {
+        long bandwidth = video.bandwidth > 0 ? video.bandwidth : 2_000_000L;
+        StringBuilder builder = new StringBuilder(512);
+        builder.append("#EXTM3U\n#EXT-X-VERSION:7\n#EXT-X-INDEPENDENT-SEGMENTS\n");
+        builder.append("#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID=\"aud\",NAME=\"audio\",DEFAULT=YES,AUTOSELECT=YES,URI=\"")
+                .append(dashHlsUrl(id, "media.m3u8", "a", -1)).append("\"\n");
+        builder.append("#EXT-X-STREAM-INF:BANDWIDTH=").append(bandwidth);
+        if (!TextUtils.isEmpty(video.codecs) && !TextUtils.isEmpty(audio.codecs)) {
+            builder.append(",CODECS=\"").append(video.codecs).append(',').append(audio.codecs).append('"');
+        }
+        builder.append(",AUDIO=\"aud\"\n").append(dashHlsUrl(id, "media.m3u8", "v", -1)).append('\n');
+        return builder.toString();
+    }
+
+    private String dashHlsUrl(int id, String action, String kind, int index) {
+        StringBuilder builder = new StringBuilder(baseUrl()).append("/mpv/dashhls/").append(action)
+                .append("?s=").append(id).append("&t=").append(kind);
+        if (index >= 0) builder.append("&i=").append(index);
+        return builder.toString();
+    }
+
+    private Response serveDashHls(IHTTPSession httpSession) throws IOException {
+        String path = httpSession.getUri();
+        int id = parseSessionId(httpSession);
+        Session session = sessions.get(id);
+        DashHlsPlan plan = dashHlsPlans.get(id);
+        if (session == null || plan == null) {
+            dashHlsPlans.remove(id);
+            return error(Status.NOT_FOUND, "expired dash-hls");
+        }
+        if (path.endsWith("index.m3u8")) {
+            recordPlaylistResponse(id, 200, "dash-hls:index", plan.master);
+            return noCache(textResponse(plan.master));
+        }
+        String kind = dashHlsKind(httpSession);
+        DashHlsTrack track = dashHlsTrack(plan, kind);
+        if (track == null) return error(Status.NOT_FOUND, "missing dash track");
+        if (path.endsWith("media.m3u8")) {
+            String text = "a".equals(kind) ? plan.audioPlaylist : plan.videoPlaylist;
+            if (text == null) return error(Status.NOT_FOUND, "missing dash playlist");
+            recordPlaylistResponse(id, 200, "dash-hls:" + kind, text);
+            return noCache(textResponse(text));
+        }
+        if (path.endsWith("init")) {
+            if (track.init == null) return error(Status.NOT_FOUND, "missing dash init");
+            return serveDashHlsRange(id, session, track, track.init, true);
+        }
+        if (path.endsWith("seg")) {
+            if (track.wholeFile()) return serveDashHlsRange(id, session, track, null, false);
+            int index = parseIntValue(httpSession.getParms().get("i"), -1);
+            if (index < 0 || index >= track.segments.size()) return error(Status.NOT_FOUND, "missing dash segment");
+            return serveDashHlsRange(id, session, track, track.segments.get(index), false);
+        }
+        return error(Status.NOT_FOUND, "not found");
+    }
+
+    /**
+     * 按字节区间取上游分片，并且**总是**把它还原成一个完整的 200 小资源给播放器。
+     *
+     * <p>清单里不带 {@code EXT-X-BYTERANGE}，分片的 range 全在本方法内部消化，播放器不需要
+     * 处理 range/206/seek 语义（IJK 的 hls 路径对这几件事最不稳）。上游若无视 Range 直接
+     * 返回整文件，这里自己跳过前缀再截断，绝不把整部片子灌给播放器。
+     */
+    private Response serveDashHlsRange(
+            int id, Session session, DashHlsTrack track, @Nullable ByteRange range, boolean init) throws IOException {
+        String rangeHeader = range == null ? null : "bytes=" + range.start + "-" + range.end;
+        okhttp3.Response response = fetch(session, track.url, rangeHeader, true);
+        ResponseBody body = response.body();
+        if (body == null) {
+            recordItemResponse(id, response.code(), track.url);
+            response.close();
+            return error(Status.INTERNAL_ERROR, "empty dash segment");
+        }
+        if (!response.isSuccessful()) {
+            int code = response.code();
+            response.close();
+            recordItemResponse(id, code, track.url);
+            SpiderDebug.log(TAG, "dash-hls segment error session=%d init=%s code=%d range=%s url=%s",
+                    id, init, code, rangeHeader, shortUrl(track.url));
+            return error(toStatus(code), "dash segment http " + code);
+        }
+        long length = body.contentLength();
+        InputStream source = body.byteStream();
+        if (range != null && response.code() != 206 && response.header("Content-Range") == null) {
+            skipFully(source, range.start);
+            length = range.end - range.start + 1;
+            source = new LimitedInputStream(source, length);
+        }
+        InputStream stream = new CloseResponseInputStream(source, response);
+        String mime = TextUtils.isEmpty(track.mime) ? MIME_BINARY : track.mime;
+        Response result = length < 0
+                ? newChunkedResponse(Status.OK, mime, stream)
+                : newFixedLengthResponse(Status.OK, mime, stream, length);
+        result.addHeader("Access-Control-Allow-Origin", "*");
+        result.addHeader("Cache-Control", "no-cache");
+        result.addHeader("Connection", "close");
+        recordItemResponse(id, response.code(), track.url);
+        SpiderDebug.log(TAG, "dash-hls segment session=%d init=%s code=%d range=%s length=%d url=%s",
+                id, init, response.code(), rangeHeader, length, shortUrl(track.url));
+        return result;
+    }
+
+    private Response textResponse(String text) {
+        byte[] data = text.getBytes(StandardCharsets.UTF_8);
+        return newFixedLengthResponse(Status.OK, MIME_M3U8, new ByteArrayInputStream(data), data.length);
+    }
+
+    private static String dashHlsKind(IHTTPSession httpSession) {
+        String kind = httpSession.getParms().get("t");
+        return "a".equals(kind) ? "a" : "v";
+    }
+
+    @Nullable
+    private static DashHlsTrack dashHlsTrack(DashHlsPlan plan, String kind) {
+        return "a".equals(kind) ? plan.audio : plan.video;
+    }
+
+    private static long parseDashDurationMs(String value) {
+        if (TextUtils.isEmpty(value)) return 0;
+        try {
+            Matcher matcher = DASH_DURATION.matcher(value.trim());
+            if (!matcher.find()) return 0;
+            long ms = parseLongValue(matcher.group(1), 0) * 86_400_000L;
+            ms += parseLongValue(matcher.group(2), 0) * 3_600_000L;
+            ms += parseLongValue(matcher.group(3), 0) * 60_000L;
+            String seconds = matcher.group(4);
+            if (!TextUtils.isEmpty(seconds)) ms += (long) (Double.parseDouble(seconds) * 1000);
+            return ms;
+        } catch (Throwable e) {
+            return 0;
+        }
+    }
+
+    private static long parseLongValue(@Nullable String value, long fallback) {
+        if (TextUtils.isEmpty(value)) return fallback;
+        try {
+            return Long.parseLong(value.trim());
+        } catch (NumberFormatException e) {
+            return fallback;
+        }
+    }
+
+    private static int parseIntValue(@Nullable String value, int fallback) {
+        if (TextUtils.isEmpty(value)) return fallback;
+        try {
+            return Integer.parseInt(value.trim());
+        } catch (NumberFormatException e) {
+            return fallback;
+        }
+    }
+
+    /** 一条轨（视频或音频）转 HLS 所需的全部信息。 */
+    private static final class DashHlsTrack {
+
+        private final String url;
+        private final String mime;
+        private final String codecs;
+        private final long bandwidth;
+        @Nullable
+        private final ByteRange init;
+        @Nullable
+        private final List<SidxRange> segments;
+        private final long timescale;
+
+        private DashHlsTrack(
+                String url, String mime, String codecs, long bandwidth,
+                @Nullable ByteRange init, @Nullable List<SidxRange> segments, long timescale) {
+            this.url = url;
+            this.mime = mime;
+            this.codecs = codecs;
+            this.bandwidth = bandwidth;
+            this.init = init;
+            this.segments = segments;
+            this.timescale = timescale;
+        }
+
+        private boolean wholeFile() {
+            return segments == null;
+        }
+
+        private int segmentCount() {
+            return segments == null ? 1 : segments.size();
+        }
+    }
+
+    private static final class DashHlsPlan {
+
+        private final String master;
+        private final String videoPlaylist;
+        @Nullable
+        private final String audioPlaylist;
+        private final DashHlsTrack video;
+        @Nullable
+        private final DashHlsTrack audio;
+
+        private DashHlsPlan(
+                String master, String videoPlaylist, @Nullable String audioPlaylist,
+                DashHlsTrack video, @Nullable DashHlsTrack audio) {
+            this.master = master;
+            this.videoPlaylist = videoPlaylist;
+            this.audioPlaylist = audioPlaylist;
+            this.video = video;
+            this.audio = audio;
+        }
     }
 
     @Nullable
@@ -1309,6 +1756,9 @@ public final class MpvHlsProxy extends NanoHTTPD {
                 sessions.remove(entry.getKey());
                 sessionStats.remove(entry.getKey());
             }
+        }
+        for (Integer key : new ArrayList<>(dashHlsPlans.keySet())) {
+            if (!sessions.containsKey(key)) dashHlsPlans.remove(key);
         }
         for (Map.Entry<String, Target> entry : targets.entrySet()) {
             Target target = entry.getValue();
