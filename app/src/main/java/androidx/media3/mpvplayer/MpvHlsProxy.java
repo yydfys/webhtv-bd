@@ -1,7 +1,9 @@
 package androidx.media3.mpvplayer;
 
+import android.net.Uri;
 import android.os.SystemClock;
 import android.text.TextUtils;
+import android.util.Base64;
 
 import androidx.annotation.Nullable;
 import com.fongmi.android.tv.App;
@@ -556,32 +558,84 @@ public final class MpvHlsProxy extends NanoHTTPD {
         int id = parseSessionId(httpSession);
         Session session = sessions.get(id);
         if (session == null || TextUtils.isEmpty(session.url)) return error(Status.NOT_FOUND, "expired dash");
+        Manifest manifest = readManifest(session);
+        if (manifest.code < 200 || manifest.code >= 300 || manifest.text.isEmpty()) return error(toStatus(manifest.code), "dash http " + manifest.code);
+        String manifestUrl = manifest.baseUrl;
+        String text = manifest.text;
+        if (!text.toLowerCase(Locale.US).contains("<mpd")) return error(Status.BAD_REQUEST, "invalid dash");
+        SessionStats stats = stats(id);
+        stats.classification = PlaybackResourceClassifier.classifyDash(
+                started && getListeningPort() > 0 ? baseUrl() + "/mpv/index.mpd?s=" + id : null,
+                session.url,
+                text,
+                SystemClock.elapsedRealtime());
+        text = rewriteSegmentBase(session, manifestUrl, text);
+        Matcher matcher = DASH_BASE_URL.matcher(text);
+        StringBuffer rewritten = new StringBuffer();
+        int count = 0;
+        while (matcher.find()) {
+            String target = resolve(manifestUrl, decodeXml(matcher.group(2).trim()));
+            String local = proxyDashItemUrl(target, id).replace("&", "&amp;");
+            matcher.appendReplacement(rewritten, Matcher.quoteReplacement(matcher.group(1) + local + matcher.group(3)));
+            count++;
+        }
+        matcher.appendTail(rewritten);
+        byte[] data = rewritten.toString().getBytes(StandardCharsets.UTF_8);
+        SpiderDebug.log(TAG, "dash manifest session=%d code=%d bytes=%d baseUrls=%d embedded=%s url=%s", id, manifest.code, data.length, count, manifest.embedded, shortUrl(session.url));
+        return noCache(newFixedLengthResponse(Status.OK, "application/dash+xml; charset=utf-8", new ByteArrayInputStream(data), data.length));
+    }
+
+    /**
+     * 清单来源与解析基准。
+     *
+     * <p>{@code baseUrl} 为空表示这份清单是内嵌的（data: URI），里面只能出现绝对地址；
+     * 看到空基准一律原样返回，不去做相对解析。
+     */
+    private static final class Manifest {
+
+        final int code;
+        final String baseUrl;
+        final String text;
+        final boolean embedded;
+
+        Manifest(int code, String baseUrl, String text, boolean embedded) {
+            this.code = code;
+            this.baseUrl = baseUrl;
+            this.text = text;
+            this.embedded = embedded;
+        }
+    }
+
+    private Manifest readManifest(Session session) throws IOException {
+        String embedded = embeddedManifest(session.url);
+        if (embedded != null) return new Manifest(200, "", embedded, true);
         try (okhttp3.Response response = fetch(session, session.url, null, false)) {
             ResponseBody body = response.body();
-            if (!response.isSuccessful() || body == null) return error(toStatus(response.code()), "dash http " + response.code());
-            String manifestUrl = response.request().url().toString();
-            String text = body.string();
-            if (!text.toLowerCase(Locale.US).contains("<mpd")) return error(Status.BAD_REQUEST, "invalid dash");
-            SessionStats stats = stats(id);
-            stats.classification = PlaybackResourceClassifier.classifyDash(
-                    started && getListeningPort() > 0 ? baseUrl() + "/mpv/index.mpd?s=" + id : null,
-                    session.url,
-                    text,
-                    SystemClock.elapsedRealtime());
-            text = rewriteSegmentBase(session, manifestUrl, text);
-            Matcher matcher = DASH_BASE_URL.matcher(text);
-            StringBuffer rewritten = new StringBuffer();
-            int count = 0;
-            while (matcher.find()) {
-                String target = resolve(manifestUrl, decodeXml(matcher.group(2).trim()));
-                String local = proxyDashItemUrl(target, id).replace("&", "&amp;");
-                matcher.appendReplacement(rewritten, Matcher.quoteReplacement(matcher.group(1) + local + matcher.group(3)));
-                count++;
-            }
-            matcher.appendTail(rewritten);
-            byte[] data = rewritten.toString().getBytes(StandardCharsets.UTF_8);
-            SpiderDebug.log(TAG, "dash manifest session=%d code=%d bytes=%d baseUrls=%d url=%s", id, response.code(), data.length, count, shortUrl(session.url));
-            return noCache(newFixedLengthResponse(Status.OK, "application/dash+xml; charset=utf-8", new ByteArrayInputStream(data), data.length));
+            if (!response.isSuccessful() || body == null) return new Manifest(response.code(), "", "", false);
+            return new Manifest(response.code(), response.request().url().toString(), body.string(), false);
+        }
+    }
+
+    /**
+     * 解码 data: URI 形式的清单。
+     *
+     * <p>有些源（典型是哔哩go 那类）把整份 DASH 清单 base64 塞进一个 data: 地址，长度几十 KB。
+     * 这种地址没有任何可请求的上游，OkHttp 取不了、native 也塞不进去（超过 1024 字节会被包成
+     * ijklongurl: 而丢头/丢 range），只能在这里本地解码成清单文本再走正常代理流程。
+     */
+    @Nullable
+    private static String embeddedManifest(String url) {
+        if (url == null || !url.regionMatches(true, 0, "data:", 0, 5)) return null;
+        int comma = url.indexOf(',');
+        if (comma < 0) return null;
+        String meta = url.substring(0, comma).toLowerCase(Locale.US);
+        String payload = url.substring(comma + 1);
+        try {
+            if (meta.contains(";base64")) return new String(Base64.decode(payload, Base64.DEFAULT), StandardCharsets.UTF_8);
+            return Uri.decode(payload);
+        } catch (Throwable e) {
+            SpiderDebug.log(TAG, "embedded manifest decode failed errorType=%s", e.getClass().getSimpleName());
+            return null;
         }
     }
 
@@ -1430,6 +1484,8 @@ public final class MpvHlsProxy extends NanoHTTPD {
     }
 
     private String resolve(String baseUrl, String uri) {
+        // 内嵌清单（data:）没有可解析的基准，里面的地址一律按原样使用。
+        if (TextUtils.isEmpty(baseUrl)) return uri;
         try {
             URI parsed = URI.create(uri);
             if (parsed.isAbsolute()) return uri;

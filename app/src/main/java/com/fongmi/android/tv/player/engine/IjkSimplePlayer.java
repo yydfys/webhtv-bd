@@ -1178,7 +1178,9 @@ class IjkSimplePlayer extends SimpleBasePlayer implements IMediaPlayer.Listener 
             }
         }
         String lower = uri == null ? "" : uri.toLowerCase(Locale.US);
-        return lower.contains(".mpd") || lower.contains("type=mpd") || lower.contains("format=mpd");
+        // 与 Source.isDash 对齐：有些源把整份 DASH 清单 base64 塞进 data: 地址（几十 KB），
+        // 必须认出来走本地代理，否则整段地址塞给 native（>1024 字节会被包成 ijklongurl:）必失败。
+        return lower.startsWith("data:application/dash+xml") || lower.contains(".mpd") || lower.contains("type=mpd") || lower.contains("format=mpd");
     }
 
     private final SurfaceHolder.Callback surfaceCallback = new SurfaceHolder.Callback() {
