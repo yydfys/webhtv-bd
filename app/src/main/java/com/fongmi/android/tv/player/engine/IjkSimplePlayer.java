@@ -759,11 +759,17 @@ class IjkSimplePlayer extends SimpleBasePlayer implements IMediaPlayer.Listener 
                             "proxy action=enabled mode=dash fallback=hls-failed errorType=%s",
                             e.getClass().getSimpleName());
                 }
-            } else if (shouldProxyHls(mediaItem, playableUrl)) {
+            } else if (shouldProxyHls(mediaItem, playableUrl)
+                    && RelayScopePolicy.allowsRelay(mediaItem.mediaId)) {
                 playableUrl = hlsProxy.proxy(
                         playableUrl, headers,
                         PlaybackDiskBufferStore.mediaKey(mediaItem));
                 SpiderDebug.log("ijk", "proxy action=enabled mode=hls");
+            } else if (shouldProxyHls(mediaItem, playableUrl)) {
+                // RelayScopePolicy.DIRECT_ONLY 里的站点：普通 HLS 原样交给播放器，
+                // 不进本地中转（进中转账会起播超时/播放失败）
+                SpiderDebug.log("ijk", "proxy action=skip mode=hls source=%s",
+                        mediaItem.mediaId);
             } else {
                 IjkLongUrlPolicy.Decision longUrl =
                         IjkLongUrlPolicy.evaluate(playableUrl);
