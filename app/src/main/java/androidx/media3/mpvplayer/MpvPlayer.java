@@ -51,6 +51,7 @@ import com.fongmi.android.tv.player.PreloadPausePolicy;
 import com.fongmi.android.tv.player.cache.DiskCacheCapacityPolicy;
 import com.fongmi.android.tv.player.cache.PlaybackDiskBufferStore;
 import com.fongmi.android.tv.player.engine.PlayerCacheState;
+import com.fongmi.android.tv.player.engine.RelayScopePolicy;
 import com.fongmi.android.tv.player.iso.IsoSessionManager;
 import com.fongmi.android.tv.player.lut.MpvLutShader;
 import com.fongmi.android.tv.player.mpv.MpvDirectAudioPolicy;
@@ -1407,7 +1408,8 @@ public final class MpvPlayer extends SimpleBasePlayer implements MPVLib.EventObs
             }
             applyPreloadDiskCacheMode();
             applyCacheTimePolicy();
-            if (currentIsoUri == null && shouldProxyHls(currentPlayableUri, currentLikelyHls)) {
+            if (currentIsoUri == null && shouldProxyHls(currentPlayableUri, currentLikelyHls)
+                    && RelayScopePolicy.allowsRelay(mediaItem == null ? null : mediaItem.mediaId)) {
                 String originalUri = currentPlayableUri;
                 currentPlayableUri = hlsProxy.proxy(
                         originalUri, headers,
@@ -1415,6 +1417,7 @@ public final class MpvPlayer extends SimpleBasePlayer implements MPVLib.EventObs
                 if (shouldCollectDebugDetails()) PlaybackTrace.log("mpv", playbackTraceId, "hls proxy enabled original=%s proxy=%s", MpvDiagnosticsPolicy.sourceSummary(originalUri), MpvDiagnosticsPolicy.sourceSummary(currentPlayableUri));
             } else {
                 hlsProxy.clear();
+                if (currentIsoUri == null && currentLikelyHls) Log.d(TAG, "hls proxy skipped source=" + (mediaItem == null ? null : mediaItem.mediaId));
             }
             MpvNetworkRecoveryPolicy.Decision recovery = MpvNetworkRecoveryPolicy.resolve(currentPlayableUri);
             PlaybackTrace.log("mpv", playbackTraceId, "network recovery route=%s routeOwner=%s evidence=%s confidence=%s observedLeg=%s upstreamVisibility=%s controlScope=%s recoveryBoundary=%s policyKnown=%s nativeRemote=%s appOverlay=%s", recovery.route(), recovery.routeOwner(), recovery.routeEvidence(), recovery.routeConfidence(), recovery.observedLeg(), recovery.upstreamVisibility(), recovery.controlScope(), recovery.recoveryBoundary(), recovery.upstreamRecoveryPolicyKnown(), recovery.nativeRemoteRecovery(), recovery.appReconnectOverlay());
