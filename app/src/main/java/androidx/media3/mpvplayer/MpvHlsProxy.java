@@ -1286,6 +1286,7 @@ public final class MpvHlsProxy extends NanoHTTPD {
             }
             HlsAesSession aes = aesSessions.get(target.sessionId);
             boolean aesSegment = aes != null
+                    && !aes.abandoned()
                     && !targetPlaylist
                     && target.role() == HlsPlaylistRewriter.UriRole.MEDIA_SEGMENT;
             String forwardedRange = targetPlaylist || aesSegment ? null : range;
@@ -1333,7 +1334,7 @@ public final class MpvHlsProxy extends NanoHTTPD {
                     type == null ? null : type.toString(),
                     target.role() == HlsPlaylistRewriter.UriRole.MEDIA_SEGMENT);
             if (aesSegment) {
-                Response decrypted = serveAesSegment(target, aes, response, body, range);
+                Response decrypted = serveAesSegment(owner, target, aes, response, body, range);
                 if (decrypted != null) {
                     recordItemResponse(target.sessionId, response.code(), target.url);
                     response.close();
@@ -1384,11 +1385,12 @@ public final class MpvHlsProxy extends NanoHTTPD {
     /**
      * AES-128 分片：整段取回 → 服务端解密 → 按播放器要的 Range 从明文里切出去。
      *
-     * <p>返回 null 表示这次不接手（没有对应序号、上游失败、体积超限等），
-     * 调用方照旧走原来的直通逻辑。
+     * <p>密钥在这一步懒取（清单阶段不取）；返回 null 表示这次不接手（密钥未到手、
+     * 没有对应序号、上游失败、体积超限、解不出明文等），调用方照旧走直通逻辑。
      */
     @Nullable
     private Response serveAesSegment(
+            Session owner,
             Target target,
             HlsAesSession aes,
             okhttp3.Response response,
@@ -1397,6 +1399,12 @@ public final class MpvHlsProxy extends NanoHTTPD {
         byte[] iv = aes.ivFor(target.url());
         if (iv == null) {
             SpiderDebug.log(TAG, "aes passthrough reason=no-index url=%s", shortUrl(target.url()));
+            return null;
+        }
+        byte[] key = ensureAesKey(owner, aes);
+        if (key == null) {
+            // 密钥还没到手：这一片原样直通，不阻塞、不报错，等下一片（或冷却结束后）再试。
+            SpiderDebug.log(TAG, "aes passthrough reason=key-pending url=%s", shortUrl(target.url()));
             return null;
         }
         if (!response.isSuccessful()) return null;
@@ -1412,23 +1420,32 @@ public final class MpvHlsProxy extends NanoHTTPD {
             SpiderDebug.log(TAG, "aes read failed errorType=%s url=%s", e.getClass().getSimpleName(), shortUrl(target.url()));
             return null;
         }
+        if (raw == null) {
+            SpiderDebug.log(TAG, "aes passthrough reason=read-failed url=%s", shortUrl(target.url()));
+            return null;
+        }
         byte[] plain = null;
-        boolean recoveredIv = false;
+        byte[] winnerIv = null;
         for (byte[] candidateIv : aes.candidateIvsFor(iv, target.url())) {
-            byte[] attempt = HlsAesEncryption.decrypt(raw, aes.key, candidateIv);
+            byte[] attempt = HlsAesEncryption.decrypt(raw, key, candidateIv);
             if (attempt != null && HlsAesEncryption.looksLikePlainSegment(attempt)) {
                 plain = attempt;
-                recoveredIv = !Arrays.equals(candidateIv, iv);
+                winnerIv = candidateIv;
                 break;
             }
         }
         if (plain == null) {
             // 候选 IV 全解不出可识别明文：按改动前的行为原样直通（上层照旧处理原始字节），
             // 而不是丢一个错误块——「清单声明 AES 实则没加密」的源靠这一步保住可播。
+            // 连续多片解不出的会话会被判定不值得接管，后续分片连读都不再读。
+            aes.noteSegmentFailure();
             SpiderDebug.log(TAG, "aes passthrough reason=undecryptable bytes=%d url=%s",
                     raw == null ? -1 : raw.length, shortUrl(target.url()));
             return null;
         }
+        // 记住这次命中哪种 IV 取法，后续分片直接命中，不再逐片试探。
+        aes.noteSegmentSuccess(winnerIv, target.url());
+        boolean recoveredIv = !Arrays.equals(winnerIv, iv);
         if (recoveredIv) {
             SpiderDebug.log(TAG, "aes iv recovered session=%d url=%s", target.sessionId, shortUrl(target.url()));
         }
@@ -1538,9 +1555,10 @@ public final class MpvHlsProxy extends NanoHTTPD {
     /**
      * 给 IJK 内核的 AES-128 清单装上服务端解密。
      *
-     * <p>先解析密钥地址、取回 16 字节密钥，再拿首个分片实测解密（校验 0x47 同步字）；
-     * 只有实测通过才登记解密状态，调用方随后把 {@code #EXT-X-KEY} 行剥掉——
-     * 这样解不开的场景（多密钥轮换、非常规容器）依旧退回原行为，不会有额外副作用。
+     * <p>清单阶段只做本地解析（登记「待取密钥」会话），调用方随后把 {@code #EXT-X-KEY}
+     * 行剥掉；密钥在下第一片时懒取（带重试与冷却），分片逐片自愈。清单响应路径上
+     * <b>零上游请求</b>——此前在这里同步取密钥并整片探测，源站分片大或慢时会把清单
+     * 响应拖到播放器超时（IJK 报超时、MPV 失败），还会提前消费掉签名分片。
      */
     @Nullable
     private HlsAesSession installAes(
@@ -1563,35 +1581,53 @@ public final class MpvHlsProxy extends NanoHTTPD {
         String pathFormKeyUrl = resolve(playlistUrl, info.keyUri);
         HlsAesSession existing = aesSessions.get(sessionId);
         if (existing != null
-                && (existing.keyUrl.equals(hostFormKeyUrl) || existing.keyUrl.equals(pathFormKeyUrl))) {
+                && (existing.matchesKey(hostFormKeyUrl) || existing.matchesKey(pathFormKeyUrl))) {
             existing.updateSequence(info.mediaSequence);
             existing.recordSegments(segments);
             return existing;
         }
-        // 先按「补全协议的主机形式」取密钥（源站常见写法），取不到再退回常规相对路径解析。
-        // 实测：URI="play.hhuus.com/play/xx/enc.key" 这种写法若当相对路径拼，会被上游 403，
-        // 导致整条 AES 链放弃、IJK 拿不到明文而报错。
-        String keyUrl = hostFormKeyUrl;
-        byte[] key = fetchAesKey(owner, keyUrl);
-        if (key == null && !pathFormKeyUrl.equals(hostFormKeyUrl)) {
-            keyUrl = pathFormKeyUrl;
-            key = fetchAesKey(owner, keyUrl);
-        }
-        if (key == null) {
-            SpiderDebug.log(TAG, "aes skip session=%d reason=key-unavailable keyUri=%s", sessionId, shortUrl(hostFormKeyUrl));
-            return null;
-        }
-        HlsAesSession candidate = new HlsAesSession(key, keyUrl, info.declaredIv, info.mediaSequence);
+        // 清单返回路径上不做任何上游请求：这里只登记「待取密钥」会话，取密钥与 IV 校验
+        // 全部推迟到真正取分片时懒执行。此前在这里同步取密钥（最多 2 次）再整片探测
+        // （最多再 2 次、含 300ms 退避），源站分片大或慢时会把清单响应拖到播放器超时，
+        // 且首片探测会提前消费签名分片，造成「首播有进度无画面、重播正常」。
+        //
+        // 两种密钥地址写法都记着（补全协议的主机形式优先，回退常规相对路径解析）：
+        // URI="play.hhuus.com/play/xx/enc.key" 当相对路径拼会被上游 403。
+        HlsAesSession candidate = new HlsAesSession(
+                hostFormKeyUrl, pathFormKeyUrl, info.declaredIv, info.mediaSequence);
         candidate.recordSegments(segments);
-        if (!probeAes(owner, candidate, segments.get(0).uri())) {
-            // 探测不定（网络抖动/序号起点对不上）不再整轮放弃。原先这条分支把带 #EXT-X-KEY
-            // 的清单原样交给 IJK，而内核没有 AES 能力 → 必报错；现在改为照旧装会话，由逐片
-            // 自愈 + 「解不出就原样直通」兜底，最坏也只是退回改动前的直通行为。
-            SpiderDebug.log(TAG, "aes unverified session=%d reason=probe-undetermined keyUri=%s",
-                    sessionId, shortUrl(keyUrl));
-        }
         aesSessions.put(sessionId, candidate);
+        SpiderDebug.log(TAG, "aes pending session=%d keyUri=%s iv=%s segments=%d url=%s",
+                sessionId, shortUrl(hostFormKeyUrl),
+                info.declaredIv == null ? "sequence" : "declared",
+                segments.size(), shortUrl(playlistUrl));
         return candidate;
+    }
+
+    /**
+     * 懒取 AES 密钥（只在真正取分片时调用）：取到即缓存 16 字节，取不到进 5s 冷却，
+     * 连续失败达到上限就整会话放弃接管。返回 null 时调用方原样直通。
+     */
+    @Nullable
+    private byte[] ensureAesKey(Session session, HlsAesSession aes) {
+        synchronized (aes) {
+            if (aes.keyAvailable()) return aes.key();
+            long now = SystemClock.elapsedRealtime();
+            if (aes.inKeyCooldown(now)) return null;
+            byte[] key = fetchAesKey(session, aes.keyUrl);
+            if (key == null && aes.hasFallbackKeyUrl()) {
+                key = fetchAesKey(session, aes.fallbackKeyUrl);
+            }
+            if (key == null) {
+                aes.noteKeyFailure(now);
+                SpiderDebug.log(TAG, "aes key unavailable keyUri=%s cooldownMs=%d",
+                        shortUrl(aes.keyUrl), HlsAesSession.KEY_RETRY_COOLDOWN_MS);
+                return null;
+            }
+            aes.installKey(key);
+            SpiderDebug.log(TAG, "aes key ready keyUri=%s", shortUrl(aes.keyUrl));
+            return key;
+        }
     }
 
     @Nullable
@@ -1621,56 +1657,6 @@ public final class MpvHlsProxy extends NanoHTTPD {
         } catch (Throwable e) {
             return null;
         }
-    }
-
-    /**
-     * 用第一个分片实测解密，确定 IV 取法（声明 IV 优先，否则按媒体序号推、带 ±1 容错）。
-     *
-     * <p>只对「判不了」的情况重试一次：拿到数据但确认解不开时不再重试，避免白等。
-     */
-    private boolean probeAes(Session session, HlsAesSession aes, String firstSegmentUrl) {
-        for (int attempt = 1; attempt <= 2; attempt++) {
-            int verdict = probeAesOnce(session, aes, firstSegmentUrl);
-            if (verdict != 0) return verdict > 0;
-            try {
-                Thread.sleep(300);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                return false;
-            }
-        }
-        return false;
-    }
-
-    /** 首片实测：{@code 1}=可用，{@code -1}=确定解不开，{@code 0}=判不了（网络/IO，可重试）。 */
-    private int probeAesOnce(Session session, HlsAesSession aes, String firstSegmentUrl) {
-        byte[] probe;
-        try (okhttp3.Response response = fetch(session, firstSegmentUrl, null, true)) {
-            ResponseBody body = response.body();
-            if (!response.isSuccessful() || body == null) return 0;
-            long length = body.contentLength();
-            if (length > HlsAesSession.MAX_SEGMENT_BYTES) return -1;
-            probe = readAll(body.byteStream(), HlsAesSession.MAX_SEGMENT_BYTES);
-        } catch (Throwable e) {
-            return 0;
-        }
-        if (probe == null || probe.length == 0) return 0;
-        byte[] declaredIv = aes.declaredIv;
-        if (declaredIv != null
-                && HlsAesEncryption.looksLikePlainSegment(HlsAesEncryption.decrypt(probe, aes.key, declaredIv))) {
-            aes.verifyDeclaredIv();
-            return 1;
-        }
-        for (int offset : new int[]{0, -1, 1}) {
-            long sequence = aes.mediaSequence + offset;
-            if (sequence < 0) continue;
-            byte[] plain = HlsAesEncryption.decrypt(probe, aes.key, HlsAesEncryption.ivForSequence(sequence));
-            if (HlsAesEncryption.looksLikePlainSegment(plain)) {
-                aes.verifySequenceIv(offset);
-                return 1;
-            }
-        }
-        return -1;
     }
 
     private String proxyItemUrl(
@@ -2485,20 +2471,102 @@ public final class MpvHlsProxy extends NanoHTTPD {
     private static final class HlsAesSession {
 
         private static final long MAX_SEGMENT_BYTES = 64L * 1024 * 1024;
+        /** 密钥取不到时的冷却窗口：期间该会话的分片直接直通，不重复打源站。 */
+        static final long KEY_RETRY_COOLDOWN_MS = 5_000L;
+        /** 密钥连续取失败上限，达到即判定该会话不值得接手。 */
+        private static final int MAX_KEY_FAILURES = 3;
+        /** 连续解不出明文的片数上限，达到即放弃接管（后续分片全部直通）。 */
+        private static final int MAX_SEGMENT_FAILURES = 3;
 
-        private final byte[] key;
+        /** 补全协议的主机形式密钥地址（源站常见写法，优先尝试）。 */
         private final String keyUrl;
+        /** 常规相对路径解析出的密钥地址（回退用）。 */
+        @Nullable
+        private final String fallbackKeyUrl;
         private final byte[] declaredIv;
         private final Map<String, Integer> segmentIndex = new ConcurrentHashMap<>();
         private volatile long mediaSequence;
         private volatile int sequenceOffset;
         private volatile boolean declaredIvVerified;
+        /** 懒取的密钥；未取到为 null。 */
+        private volatile byte[] key;
+        /** 密钥取失败后的可重试时间点（elapsedRealtime 基准）。 */
+        private volatile long keyRetryAfterMs;
+        private volatile int keyFailures;
+        private volatile int segmentFailures;
+        private volatile boolean abandoned;
 
-        HlsAesSession(byte[] key, String keyUrl, @Nullable byte[] declaredIv, long mediaSequence) {
-            this.key = key;
+        HlsAesSession(
+                String keyUrl,
+                @Nullable String fallbackKeyUrl,
+                @Nullable byte[] declaredIv,
+                long mediaSequence) {
             this.keyUrl = keyUrl;
+            this.fallbackKeyUrl = fallbackKeyUrl;
             this.declaredIv = declaredIv;
             this.mediaSequence = mediaSequence;
+        }
+
+        /** 本次清单指向的密钥地址是否还是这个会话认得的那一个。 */
+        boolean matchesKey(String candidate) {
+            return keyUrl.equals(candidate)
+                    || (fallbackKeyUrl != null && fallbackKeyUrl.equals(candidate));
+        }
+
+        boolean keyAvailable() {
+            return key != null;
+        }
+
+        byte[] key() {
+            return key;
+        }
+
+        boolean hasFallbackKeyUrl() {
+            return fallbackKeyUrl != null && !fallbackKeyUrl.equals(keyUrl);
+        }
+
+        boolean inKeyCooldown(long now) {
+            return now < keyRetryAfterMs;
+        }
+
+        void installKey(byte[] value) {
+            key = value;
+            keyFailures = 0;
+        }
+
+        void noteKeyFailure(long now) {
+            keyRetryAfterMs = now + KEY_RETRY_COOLDOWN_MS;
+            if (++keyFailures >= MAX_KEY_FAILURES) abandoned = true;
+        }
+
+        boolean abandoned() {
+            return abandoned;
+        }
+
+        void noteSegmentFailure() {
+            if (++segmentFailures >= MAX_SEGMENT_FAILURES) abandoned = true;
+        }
+
+        /** 记住这次命中的 IV 取法，后续分片直接命中，不再逐片试探。 */
+        void noteSegmentSuccess(@Nullable byte[] winnerIv, String url) {
+            segmentFailures = 0;
+            if (winnerIv == null) return;
+            if (declaredIv != null && Arrays.equals(winnerIv, declaredIv)) {
+                declaredIvVerified = true;
+                return;
+            }
+            Integer index = segmentIndex.get(url);
+            if (index == null) return;
+            long base = mediaSequence + index;
+            for (int offset : new int[]{0, -1, 1}) {
+                long sequence = base + offset;
+                if (sequence < 0) continue;
+                if (Arrays.equals(HlsAesEncryption.ivForSequence(sequence), winnerIv)) {
+                    sequenceOffset = offset;
+                    declaredIvVerified = false;
+                    return;
+                }
+            }
         }
 
         void updateSequence(long sequence) {
@@ -2514,16 +2582,7 @@ public final class MpvHlsProxy extends NanoHTTPD {
             segmentIndex.putAll(indices);
         }
 
-        void verifyDeclaredIv() {
-            declaredIvVerified = true;
-        }
-
-        void verifySequenceIv(int offset) {
-            sequenceOffset = offset;
-            declaredIvVerified = false;
-        }
-
-        /** 分片 IV：声明 IV 实测通过就用它，否则用「媒体序号 + 分片下标」推。 */
+        /** 分片 IV：逐片判定出「声明 IV」可用就用它，否则用「媒体序号 + 分片下标 + 偏移」推。 */
         @Nullable
         byte[] ivFor(String url) {
             if (declaredIvVerified && declaredIv != null) return declaredIv;
