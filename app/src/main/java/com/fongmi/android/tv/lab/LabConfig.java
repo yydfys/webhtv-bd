@@ -467,7 +467,9 @@ public final class LabConfig {
         for (String json : importedMap().values()) {
             try {
                 LabModels.Item item = gson.fromJson(json, LabModels.Item.class);
-                if (item != null && item.name != null) list.add(item);
+                if (item == null || item.name == null) continue;
+                normalizeItem(item, list.size());
+                list.add(item);
             } catch (Exception ignored) {
             }
         }
@@ -503,6 +505,7 @@ public final class LabConfig {
     }
 
     public void saveCommandOverride(String pkg, String id, String commandJson) {
+        if (pkg == null || pkg.isEmpty() || id == null || id.isEmpty()) return;
         Map<String, String> map = commandOverrides(pkg);
         map.put(id, commandJson);
         sp().edit().putString("cmd_overrides_" + pkg, gson.toJson(map)).apply();
@@ -574,12 +577,25 @@ public final class LabConfig {
     }
 
     public void saveCommandCache(String pkg, String id, Map<String, String> values, String expandedCommand) {
+        // 包名/命令 id 为空直接跳过：Gson 的 LinkedTreeMap.put(null, ...) 会抛 NullPointerException，
+        // 表现为「命令面板一关就崩」（配置里某条命令漏写 id 时触发）。
+        if (pkg == null || pkg.isEmpty() || id == null || id.isEmpty()) return;
         Map<String, String> map = commandCaches(pkg);
         com.google.gson.JsonObject cache = new com.google.gson.JsonObject();
         cache.addProperty("command", expandedCommand == null ? "" : expandedCommand);
-        cache.add("values", gson.toJsonTree(values == null ? new java.util.HashMap<String, String>() : values));
+        cache.add("values", gson.toJsonTree(sanitizeValues(values)));
         map.put(id, cache.toString());
         sp().edit().putString("cmd_cache_" + pkg, gson.toJson(map)).apply();
+    }
+
+    /** 变量名为 null 的项会让序列化时的 LinkedTreeMap.put 抛异常，这里先过滤掉。 */
+    private static Map<String, String> sanitizeValues(Map<String, String> values) {
+        Map<String, String> safe = new java.util.HashMap<>();
+        if (values == null) return safe;
+        for (Map.Entry<String, String> entry : values.entrySet()) {
+            if (entry.getKey() != null) safe.put(entry.getKey(), entry.getValue());
+        }
+        return safe;
     }
 
     public void clearCommandCache(String pkg) {
@@ -611,9 +627,31 @@ public final class LabConfig {
         if (json == null) throw new IllegalArgumentException("配置解析失败");
         LabModels.LabRoot parsed = gson.fromJson(json, LabModels.LabRoot.class);
         if (parsed == null || parsed.lists == null) throw new IllegalArgumentException("配置解析失败");
+        normalizeIds(parsed);
         if (parsed.root != null && !parsed.root.isEmpty()) configRoot = parsed.root;
         else detectRoot(parsed);
         return parsed;
+    }
+
+    /**
+     * 给配置里漏写 id 的命令补一个确定性标识。
+     * 面板拿 command.id 当缓存键（cmd_cache_ / cmd_overrides_）、输出窗键和 LabRunner 订阅键，
+     * 为 null 时 Gson 的 LinkedTreeMap 会在 put 时抛 NullPointerException —— 即「面板一关就崩」。
+     */
+    private static void normalizeIds(LabModels.LabRoot parsed) {
+        if (parsed == null || parsed.lists == null) return;
+        for (int i = 0; i < parsed.lists.size(); i++) {
+            normalizeItem(parsed.lists.get(i), i);
+        }
+    }
+
+    private static void normalizeItem(LabModels.Item item, int index) {
+        if (item == null || item.commands == null) return;
+        for (int j = 0; j < item.commands.size(); j++) {
+            LabModels.Command command = item.commands.get(j);
+            if (command == null) continue;
+            if (command.id == null || command.id.isEmpty()) command.id = "auto_" + index + "_" + j;
+        }
     }
 
     private static String extractJson(String text) {
