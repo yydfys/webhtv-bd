@@ -1,5 +1,8 @@
 # 2026-09-19 修复：GEOIP,CN 规则去掉 no-resolve —— fake-ip 模式下 no-resolve 使域名
 # 永不解析真实 IP，GEOIP 规则恒不命中，未收录进 geosite:cn 的国内站被丢给代理出口。
+# 2026-09-19 优化：log-level info→warning（手机端少写日志）；补 profile.store-selected
+# （记住节点管理 UI 里手动选的节点，内核重启不丢）；fake-ip-filter 补 home.arpa /
+# time.* / *.test 等，避免系统对时、本机测试域名被 fake-ip 拖进代理。
 # WebHTV 内置 mihomo 配置模板 —— 订阅版（config.yaml 缺失时由 App 生成）
 # 规则骨架 + proxy-providers 订阅节点。无节点也能启动（全部直连），
 # 填好订阅后 mihomo 自动拉取节点，域名级分流生效。
@@ -15,13 +18,18 @@ mixed-port: 7890
 socks-port: 7891
 allow-lan: true
 mode: rule
-log-level: info
+log-level: warning
 ipv6: false
 geodata-mode: true
 unified-delay: true
 tcp-concurrent: true
 external-controller: 127.0.0.1:9090
 secret: WEBHTV_MIHOMO_2026
+
+# 记住「节点选择/手动选择」里手动切过的节点，内核重启后不再回默认组
+profile:
+  store-selected: true
+  store-fake-ip: false
 
 # DNS（配合 SystemVpnService native 侧 DNSHijack any:53；fake-ip 域名分流）
 dns:
@@ -39,10 +47,17 @@ dns:
     - "*.local"
     - "localhost"
     - "+.localhost"
+    - "+.home.arpa"
     - "+.msftconnecttest.com"
     - "+.msftncsi.com"
     - "+.mihomo.app"
     - "+.ntp.org"
+    - "time.*"
+    - "+.time.*"
+    - "*.test"
+    - "*.invalid"
+    - "*.example"
+    - "stun.*.*"
   nameserver:
     - 223.5.5.5
     - 119.29.29.29

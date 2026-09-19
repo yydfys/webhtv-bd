@@ -72,6 +72,8 @@ public class SystemVpnService extends VpnService {
     private static final String APP_GENERATED_MARKER = HOME_DIR + "/config.yaml.app_generated";
     private static final String GEOIP_PATH = HOME_DIR + "/GeoIP.dat";
     private static final String GEOSITE_PATH = HOME_DIR + "/GeoSite.dat";
+    /** 记录内置 geo 数据释放时的 app versionCode：变了就重新释放（见 ensureGeoAssets） */
+    private static final String GEO_VERSION_MARKER = HOME_DIR + "/geo.version";
     /** mihomo 混合口默认端口（壳内「规则代理」的本机上游就是 127.0.0.1:<这个>）。 */
     private static final int DEFAULT_PROXY_PORT = 7890;
 
@@ -539,15 +541,43 @@ public class SystemVpnService extends VpnService {
 
     /**
      * 首次运行时把内置 GeoIP.dat / GeoSite.dat 释放到 homeDir。
-     * 只拷贝不覆盖（已存在 = 用户/订阅更新过，保留）。
+     *
+     * 🔴 2026-09-19：改为「版本号驱动」——旁写 geo.version 记录释放时的 app versionCode，
+     * 版本号变化（每次发版都会变）即重新释放，否则永远只拷一次，APK 里换了新 geo 也白搭，
+     * GEOSITE,cn 覆盖度会慢慢落后（新国内站被丢给代理）。同版本内不重复拷贝，零 IO 开销。
      */
     private void ensureGeoAssets() {
         File dir = new File(HOME_DIR);
         if (!dir.exists() && !dir.mkdirs()) {
             android.util.Log.w("SystemVpn", "mkdirs failed: " + HOME_DIR);
         }
-        copyAssetIfMissing("mihomo/GeoIP.dat", GEOIP_PATH);
-        copyAssetIfMissing("mihomo/GeoSite.dat", GEOSITE_PATH);
+        File geoFile = new File(GEOIP_PATH);
+        File siteFile = new File(GEOSITE_PATH);
+        String want = currentAppVersionCode();
+        boolean missing = geoFile.length() == 0 || siteFile.length() == 0;
+        String have = readText(new File(GEO_VERSION_MARKER));
+        boolean stale = !missing && (have == null || !want.equals(have.trim()));
+        if (!missing && !stale) return;
+        android.util.Log.i("SystemVpn", "release geo assets: missing=" + missing + " stale=" + stale + " v" + want);
+        copyAsset("mihomo/GeoIP.dat", GEOIP_PATH);
+        copyAsset("mihomo/GeoSite.dat", GEOSITE_PATH);
+        try {
+            writeText(new File(GEO_VERSION_MARKER), want);
+        } catch (IOException e) {
+            android.util.Log.w("SystemVpn", "write geo.version failed", e);
+        }
+    }
+
+    /** 当前 app versionCode（读不到时返回 "0"，此时按尺寸缺失判定走老逻辑） */
+    private String currentAppVersionCode() {
+        try {
+            android.content.pm.PackageInfo info = App.get().getPackageManager()
+                    .getPackageInfo(App.get().getPackageName(), 0);
+            long code = (Build.VERSION.SDK_INT >= 28) ? info.getLongVersionCode() : info.versionCode;
+            return String.valueOf(code);
+        } catch (Exception e) {
+            return "0";
+        }
     }
 
     /**
@@ -603,11 +633,10 @@ public class SystemVpnService extends VpnService {
         }
     }
 
-    private void copyAssetIfMissing(String asset, String target) {
-        File file = new File(target);
-        if (file.exists() && file.length() > 0) return;
+    /** 释放 assets 到目标路径（已存在则覆盖） */
+    private void copyAsset(String asset, String target) {
         try (InputStream in = App.get().getAssets().open(asset);
-             OutputStream out = new FileOutputStream(file)) {
+             OutputStream out = new FileOutputStream(target)) {
             byte[] buf = new byte[65536];
             int len;
             while ((len = in.read(buf)) != -1) out.write(buf, 0, len);
@@ -615,6 +644,13 @@ public class SystemVpnService extends VpnService {
         } catch (Exception e) {
             android.util.Log.w("SystemVpn", "asset copy failed: " + asset, e);
         }
+    }
+
+    /** 仅在目标缺失/为空时释放（不该被覆盖的资源用） */
+    private void copyAssetIfMissing(String asset, String target) {
+        File file = new File(target);
+        if (file.exists() && file.length() > 0) return;
+        copyAsset(asset, target);
     }
 
     private String readAsset(String asset) {
