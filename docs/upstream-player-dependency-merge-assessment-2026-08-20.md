@@ -8,7 +8,7 @@
 - 当前分支：`dev2`。
 - 当前修复基线：`154e003520a751a19187057f103e1496c5197457`（2026-09-13）。
 - 历史完整评估：仓库历史提交 `3b346c85d0a3fb8e6078e4dbe4511f3aa15795a0` 中的同名文件；主线提交 `784b90420d646eb6c7ddcc63ad622a92c65b02b4` 删除了根目录本地任务文档，因此本分支保留稳定任务索引与当前实施需要的记录。
-- 第三轮源码合并：目标 `fish2018/webhtv:main@fc62397591701b2232ae7de4f50a032bd7742064`，合并基 `2b36396c0d76b312154d560c0c94e55909b951a2`，共 26 处冲突；冲突已按本地功能契约与上游功能并集解决，详见 [C4-main-upstream-merge.md](C4-main-upstream-merge.md)。
+- 源码合并：第三轮目标为 `fish2018/webhtv:main@fc62397591701b2232ae7de4f50a032bd7742064`；2026-09-19 第五轮目标为 `2623cb812ea842b676bc7d8db699c1a7e70b8e1e`，唯一文档冲突已按本地索引结构解决，详见 [C4-main-upstream-merge.md](C4-main-upstream-merge.md)。
 - 下一步：完成定向验证后由当前 guard 原子提交本轮已验证改动并创建本地恢复 tag，不推送，详见 [E9-3-exo-dv5-vulkan-renderer.md](E9-3-exo-dv5-vulkan-renderer.md) 与 [P9-MPV-BLURAY-MENU.md](P9-MPV-BLURAY-MENU.md)。
 
 ## 稳定任务 ID 与唯一文档索引
@@ -32,6 +32,9 @@
 
 | 任务 ID | 类别 | 功能/能力 | 状态 | 唯一文档 |
 | --- | --- | --- | --- | --- |
+| `E4-LIBASS` | Exo/字幕 | ASS 特效字幕及对齐 MPV 默认行为的主／副字幕 | **上游 HDR/DV 修复已合并到 dev3 并通过修复相关验证**：独立 SDR RGB 字幕层放行 HDR/DV/BT.2020，同时保留 SDR 旧矩阵与 DRM/rotation/tunneling 边界；Mobile ARM64 Debug/测试 APK 构建成功，4 项视频策略、1 项 native 原始 RGB/切换和 1 项 blur/transform 共 6/6 通过，产物哈希一致。既有 `AssPlaybackTest` 因本地 `applicationId=com.silent.android.webhtv` 与硬编码 `com.fongmi.android.tv` 不符而未启动 Activity；该测试和构建配置本轮均未改动，作为独立本地夹具问题保留 | [E4-LIBASS-exo-ass-rendering.md](E4-LIBASS-exo-ass-rendering.md) |
+| `C16` | common / 详情数据协议 | 参考 OmniBox，让 T3/T4 详情直接携带 TMDB 数据，APP 优先采用并仅补齐缺省部分 | **设计完成，待用户评审，仅文档**；不修改运行代码、爬虫 ABI 或依赖，实施待用户批准 | [C16-tmdb-source-detail-contract.md](C16-tmdb-source-detail-contract.md) |
+| `C17` | common / beta 同步复评 | 将 beta 最新播放器与 Leanback 修复合入 dev4，复评全部未推送 C16 改动并完成交付 | **已完成**：合并提交 `5acd3f084155e7016b3798528eb8343f2f076177`；PR [#317](https://github.com/Silent1566/webhtv/pull/317) 目标 `beta` | [C17-beta-sync-review-dev4-20260919.md](C17-beta-sync-review-dev4-20260919.md) |
 | `E-SP8` | Exo 性能/播放行为 | 基于现有短剧源设置的单实例队列连播、下一集预解析与受控预加载 | **代码实施及 beta 合并后复评通过**：`2b22c5240d52a8c2054299326f44fee6743ab26f` / `recovery/E-SP8/20260911201514-2b22c5240d52`；实验默认策略不变，连续切集双端设备验收与正式放量尚未完成；不变更依赖 | [E-SP8-exo-short-drama-queue.md](E-SP8-exo-short-drama-queue.md) |
 
 `C1` 是跨播放器真实输入验收维度，不单独形成代码任务或文档；它写入对应的 E/P 任务文档。`E-SP3` 已在 `fongmi-sync` 完成 App/Media3 合并，保留既有 `E4-J1`/`E6-1`/`E7-1`/`E7-2 + C3` 能力；`E9-3` 与已完成的 `P1` 现已共同进入集成树，后续按既定顺序处理 P2 阶段。
@@ -5001,3 +5004,11 @@ C3 的触发来源主要是 media `990abc2368fd74779f525ee345734470659f3d53`（`
 - 当前 HEAD 为 merge commit `65facf4bcbed78e702a1ec0fd86c50778fcf639f`，第一父提交 `da34bfc400ccff4c07287ef1e3cfa61327aaee39`，第二父提交 `fc62397591701b2232ae7de4f50a032bd7742064`；上游目标已是 HEAD 祖先。
 - Recovery tag：`recovery/merge-upstream-binary-override-java-merge/20260913015933-65facf4bcbed`。
 - 当前状态：完成（本地未推送）；工作树收口后不再重复构建、测试或扩展研究。
+
+## 检查点 60：2026-09-18 C4 dev4 同步 fish2018/main
+
+- 基线：`dev4@ac39115dd99c43b861e0a255c7b7a407af2855b2`；共同祖先：`fc62397591701b2232ae7de4f50a032bd7742064`；目标：`fish2018/webhtv:main@88aceb110959ff50afc23b10d9b9abe3e0f53255`。
+- 范围：52 个上游提交，10 个冲突文件全部按“本地行为契约 + 上游功能并集”解决；非代码二进制、测试资产、AAR/POM、lock/patch 随上游目标纳入。
+- 验证：Mobile/Leanback arm64 Debug Java 编译通过；Mobile arm64 Debug 单测 4587 项、0 failure、0 error、1 skipped；双 ABI MPV ELF/资产门禁通过；无冲突标记与 whitespace 错误。
+- 未执行：APK 打包、设备安装、实机播放矩阵、native 重建；不将当前证据扩大为实机机型验收。
+- 下一动作：由当前 C4 guard 生成双亲 merge commit 和 annotated recovery tag，不推送。

@@ -163,6 +163,15 @@
             android:permission="android.permission.BIND_VPN_SERVICE"
             android:stopWithTask="false" />
 
+        <activity
+            android:name=".ui.activity.PlaybackRecoveryActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:launchMode="singleTask"
+            android:process=":playback_recovery"
+            android:taskAffinity="${applicationId}.playback_recovery"
+            android:theme="@android:style/Theme.Material.NoActionBar" />
+
         <receiver
             android:name=".receiver.ActionReceiver"
             android:exported="false">
