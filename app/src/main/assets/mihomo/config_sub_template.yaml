@@ -1,3 +1,5 @@
+# 2026-09-19 修复：GEOIP,CN 规则去掉 no-resolve —— fake-ip 模式下 no-resolve 使域名
+# 永不解析真实 IP，GEOIP 规则恒不命中，未收录进 geosite:cn 的国内站被丢给代理出口。
 # WebHTV 内置 mihomo 配置模板 —— 订阅版（config.yaml 缺失时由 App 生成）
 # 规则骨架 + proxy-providers 订阅节点。无节点也能启动（全部直连），
 # 填好订阅后 mihomo 自动拉取节点，域名级分流生效。
@@ -105,5 +107,5 @@ rules:
   - GEOIP,lan,直连,no-resolve
   - GEOSITE,category-ads-all,广告拦截
   - GEOSITE,cn,直连
-  - GEOIP,CN,直连,no-resolve
+  - GEOIP,CN,直连
   - MATCH,节点选择
