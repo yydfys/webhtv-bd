@@ -1,12 +1,16 @@
-name: Auto Upstream Merge & Release (tun)
+name: Auto Upstream Merge & Release (branch 可配)
 
 on:
   workflow_dispatch:
     inputs:
-      version_code:
-        description: 'versionCode（自增，需大于手机已装版本）'
+      branch:
+        description: '目标开发分支（上游 main 合入它，并从它出包）'
         required: false
-        default: '561'
+        default: 'vpn-mihomo-ubuntu'
+      version_code:
+        description: 'versionCode（留空＝用 debug-build 默认；监控脚本会传"上游 code 与我们最新 code 的较大者+1"）'
+        required: false
+        default: ''
       version_name:
         description: 'versionName'
         required: false
@@ -16,7 +20,7 @@ on:
         required: false
         default: ''
       release_notes:
-        description: '更新日志（多行用 %0A 分隔），留空用默认文案'
+        description: '更新日志（真换行；dispatch 时按 JSON 字符串转义，勿用 %0A）'
         required: false
         default: ''
 
@@ -25,7 +29,7 @@ permissions:
   actions: write
 
 concurrency:
-  group: webhtv-auto-release-tun
+  group: webhtv-auto-release
   cancel-in-progress: false
 
 env:
@@ -33,15 +37,15 @@ env:
 
 jobs:
   merge-and-release:
-    name: Merge main into vpn-mihomo-tun and build release
+    name: Merge origin/main into ${{ github.event.inputs.branch || 'vpn-mihomo-ubuntu' }} and build release
     runs-on: ubuntu-latest
     timeout-minutes: 90
 
     steps:
-      - name: Checkout vpn-mihomo-tun (full history)
+      - name: Checkout target branch (full history)
         uses: actions/checkout@v4
         with:
-          ref: vpn-mihomo-tun
+          ref: ${{ github.event.inputs.branch || 'vpn-mihomo-ubuntu' }}
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
 
@@ -50,47 +54,58 @@ jobs:
           git config user.name "webhtv-auto-bot"
           git config user.email "actions@github.com"
 
-      - name: Merge origin/main into vpn-mihomo-tun
+      - name: Merge origin/main into target branch
         run: |
           set -e
+          TARGET="${{ github.event.inputs.branch || 'vpn-mihomo-ubuntu' }}"
           git fetch origin main
-          echo "=== try merge ==="
-          if git merge origin/main --no-edit --no-ff > /tmp/merge.log 2>&1; then
+          echo "=== try merge origin/main into $TARGET ==="
+          if git merge origin/main --no-ff -m "Merge origin/main into $TARGET [skip ci]" > /tmp/merge.log 2>&1; then
             echo "MERGE_OK"
             tail -5 /tmp/merge.log
           else
             echo "MERGE_CONFLICT"
-            echo "----- conflict files -----"
-            git diff --name-only --diff-filter=U || true
-            echo "----- merge log tail -----"
-            tail -30 /tmp/merge.log
-            exit 1
+            git diff --name-only --diff-filter=U | tee /tmp/conflicts.txt || true
+            echo "----- 按已知规则自动解冲突 -----"
+            # 规则见 .github/scripts/resolve_conflicts.py（只解 Manifest / build.gradle，其余一律失败退出）
+            python3 .github/scripts/resolve_conflicts.py $(cat /tmp/conflicts.txt | tr '\n' ' ')
+            git add -A
+            git commit -m "Merge origin/main into $TARGET (auto-resolved Manifest/build.gradle) [skip ci]"
+            echo "MERGE_RESOLVED $(git rev-parse --short HEAD)"
+            echo "----- 复核：全仓不应再有冲突标记 -----"
+            ! grep -rn "^<<<<<<< \|^>>>>>>> " --exclude-dir=.git --include="*.java" --include="*.xml" --include="*.gradle" --include="*.json" . > /dev/null
           fi
 
-      - name: Push merged vpn-mihomo-tun
+      - name: Push merged target branch
         run: |
-          git push origin HEAD:vpn-mihomo-tun
-          echo "PUSH_OK $(git rev-parse --short HEAD)"
+          TARGET="${{ github.event.inputs.branch || 'vpn-mihomo-ubuntu' }}"
+          test -n "$(git rev-parse HEAD)" || { echo "HEAD 为空，拒绝 push"; exit 1; }
+          git push origin HEAD:"$TARGET"
+          echo "PUSH_OK $TARGET $(git rev-parse --short HEAD)"
 
       - name: Dispatch release build (debug-build.yml release=true)
         id: dispatch
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          VERSION_CODE: ${{ github.event.inputs.version_code || '561' }}
+          TARGET_BRANCH: ${{ github.event.inputs.branch || 'vpn-mihomo-ubuntu' }}
+          VERSION_CODE: ${{ github.event.inputs.version_code }}
           VERSION_NAME: ${{ github.event.inputs.version_name || '5.6.0' }}
           RELEASE_TAG: ${{ github.event.inputs.release_tag }}
           RELEASE_NOTES: ${{ github.event.inputs.release_notes }}
         run: |
           BEFORE_TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
           echo "before_ts=$BEFORE_TS" >> "$GITHUB_ENV"
-          ARGS=(-f version_code="$VERSION_CODE" -f version_name="$VERSION_NAME" -f release=true)
+          ARGS=(-f version_name="$VERSION_NAME" -f release=true)
+          if [ -n "$VERSION_CODE" ]; then
+            ARGS+=(-f version_code="$VERSION_CODE")
+          fi
           if [ -n "$RELEASE_TAG" ]; then
             ARGS+=(-f release_tag="$RELEASE_TAG")
           fi
           if [ -n "$RELEASE_NOTES" ]; then
             ARGS+=(-f release_notes="$RELEASE_NOTES")
           fi
-          gh workflow run debug-build.yml --ref vpn-mihomo-tun "${ARGS[@]}"
+          gh workflow run debug-build.yml --ref "$TARGET_BRANCH" "${ARGS[@]}"
           echo "dispatched debug-build at $BEFORE_TS"
 
       - name: Wait for release build and mirror its result
