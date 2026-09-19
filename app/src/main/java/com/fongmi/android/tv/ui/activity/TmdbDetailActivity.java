@@ -92,6 +92,7 @@ import com.fongmi.android.tv.bean.TmdbSeasonProgress;
 import com.fongmi.android.tv.bean.TmdbSeasonScope;
 import com.fongmi.android.tv.bean.TmdbSeasonSegment;
 import com.fongmi.android.tv.bean.TmdbPerson;
+import com.fongmi.android.tv.bean.TmdbSourcePayload;
 import com.fongmi.android.tv.bean.UserAdRule;
 import com.fongmi.android.tv.bean.Vod;
 import com.fongmi.android.tv.databinding.ActivityTmdbDetailBinding;
@@ -173,6 +174,7 @@ import com.fongmi.android.tv.ui.helper.EpisodeSeasonSnapshot;
 import com.fongmi.android.tv.ui.helper.PipExitDecision;
 import com.fongmi.android.tv.ui.helper.PlayerControlFocusHelper;
 import com.fongmi.android.tv.ui.helper.TmdbCinemaTheme;
+import com.fongmi.android.tv.ui.helper.TmdbBundle;
 import com.fongmi.android.tv.ui.helper.TmdbDetailLabels;
 import com.fongmi.android.tv.ui.helper.TmdbEpisodeGridPolicy;
 import com.fongmi.android.tv.ui.helper.TmdbEpisodeInfo;
@@ -182,6 +184,10 @@ import com.fongmi.android.tv.ui.helper.TmdbEpisodeMatcher;
 import com.fongmi.android.tv.ui.helper.TmdbMatchPolicy;
 import com.fongmi.android.tv.ui.helper.TmdbMatcher;
 import com.fongmi.android.tv.ui.helper.TmdbRecommendationRows;
+import com.fongmi.android.tv.ui.helper.TmdbSourceAdapter;
+import com.fongmi.android.tv.ui.helper.TmdbSourceCapabilityPlanner;
+import com.fongmi.android.tv.ui.helper.TmdbSourceMerger;
+import com.fongmi.android.tv.ui.helper.TmdbSourcePayloadParser;
 import com.fongmi.android.tv.ui.helper.TmdbUIAdapter;
 import com.fongmi.android.tv.ui.player.VodPlayerChrome;
 import com.fongmi.android.tv.ui.player.VodPlayerUiController;
@@ -330,6 +336,8 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
     private History mHistory;
     private TmdbConfig tmdbConfig;
     private TmdbBundle activeTmdbBundle;
+    private TmdbSourcePayload activeSourcePayload;
+    private TmdbItem activeSourceItem;
     private TmdbItem initialTmdbItem;
     private TmdbItem matchedTmdbItem;
     private JsonObject matchedTmdbDetail;
@@ -359,16 +367,24 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
     private boolean overviewExpanded;
     private boolean useParse;
     private boolean inlineStarted;
+    private boolean inlinePlaybackPending;
+    private final Runnable inlineLoadingSpeedRefresh = new Runnable() {
+        @Override
+        public void run() {
+            if (binding == null || binding.playerLoading.getVisibility() != View.VISIBLE) return;
+            updateInlineLoadingSpeed();
+            binding.playerLoading.postDelayed(this, 1000L);
+        }
+    };
     private boolean inlineHttpRefreshAttempted;
     private boolean detailPlayerActive;
+    private boolean detailPlayerFullscreenPending;
     private boolean autoPlayed;
     private boolean defaultPlaybackLaunchPending;
     private boolean inlineFullscreen;
     private boolean inlineShortDramaMode;
     private boolean inlinePauseInfo;
-    private boolean inlinePlaybackLoading;
     private boolean inlinePlaybackReconnectPending;
-    private boolean inlinePlayerSwitchLoading;
     private boolean savingTmdbPhoto;
     private boolean pendingInlineLutImport;
     private PlayerGesture inlineGestureDetector;
@@ -396,6 +412,8 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
     private float inlineGestureSpeed = 1.0f;
     private boolean inlineStartPositionApplied;
     private boolean inlineFirstReady;
+    private boolean inlinePlayHealthRecorded;
+    private String inlinePlayHealthKey = "";
     private boolean inlineButtonsReordered;
     private View mNightModeOverlay;
     private int mNightModeLevel = PlayerSetting.NIGHT_MODE_OFF;
@@ -658,12 +676,13 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
 
     @Override
     protected boolean shouldBindPlaybackService() {
-        return isFusionMode() || isPlayerMode();
+        return modeController.shouldBindPlaybackService();
     }
 
     @Override
     protected void initView(Bundle savedInstanceState) {
         inflateMobileInlineControl();
+        initModeController();
         super.initView(savedInstanceState);
         tmdbConfig = TmdbConfig.objectFrom(Setting.getTmdbConfig());
         initialTmdbItem = getIntentTmdbItem();
@@ -671,7 +690,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         applyDetailEdgeToEdge();
         applySystemBarInsets();
         initPage();
-        initModeController();
+        bindModeController();
         setLoadingOnlyBeforeDefaultPlayback(shouldUseLoadingOnlyBeforeDefaultPlayback());
         loadContent(null);
     }
@@ -707,6 +726,8 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         clearEpisodeRenderCaches();
         resetEpisodeRange();
         inlineStarted = false;
+        inlinePlaybackPending = false;
+        detailPlayerFullscreenPending = false;
         detailPlayerActive = false;
         autoPlayed = false;
         inlinePlaybackGeneration++;
@@ -714,12 +735,12 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         tmdbApplyGeneration++;
         tmdbEpisodeDetailGeneration++;
         sourceSearchGeneration++;
-        inlinePlaybackLoading = false;
-        inlinePlayerSwitchLoading = false;
         inlineStartPosition = C.TIME_UNSET;
         pendingInlineResult = null;
         currentInlineResult = null;
         activeTmdbBundle = null;
+        activeSourcePayload = null;
+        activeSourceItem = null;
         useParse = false;
         detailTmdbPhotos.clear();
         detailTmdbPosters.clear();
@@ -740,7 +761,6 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         updateNavigationKey();
         binding.loading.setVisibility(View.VISIBLE);
         setLoadingOnlyBeforeDefaultPlayback(shouldUseLoadingOnlyBeforeDefaultPlayback());
-        hideInlineLoading();
         binding.playerError.setVisibility(View.GONE);
         binding.playerControls.setVisibility(View.GONE);
         binding.detailControlHost.setVisibility(View.GONE);
@@ -903,6 +923,26 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
             public ViewBinding binding() {
                 return binding;
             }
+
+            @Override
+            public void closeDetailFullscreenPlayer() {
+                TmdbDetailActivity.this.closeDetailFullscreenPlayer();
+            }
+
+            @Override
+            public void playInline() {
+                TmdbDetailActivity.this.playInline();
+            }
+
+            @Override
+            public void playDetailFullscreen() {
+                TmdbDetailActivity.this.playDetailFullscreen();
+            }
+
+            @Override
+            public void playDefaultPlayback() {
+                TmdbDetailActivity.this.playDefaultPlayback();
+            }
         };
 
         if (isFusionMode()) {
@@ -913,6 +953,9 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
             modeController = new EnhancedDetailController(host);
         }
 
+    }
+
+    private void bindModeController() {
         modeController.bind();
         modeController.applyInitialLayout();
     }
@@ -1864,7 +1907,6 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
             binding.playerError.setTextColor(0xFFFFFFFF);
             tintInlineControl(inlineControlsView());
             tintInlineDisplay();
-            tintInlineLoading();
         }
         if (episodeAdapter != null) {
             episodeAdapter.setTheme(lightTheme, colors.accent);
@@ -1980,6 +2022,9 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         binding.title.setTextSize(28f);
         binding.overview.setTextSize(13f);
         TmdbDetailLayoutUtils.setHeightDp(binding.episodePhotoList, 124);
+        TmdbDetailLayoutUtils.setHeightDp(binding.posterList, 238);
+        binding.posterList.setClipToOutline(false);
+        binding.posterList.setClipChildren(false);
         TmdbDetailLayoutUtils.setHeightDp(binding.castList, 180);
         TmdbDetailLayoutUtils.setHeightDp(binding.creatorList, 180);
         TmdbDetailLayoutUtils.setHeightDp(binding.relatedList, 262);
@@ -2031,7 +2076,12 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         binding.subtitle.setTextSize(compact ? 13f : 14f);
         binding.overview.setTextSize(compact ? 14.5f : 16f);
         binding.overview.setLineSpacing(ResUtil.dp2px(compact ? 4 : 3), 1f);
-        TmdbDetailLayoutUtils.setHeightDp(binding.episodePhotoList, compact ? 128 : 160);
+        // 剧照卡片固定为 124dp 高；容器保持同高，避免大屏剧幕主题在剧照与下一栏之间留下额外空白。
+        TmdbDetailLayoutUtils.setHeightDp(binding.episodePhotoList, 124);
+        // 海报卡片本体为 148x222dp，列表额外保留焦点放大空间，确保完整显示四角圆角。
+        TmdbDetailLayoutUtils.setHeightDp(binding.posterList, 238);
+        binding.posterList.setClipToOutline(false);
+        binding.posterList.setClipChildren(false);
         TmdbDetailLayoutUtils.setHeightDp(binding.castList, compact ? 90 : 90);
         TmdbDetailLayoutUtils.setHeightDp(binding.creatorList, compact ? 90 : 90);
         TmdbDetailLayoutUtils.setHeightDp(binding.relatedList, compact ? 160 : 160);
@@ -2101,11 +2151,6 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         binding.playerDisplayClock.setTextColor(0xFFFFFFFF);
         binding.playerDisplayPosition.setTextColor(0xFFFFFFFF);
         binding.playerDisplayTraffic.setTextColor(0xFFFFFFFF);
-    }
-
-    private void tintInlineLoading() {
-        binding.playerProgressTraffic.setTextColor(0xFFFFFFFF);
-        binding.playerProgressTraffic.setAlpha(1f);
     }
 
     private void tintInlineGestureOverlay() {
@@ -2287,11 +2332,6 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         detailTasks.submit(() -> {
             if (generation != loadGeneration || Thread.currentThread().isInterrupted()) return;
             boolean tmdbAllowed = isTmdbAllowedForCurrentSite();
-            Future<TmdbLoadResult> tmdbFuture = reusableBundle == null && tmdbConfig.isReady() && tmdbAllowed
-                    ? detailTasks.submitCallable(Task.largeExecutor(), this::loadTmdbResult)
-                    : null;
-            boolean singlePassStandaloneTmdb = shouldLoadInitialStandaloneTmdbDetailInSinglePass(reusableBundle, tmdbFuture);
-            SpiderDebug.log("tmdb-detail-flow", "load tasks mode=%d tmdbAllowed=%s singlePass=%s reusable=%s", mode, tmdbAllowed, singlePassStandaloneTmdb, reusableBundle != null);
             Vod loadedVod = null;
             String error = null;
             long sourceStart = System.currentTimeMillis();
@@ -2302,7 +2342,6 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
                 if (com.fongmi.android.tv.api.CatAction.shouldYieldDetail(key, loadStart, result)) {
                     SpiderDebug.log("tmdb-detail-flow", "yield to cat webview key=%s id=%s", key, id);
                     runOnAliveUi(this::finish);
-                    if (tmdbFuture != null) tmdbFuture.cancel(true);
                     return;
                 }
                 if (result != null && !result.getList().isEmpty()) {
@@ -2317,15 +2356,60 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
             SpiderDebug.log("tmdb-detail-flow", "source detail cost=%dms mode=%d key=%s id=%s hit=%s error=%s", System.currentTimeMillis() - sourceStart, mode, key, id, loadedVod != null, TextUtils.isEmpty(error) ? "" : error);
 
             if (generation != loadGeneration || Thread.currentThread().isInterrupted()) {
-                if (tmdbFuture != null) tmdbFuture.cancel(true);
                 return;
             }
             Vod finalVod = loadedVod;
             String finalError = error;
-            if (!singlePassStandaloneTmdb || finalVod == null) {
+
+            TmdbSourcePayload sourcePayload = finalVod == null ? null : TmdbSourcePayloadParser.parse(finalVod.getTmdb());
+            TmdbBundle sourceBundle = sourcePayload == null ? null : TmdbSourceAdapter.toBundle(sourcePayload, finalVod, tmdbConfig);
+            if (sourceBundle != null) {
+                if (reusableBundle != null) sourceBundle = TmdbSourceMerger.merge(sourceBundle, sourcePayload, reusableBundle, null).bundle();
+                TmdbBundle initialBundle = sourceBundle;
+                runOnAliveUi(() -> {
+                    if (generation != loadGeneration) return;
+                    activeSourcePayload = sourcePayload;
+                    activeSourceItem = initialBundle.item();
+                    applyLoaded(finalVod, initialBundle, new ArrayList<>(), finalError, false);
+                });
+                if (!tmdbAllowed || !tmdbConfig.isReady()) return;
+                TmdbSourceCapabilityPlanner.Plan plan = TmdbSourceCapabilityPlanner.plan(initialBundle, sourcePayload, TmdbSourceCapabilityPlanner.UiState.initialScreen());
+                SpiderDebug.log("tmdb-detail-flow", "source payload plan required=%s missing=%s total=%dms", plan.required(), plan.missing(), System.currentTimeMillis() - loadStart);
+                if (!plan.hasInitialNetworkGaps()) return;
+                try {
+                    long sourceFillStart = System.currentTimeMillis();
+                    JsonObject detail = tmdbService.detailForSource(initialBundle.item(), sourcePayload.getSeasonNumber(), tmdbConfig, plan.missing());
+                    TmdbBundle networkBundle = TmdbSourceAdapter.fromNetwork(initialBundle.item(), detail, tmdbConfig);
+                    TmdbBundle mergedBundle = TmdbSourceMerger.fillOnly(initialBundle, sourcePayload, networkBundle);
+                    SpiderDebug.log("tmdb-detail-flow", "source payload network fill cost=%dms groups=%s total=%dms", System.currentTimeMillis() - sourceFillStart, plan.missing(), System.currentTimeMillis() - loadStart);
+                    if (generation != loadGeneration || Thread.currentThread().isInterrupted()) return;
+                    runOnAliveUi(() -> {
+                        if (generation != loadGeneration || vod == null || !isSameTmdbItem(mergedBundle.item(), matchedTmdbItem)) return;
+                        applyTmdbResultNow(new TmdbLoadResult(mergedBundle, List.of()));
+                    });
+                } catch (Throwable ignored) {
+                    SpiderDebug.log("tmdb-detail-flow", "source payload network fill failed mode=%d total=%dms", mode, System.currentTimeMillis() - loadStart);
+                }
+                return;
+            }
+
+            if (reusableBundle != null) {
                 runOnAliveUi(() -> {
                     if (generation != loadGeneration) return;
                     applyLoaded(finalVod, reusableBundle, new ArrayList<>(), finalError, false);
+                });
+                return;
+            }
+
+            Future<TmdbLoadResult> tmdbFuture = tmdbConfig.isReady() && tmdbAllowed
+                    ? detailTasks.submitCallable(Task.largeExecutor(), this::loadTmdbResult)
+                    : null;
+            boolean singlePassStandaloneTmdb = shouldLoadInitialStandaloneTmdbDetailInSinglePass(reusableBundle, tmdbFuture);
+            SpiderDebug.log("tmdb-detail-flow", "load tasks mode=%d tmdbAllowed=%s singlePass=%s reusable=%s", mode, tmdbAllowed, singlePassStandaloneTmdb, reusableBundle != null);
+            if (!singlePassStandaloneTmdb || finalVod == null) {
+                runOnAliveUi(() -> {
+                    if (generation != loadGeneration) return;
+                    applyLoaded(finalVod, null, new ArrayList<>(), finalError, false);
                 });
             }
             if (finalVod == null || tmdbFuture == null) {
@@ -2521,6 +2605,23 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         return first.getTmdbId() == second.getTmdbId() && TextUtils.equals(first.getMediaType(), second.getMediaType());
     }
 
+    private boolean hasCompleteSourceSeason(int seasonNumber) {
+        return activeSourcePayload != null && activeSourcePayload.hasCapability(TmdbSourceCapabilityPlanner.season(seasonNumber));
+    }
+
+    private boolean hasCompleteSourceEpisode(int seasonNumber, int episodeNumber) {
+        return activeSourcePayload != null && activeSourcePayload.hasCapability(TmdbSourceCapabilityPlanner.episode(seasonNumber, episodeNumber));
+    }
+
+    private boolean hasCompleteSourceVideos(@Nullable TmdbItem item, int seasonNumber, int episodeNumber) {
+        if (activeSourcePayload == null || item == null) return false;
+        if (item.isMovie()) return activeSourcePayload.hasCapability(TmdbSourceCapabilityPlanner.VIDEOS);
+        if (!item.isTv() || !activeSourcePayload.hasCapability(TmdbSourceCapabilityPlanner.VIDEOS)) return false;
+        if (seasonNumber < 0) return true;
+        if (!activeSourcePayload.hasCapability(TmdbSourceCapabilityPlanner.seasonVideos(seasonNumber))) return false;
+        return episodeNumber <= 0 || activeSourcePayload.hasCapability(TmdbSourceCapabilityPlanner.episodeVideos(seasonNumber, episodeNumber));
+    }
+
     private boolean isInlinePlaybackRequestCurrent(int generation, String key, String flag, String episodeUrl) {
         return generation == inlinePlaybackGeneration
                 && TextUtils.equals(key, getKeyText())
@@ -2531,11 +2632,8 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
     }
 
     private void cancelPendingInlinePlayback() {
-        if (!inlinePlaybackLoading && !inlinePlayerSwitchLoading) return;
         inlinePlaybackGeneration++;
-        inlinePlaybackLoading = false;
-        inlinePlayerSwitchLoading = false;
-        hideInlineLoading();
+        inlinePlaybackPending = false;
         updateInlineDisplayPanel();
     }
 
@@ -2704,24 +2802,38 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
             List<TmdbItem> personalTmdb = new ArrayList<>();
             List<TmdbItem> personalDouban = new ArrayList<>();
             PersonalRecommendationService recommendationService = new PersonalRecommendationService(tmdbService, tmdbConfig);
-            try {
-                cast = tmdbService.cast(bundle.detail(), tmdbConfig);
-            } catch (Throwable ignored) {
+            if (bundle.cast().isEmpty()) {
+                try {
+                    cast = tmdbService.cast(bundle.detail(), tmdbConfig);
+                } catch (Throwable ignored) {
+                }
+            } else {
+                cast = new ArrayList<>(bundle.cast());
             }
-            try {
-                creators = tmdbService.creators(bundle.detail(), tmdbConfig);
-            } catch (Throwable ignored) {
+            if (bundle.creators().isEmpty()) {
+                try {
+                    creators = tmdbService.creators(bundle.detail(), tmdbConfig);
+                } catch (Throwable ignored) {
+                }
+            } else {
+                creators = new ArrayList<>(bundle.creators());
             }
             try {
                 backdrops = tmdbService.backdrops(bundle.detail(), tmdbConfig);
                 posters = tmdbService.posters(bundle.detail(), tmdbConfig);
-                backgroundSlides = tmdbService.photos(bundle.detail(), tmdbConfig, preferLandscapeBackground());
+                backgroundSlides = bundle.photos().isEmpty()
+                        ? tmdbService.photos(bundle.detail(), tmdbConfig, preferLandscapeBackground())
+                        : new ArrayList<>(bundle.photos());
             } catch (Throwable ignored) {
             }
             try {
-                List<TmdbItem> recommendations = tmdbService.recommendations(bundle.detail(), tmdbConfig);
-                List<TmdbItem> similar = tmdbService.similar(bundle.detail(), tmdbConfig);
-                related = TmdbRecommendationRows.rankedRelated(bundle.detail(), recommendations, similar);
+                if (bundle.related().isEmpty()) {
+                    List<TmdbItem> recommendations = tmdbService.recommendations(bundle.detail(), tmdbConfig);
+                    List<TmdbItem> similar = tmdbService.similar(bundle.detail(), tmdbConfig);
+                    related = TmdbRecommendationRows.rankedRelated(bundle.detail(), recommendations, similar);
+                } else {
+                    related = new ArrayList<>(bundle.related());
+                }
             } catch (Throwable ignored) {
             }
             try {
@@ -2847,6 +2959,10 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
     }
 
     private void applyTmdbBundle(TmdbBundle bundle) {
+        if (bundle == null || !isSameTmdbItem(bundle.item(), activeSourceItem)) {
+            activeSourcePayload = null;
+            activeSourceItem = null;
+        }
         activeTmdbBundle = bundle;
         matchedTmdbItem = bundle == null ? null : bundle.item();
         matchedTmdbDetail = bundle == null ? null : bundle.detail();
@@ -5524,6 +5640,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
 
     private void fetchSeasonIfNeeded(int seasonNumber, boolean refresh) {
         if (seasonNumber < 0 || (!refresh && tmdbSeasonEpisodes.containsKey(seasonNumber)) || loadingSeasons.contains(seasonNumber) || matchedTmdbItem == null || !"tv".equalsIgnoreCase(matchedTmdbItem.getMediaType()) || !canMatchTmdb()) return;
+        if (!refresh && hasCompleteSourceSeason(seasonNumber)) return;
         int generation = loadGeneration;
         TmdbItem item = matchedTmdbItem;
         JsonObject detail = matchedTmdbDetail;
@@ -5566,7 +5683,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
     private void refreshFirstSeasonIfStaleSplit(List<Episode> sourceEpisodes) {
         if (sourceEpisodes == null || sourceEpisodes.isEmpty() || hasExplicitSeasonNumbers(sourceEpisodes)) return;
         int firstSeason = firstSeasonNumber(matchedTmdbDetail);
-        if (firstSeason < 0 || refreshedSingleSeasonProbes.contains(firstSeason) || loadingSeasons.contains(firstSeason)) return;
+        if (firstSeason < 0 || refreshedSingleSeasonProbes.contains(firstSeason) || loadingSeasons.contains(firstSeason) || hasCompleteSourceSeason(firstSeason)) return;
         int expectedCount = Math.max(0, seasonEpisodeCounts.getOrDefault(firstSeason, 0));
         List<TmdbEpisode> cachedEpisodes = tmdbSeasonEpisodes.get(firstSeason);
         int cachedCount = cachedEpisodes == null ? 0 : cachedEpisodes.size();
@@ -5857,16 +5974,20 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         int generation = loadGeneration;
         int videoGeneration = ++relatedVideoGeneration;
         TmdbItem item = matchedTmdbItem;
+        JsonObject sourceDetail = matchedTmdbDetail;
         final int requestSeasonNumber = seasonNumber;
         final int requestEpisodeNumber = episodeNumber;
         relatedVideoContextKey = contextKey;
         relatedVideoLoading = true;
         relatedVideoItems.clear();
         bindTmdbSection();
+        boolean sourceComplete = hasCompleteSourceVideos(item, requestSeasonNumber, requestEpisodeNumber);
         detailTasks.submit(() -> {
             List<TmdbVideo> loaded = new ArrayList<>();
             try {
-                loaded = tmdbService.relatedVideos(item, requestSeasonNumber, requestEpisodeNumber, tmdbConfig);
+                loaded = sourceComplete
+                        ? TmdbSourceAdapter.videos(sourceDetail, item.getMediaType(), requestSeasonNumber, requestEpisodeNumber, tmdbConfig.getLanguage())
+                        : tmdbService.relatedVideos(item, requestSeasonNumber, requestEpisodeNumber, tmdbConfig);
             } catch (Throwable e) {
                 SpiderDebug.log("tmdb-video", "standalone related failed media=%s id=%d season=%d episode=%d error=%s", item.getMediaType(), item.getTmdbId(), requestSeasonNumber, requestEpisodeNumber, e.getMessage());
             }
@@ -5904,49 +6025,50 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         episodePhotoAdapter.setItems(tmdbEpisodePhotos);
         episodePhotoAdapter.rebindAttached(binding.episodePhotoList);
 
-        setTopMargin(binding.posterTitle, hasPhotos ? 20 : 0);
+        int sectionGapDp = isPlayerMode() && !isCinemaMode() ? 12 : 20;
+        setTopMargin(binding.posterTitle, hasPhotos ? sectionGapDp : 0);
         binding.posterTitle.setVisibility(hasPosters ? View.VISIBLE : View.GONE);
         binding.posterList.setVisibility(hasPosters ? View.VISIBLE : View.GONE);
         posterAdapter.setItems(detailTmdbPosters);
         posterAdapter.rebindAttached(binding.posterList);
 
-        setTopMargin(binding.relatedVideoTitle, hasPhotos || hasPosters ? 20 : 0);
+        setTopMargin(binding.relatedVideoTitle, hasPhotos || hasPosters ? sectionGapDp : 0);
         binding.relatedVideoTitle.setVisibility(hasRelatedVideos ? View.VISIBLE : View.GONE);
         binding.relatedVideoList.setVisibility(hasRelatedVideos ? View.VISIBLE : View.GONE);
         relatedVideoAdapter.setItems(relatedVideoItems);
         relatedVideoAdapter.rebindAttached(binding.relatedVideoList);
 
-        setTopMargin(binding.castTitle, hasPhotos || hasPosters || hasRelatedVideos ? 20 : 0);
+        setTopMargin(binding.castTitle, hasPhotos || hasPosters || hasRelatedVideos ? sectionGapDp : 0);
         binding.castTitle.setVisibility(hasCast ? View.VISIBLE : View.GONE);
         binding.castList.setVisibility(hasCast ? View.VISIBLE : View.GONE);
         castAdapter.setItems(castItems);
         castAdapter.rebindAttached(binding.castList);
 
-        setTopMargin(binding.creatorTitle, hasPhotos || hasPosters || hasRelatedVideos || hasCast ? 20 : 0);
+        setTopMargin(binding.creatorTitle, hasPhotos || hasPosters || hasRelatedVideos || hasCast ? sectionGapDp : 0);
         binding.creatorTitle.setVisibility(hasCreators ? View.VISIBLE : View.GONE);
         binding.creatorList.setVisibility(hasCreators ? View.VISIBLE : View.GONE);
         creatorAdapter.setItems(creatorItems);
         creatorAdapter.rebindAttached(binding.creatorList);
 
-        setTopMargin(binding.relatedTitle, hasPhotos || hasPosters || hasRelatedVideos || hasCast || hasCreators ? 20 : 0);
+        setTopMargin(binding.relatedTitle, hasPhotos || hasPosters || hasRelatedVideos || hasCast || hasCreators ? sectionGapDp : 0);
         binding.relatedTitle.setVisibility(hasRelated ? View.VISIBLE : View.GONE);
         binding.relatedList.setVisibility(hasRelated ? View.VISIBLE : View.GONE);
         relatedAdapter.setItems(relatedItems);
         relatedAdapter.rebindAttached(binding.relatedList);
 
-        setTopMargin(binding.personalTmdbTitle, hasPhotos || hasPosters || hasCast || hasCreators || hasRelated || hasRelatedVideos ? 20 : 0);
+        setTopMargin(binding.personalTmdbTitle, hasPhotos || hasPosters || hasCast || hasCreators || hasRelated || hasRelatedVideos ? sectionGapDp : 0);
         binding.personalTmdbTitle.setVisibility(hasPersonalTmdb ? View.VISIBLE : View.GONE);
         binding.personalTmdbList.setVisibility(hasPersonalTmdb ? View.VISIBLE : View.GONE);
         personalTmdbAdapter.setItems(personalTmdbItems);
         personalTmdbAdapter.rebindAttached(binding.personalTmdbList);
 
-        setTopMargin(binding.personalDoubanTitle, hasPhotos || hasPosters || hasCast || hasCreators || hasRelated || hasRelatedVideos || hasPersonalTmdb ? 20 : 0);
+        setTopMargin(binding.personalDoubanTitle, hasPhotos || hasPosters || hasCast || hasCreators || hasRelated || hasRelatedVideos || hasPersonalTmdb ? sectionGapDp : 0);
         binding.personalDoubanTitle.setVisibility(hasPersonalDouban ? View.VISIBLE : View.GONE);
         binding.personalDoubanList.setVisibility(hasPersonalDouban ? View.VISIBLE : View.GONE);
         personalDoubanAdapter.setItems(personalDoubanItems);
         personalDoubanAdapter.rebindAttached(binding.personalDoubanList);
 
-        setTopMargin(binding.personalAiTitle, hasPhotos || hasPosters || hasCast || hasCreators || hasRelated || hasRelatedVideos || hasPersonalTmdb || hasPersonalDouban ? 20 : 0);
+        setTopMargin(binding.personalAiTitle, hasPhotos || hasPosters || hasCast || hasCreators || hasRelated || hasRelatedVideos || hasPersonalTmdb || hasPersonalDouban ? sectionGapDp : 0);
         binding.personalAiTitle.setVisibility(hasPersonalAi ? View.VISIBLE : View.GONE);
         binding.personalAiList.setVisibility(hasPersonalAi ? View.VISIBLE : View.GONE);
         personalAiAdapter.setItems(personalAiItems);
@@ -6062,9 +6184,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         if (enterInlineFullscreenIfCurrentInlinePlayback(selectedEpisode)) return;
         saveInlineHistory();
         updateInlineHistory(selectedEpisode);
-        if (isFusionMode()) playInline();
-        else if (isPlayerMode()) playDetailFullscreen();
-        else playDefaultPlayback();
+        modeController.play();
     }
 
     private void playDefaultPlayback() {
@@ -6158,6 +6278,10 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
             return;
         }
         if (matchedTmdbItem == null || !"tv".equalsIgnoreCase(matchedTmdbItem.getMediaType()) || detailSeasonNumber < 0 || detailEpisodeNumber <= 0 || !canMatchTmdb()) {
+            com.fongmi.android.tv.ui.dialog.EpisodeDetailDialog.show(this, episode, getSite(), null, null, dismissListener);
+            return;
+        }
+        if (hasCompleteSourceEpisode(detailSeasonNumber, detailEpisodeNumber)) {
             com.fongmi.android.tv.ui.dialog.EpisodeDetailDialog.show(this, episode, getSite(), null, null, dismissListener);
             return;
         }
@@ -6976,7 +7100,9 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
     private int getDetailMode() {
         // 返回原始模式，不做 normalize，否则 isPlayerMode() 永远返回 false
         if (getIntent().hasExtra("detail_mode")) return getIntent().getIntExtra("detail_mode", Setting.DETAIL_OPEN_ENHANCED);
-        return getIntent().getBooleanExtra("fusion", false) ? Setting.DETAIL_OPEN_FUSION : Setting.DETAIL_OPEN_ENHANCED;
+        // 详情直放没有内嵌播放界面；若既无 detail_mode 也无 fusion 标记，只能按当前设置还原，
+        // 不能把无标记默认成炫彩详情，否则点击播放会误走融合内嵌播放。
+        return Setting.getDetailOpenMode();
     }
 
     private int detailModeTitle() {
@@ -7023,7 +7149,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
     }
 
     private void maybeAutoPlayInline() {
-        if ((!isFusionMode() && !isAutoPlayMode()) || autoPlayed) return;
+        if (!modeController.shouldAutoPlay() || autoPlayed) return;
         autoPlayed = true;
         binding.playerPanel.post(this::onPlay);
     }
@@ -7038,8 +7164,14 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         ensureInlineDanmakuController();
         binding.playerPanel.setVisibility(View.VISIBLE);
         binding.playerPanelSpacer.setVisibility(View.VISIBLE); // spacer 作为焦点桥梁需要可见
+        detailPlayerFullscreenPending = false;
         enterInlineFullscreen();
         if (!current) playInline();
+    }
+
+    private void revealDetailPlayerFullscreen() {
+        detailPlayerFullscreenPending = false;
+        if (!inlineFullscreen) enterInlineFullscreen();
     }
 
     private void playInline() {
@@ -7055,24 +7187,22 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
 
     private void playInline(long resumePosition, String failedUrl, String failureMessage) {
         if (selectedFlag == null || selectedEpisode == null) return;
-        inlinePlaybackLoading = true;
+        inlinePlaybackPending = true;
+        updateInlineLoading();
         int generation = ++inlinePlaybackGeneration;
-        inlinePlayerSwitchLoading = false;
         String key = getKeyText();
         String flag = selectedFlag.getFlag();
         String episodeUrl = selectedEpisode.getUrl();
         int playerKernel = inlineHistoryPlayerKernel();
-        stopInlinePlayerForReload();
-        showInlineLoading();
         updateInlineDisplayPanel();
         detailTasks.submit(() -> {
             try {
                 Result result = SiteApi.playerContent(key, flag, episodeUrl, playerKernel);
                 runOnAliveUi(() -> {
                     if (!isInlinePlaybackRequestCurrent(generation, key, flag, episodeUrl)) return;
+                    inlinePlaybackPending = false;
                     String resolvedUrl = result.getUrl() == null ? "" : result.getUrl().v();
                     if (!TextUtils.isEmpty(failedUrl) && TextUtils.equals(failedUrl, resolvedUrl)) {
-                        inlinePlaybackLoading = false;
                         SpiderDebug.log("webhome-inline", "http refresh rejected unchanged url key=%s id=%s", key, episodeUrl);
                         showInlineError(failureMessage);
                         return;
@@ -7083,6 +7213,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
                 String message = e.getMessage();
                 runOnAliveUi(() -> {
                     if (!isInlinePlaybackRequestCurrent(generation, key, flag, episodeUrl)) return;
+                    inlinePlaybackPending = false;
                     String fallback = TextUtils.isEmpty(failureMessage) ? getString(R.string.error_play_url) : failureMessage;
                     showInlineError(TextUtils.isEmpty(message) ? fallback : message);
                 });
@@ -7115,6 +7246,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
     }
 
     private void startInlinePlayer(Result result, long resumePosition) {
+        inlinePlaybackPending = false;
         // 决定性拦截：play_url 协议为 novel:// / pics:// / manga:// → 直启阅读器，不再喂给内联 player
         // （选集 / quality 切换 / 重连 / resume 全走此汇聚点。）
         if (NovelRouter.guardInlinePlay(this, result,
@@ -7139,8 +7271,10 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
             pendingInlineResult = result;
             return;
         }
-        inlinePlaybackLoading = false;
         inlineStarted = true;
+        inlinePlayHealthKey = getKeyText();
+        SiteHealthStore.recordPlayAttempt(inlinePlayHealthKey);
+        inlinePlayHealthRecorded = false;
         inlineFirstReady = false;  // 重置标志,允许新播放首次 READY 时显示控制栏
         inlineButtonsReordered = false;  // 重置标志,允许新播放重新排序按钮
         inlinePlaybackEpisode = selectedEpisode;
@@ -7164,6 +7298,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         startPlayer(getHistoryKey(), result, useParse, site == null ? 0 : site.getTimeout(), buildMetadata());
         updateNavigationKey();
         subtitlePlaybackSession.onPlaybackStarted(this, result);
+        modeController.onPlaybackStarted();
         searchInlineDanmaku(result);
         binding.playerPanel.requestFocus();
     }
@@ -7208,38 +7343,16 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
     }
 
     private void showInlineError(String text) {
-        inlinePlaybackLoading = false;
-        hideInlineLoading();
         binding.playerError.setText(text);
         binding.playerError.setVisibility(View.VISIBLE);
         updateInlineDisplayPanel();
     }
 
-    private void showInlineLoading() {
-        binding.playerError.setVisibility(View.GONE);
-        binding.playerProgress.setVisibility(View.VISIBLE);
-        tintInlineLoading();
-        updateInlineLoadingTraffic();
-        hideInlineControls();
-    }
-
-    private void hideInlineLoading() {
-        binding.playerProgress.setVisibility(View.GONE);
-        binding.playerProgressTraffic.setVisibility(View.GONE);
-        Traffic.reset(binding.playerProgressTraffic);
-    }
-
-    private void updateInlineLoadingTraffic() {
-        if (binding == null || binding.playerProgress.getVisibility() != View.VISIBLE) return;
-        Traffic.setSpeed(binding.playerProgressTraffic, service() == null ? null : player());
-        tintInlineLoading();
-    }
-
     private void toggleInlinePlayback() {
         if (!isInlinePlayerMode()) return;
         if (inlinePlaybackReconnectPending) return;
+        if (isSamePendingInlinePlayback(selectedEpisode)) return;
         if (controller() == null || service() == null || player().isEmpty()) {
-            if (isSamePendingInlinePlayback(selectedEpisode)) return;
             onPlay();
             return;
         }
@@ -7802,6 +7915,27 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         // 已废弃：统一使用 PlayerOsdController（OSD）系统
         // 原逻辑已迁移到 PlayerOsdController.render()
         // 保留此方法避免删除所有调用点时遗漏
+        updateInlineLoading();
+    }
+
+    private void updateInlineLoading() {
+        boolean loading = inlinePlaybackPending || (player() != null && !isPaused() && !player().isPlaying() && player().isLoading());
+        binding.playerLoading.removeCallbacks(inlineLoadingSpeedRefresh);
+        binding.playerLoading.setVisibility(loading ? View.VISIBLE : View.GONE);
+        if (loading && inlinePauseInfo) hideInlinePauseInfo();
+        if (!loading) {
+            binding.playerLoadingTraffic.setText("");
+            binding.playerLoadingTraffic.setVisibility(View.GONE);
+            return;
+        }
+        updateInlineLoadingSpeed();
+        binding.playerLoading.postDelayed(inlineLoadingSpeedRefresh, 1000L);
+    }
+
+    private void updateInlineLoadingSpeed() {
+        String traffic = inlineOsd == null ? "" : inlineOsd.sampleSpeedText();
+        binding.playerLoadingTraffic.setText(traffic);
+        binding.playerLoadingTraffic.setVisibility(TextUtils.isEmpty(traffic) ? View.GONE : View.VISIBLE);
     }
 
     private void setButtonEnabled(View button, boolean enabled) {
@@ -8430,8 +8564,6 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         String episodeUrl = selectedEpisode.getUrl();
         if (TextUtils.isEmpty(flag) || TextUtils.isEmpty(episodeUrl)) return false;
         int generation = ++inlinePlaybackGeneration;
-        inlinePlayerSwitchLoading = true;
-        showInlineLoading();
         long position = player().getPosition();
         float speed = player().getSpeed();
         boolean repeat = player().isRepeatOne();
@@ -8443,14 +8575,13 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
                 runOnAliveUi(() -> {
                     if (!isInlinePlayerSwitchRequestCurrent(generation, key, flag, episodeUrl)) return;
                     if (result == null || result.hasMsg() || result.getRealUrl().isEmpty()) {
-                        finishInlinePlayerSwitchRequest();
+                        updateInlineDisplayPanel();
                         Notify.show(result != null && result.hasMsg() ? result.getMsg() : getString(R.string.error_play_url));
                     } else {
                         currentInlineResult = result;
                         inlineHttpRefreshAttempted = false;
                         useParse = result.shouldUseParse();
-                        inlinePlayerSwitchLoading = false;
-                        player().switchPlayer(playerType, result, activePlaybackKey(), metadata, useParse, position, speed, repeat);
+                                        player().switchPlayer(playerType, result, activePlaybackKey(), metadata, useParse, position, speed, repeat);
                         rememberInlinePlayerKernel(playerType);
                     }
                     finishInlinePlayerSwitch();
@@ -8458,7 +8589,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
             } catch (Throwable e) {
                 runOnAliveUi(() -> {
                     if (!isInlinePlayerSwitchRequestCurrent(generation, key, flag, episodeUrl)) return;
-                    finishInlinePlayerSwitchRequest();
+                    updateInlineDisplayPanel();
                     finishInlinePlayerSwitch();
                     Notify.show(TextUtils.isEmpty(e.getMessage()) ? getString(R.string.error_play_url) : e.getMessage());
                 });
@@ -8468,20 +8599,12 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
     }
 
     private void cancelPendingInlinePlayerSwitch() {
-        if (!inlinePlayerSwitchLoading) return;
         inlinePlaybackGeneration++;
-        finishInlinePlayerSwitchRequest();
-    }
-
-    private void finishInlinePlayerSwitchRequest() {
-        inlinePlayerSwitchLoading = false;
-        hideInlineLoading();
         updateInlineDisplayPanel();
     }
 
     private boolean isInlinePlayerSwitchRequestCurrent(int generation, String key, String flag, String episodeUrl) {
-        return inlinePlayerSwitchLoading
-                && inlineStarted
+        return inlineStarted
                 && isInlinePlayerMode()
                 && isOwner()
                 && service() != null
@@ -8703,19 +8826,18 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         if (inlineFullscreen) backFromInlineFullscreen();
         else {
             prepareInlinePlayerTransition();
+            saveInlineHistory();
+            stopInlinePlaybackSync();
+            if (inlineStarted && isOwner()) stopPlayback();
+            inlineStarted = false;
             finish();
         }
     }
 
     private void backFromInlineFullscreen() {
-        // 详情直放模式（含手机版）返回时应关闭内嵌播放器回到纯详情页，
-        // 否则手机版只退出全屏、播放器面板仍可见，看起来跟沉浸融合模式一样
-        if (isPlayerMode()) {
-            exitInlineFullscreen();
-            closeDetailFullscreenPlayer();
-            return;
-        }
         exitInlineFullscreen();
+        modeController.onExitFullscreen();
+        return;
     }
 
     private void finishPlaybackToHome() {
@@ -9431,16 +9553,16 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
     }
 
     private boolean isSamePendingInlinePlayback(Episode episode) {
-        return inlinePlaybackLoading && selectedEpisode != null && selectedEpisode.equals(episode);
+        return inlinePlaybackPending && selectedEpisode != null && selectedEpisode.equals(episode);
     }
 
     private void selectInlineEpisode(Episode episode) {
+        if (isSamePendingInlinePlayback(episode)) return;
         if (NovelRouter.route(this, getKeyText(), episode, vod, selectedFlag, () -> inlinePlay(episode))) return;
         inlinePlay(episode);
     }
 
     private void inlinePlay(Episode episode) {
-        if (isSamePendingInlinePlayback(episode)) return;
         cancelPendingInlinePlayback();
         playbackSelectionTouched = true;
         selectedEpisode = episode;
@@ -9874,8 +9996,6 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         saveInlineHistory();
         stopInlinePlaybackSync();
         inlinePlaybackGeneration++;
-        inlinePlaybackLoading = false;
-        inlinePlayerSwitchLoading = false;
         introSkipPlayback.reset();
         subtitlePlaybackSession.stop(this);
         hideInlineControls();
@@ -9883,12 +10003,13 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
             player().stop();
             player().clear();
         }
-        hideInlineLoading();
         binding.playerError.setVisibility(View.GONE);
         updateInlineDisplayPanel();
         binding.playerPanel.setVisibility(View.GONE);
         binding.playerPanelSpacer.setVisibility(View.GONE); // 同步隐藏 spacer
         inlineStarted = false;
+        inlinePlaybackPending = false;
+        detailPlayerFullscreenPending = false;
         detailPlayerActive = false;
         pendingInlineResult = null;
         currentInlineResult = null;
@@ -10442,6 +10563,19 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         inlineControlController.applyDanmakuSetting();
     }
 
+    private void recordInlinePlayHealth(boolean success, String error) {
+        if (inlinePlayHealthRecorded) return;
+        inlinePlayHealthRecorded = true;
+        SiteHealthStore.recordPlay(TextUtils.isEmpty(inlinePlayHealthKey) ? getKeyText() : inlinePlayHealthKey, success, error);
+    }
+
+    @Override
+    protected void onFirstFrameRendered() {
+        recordInlinePlayHealth(true, "");
+        if (!detailPlayerFullscreenPending || !isPlayerMode() || !inlineStarted || !isOwner()) return;
+        revealDetailPlayerFullscreen();
+    }
+
     @Override
     protected void onPlayingChanged(boolean isPlaying) {
         if (!isInlinePlayerMode() || !inlineStarted || !isOwner()) return;
@@ -10456,6 +10590,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         super.onPlayWhenReadyChanged(playWhenReady, reason);
         if (!isInlinePlayerMode() || !inlineStarted || !isOwner()) return;
         syncInlinePauseInfo(playWhenReady);
+        updateInlineDisplayPanel();
     }
 
     @Override
@@ -10470,9 +10605,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
     @Override
     protected void onStateChanged(int state) {
         if (!isInlinePlayerMode()) return;
-        if (state == Player.STATE_BUFFERING) showInlineLoading();
         if (state == Player.STATE_READY) {
-            hideInlineLoading();
             hideInlineControls();
             player().reset();
             boolean pendingResumeSeekApplied = applyInlineStartPosition();
@@ -10561,6 +10694,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
 
     @Override
     protected void onError(String msg) {
+        recordInlinePlayHealth(false, msg);
         if (!isInlinePlayerMode() || !inlineStarted || !isOwner()) return;
         showInlineError(msg);
     }
@@ -10614,8 +10748,25 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
     @Override
     protected void onResume() {
         super.onResume();
+        refreshSelectionAfterExternalPlayback();
         if (vod != null && binding.loading.getVisibility() != View.VISIBLE) revealDefaultPlaybackLoadingPage();
         scheduleBackdropSlide(BACKDROP_SLIDE_DELAY_MS);
+    }
+
+    private void refreshSelectionAfterExternalPlayback() {
+        if (vod == null || vod.getFlags() == null || vod.getFlags().isEmpty()) return;
+        try {
+            history = History.findPlayback(getHistoryKey(), List.of(vod.getName(), getNameText()),
+                    vod.getFlags(), null, sourceTitleSeasonNumber());
+            if (history == null) return;
+            selectedFlag = TmdbUIAdapter.selectPlaybackFlag(vod.getFlags(),
+                    history.getSourceBindingKey(), history.getEpisodeUrl(), history.getVodFlag());
+            if (selectedFlag == null) return;
+            selectedEpisode = findEpisodeByUrl(history.getEpisodeUrl(), selectedFlag.getEpisodes());
+            renderFlagSelection();
+            renderEpisodes();
+        } catch (Throwable ignored) {
+        }
     }
 
     @Override
@@ -10874,7 +11025,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
                     .setTitle(R.string.intro_skip_confirm_title)
                     .setMessage(IntroSkipKinds.confirmMessage(segment))
                     .setPositiveButton(android.R.string.ok, (dialog, which) -> action.run())
-                    .setNegativeButton(android.R.string.cancel, null)
+                    .setNegativeButton(android.R.string.cancel, (dialog, which) -> introSkipPlayback.declineConfirmation(segment))
                     .show();
             introSkipConfirmDialog.setOnDismissListener(dialog -> {
                 introSkipPlayback.cancelConfirmation(segment);
@@ -10918,8 +11069,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
     @Override
     public void onTimeChanged(long time) {
         if (!isInlinePlayerMode()) return;
-        updateInlineLoadingTraffic();
-        if (inlinePlaybackLoading || !isOwner() || history == null || service() == null || player() == null || player().isEmpty()) return;
+        if (!isOwner() || history == null || service() == null || player() == null || player().isEmpty()) return;
         long position = player().getPosition();
         long duration = player().getDuration();
         boolean canUpdateProgress = inlineStartPositionApplied || getInlineStartPosition() <= 0;
@@ -11020,7 +11170,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
                 coalesce(castNames(), vod == null ? "" : vod.getActor()),
                 coalesce(firstCrew("Director"), vod == null ? "" : vod.getDirector()),
                 yearLabel());
-        if (isFusionMode() || isPlayerMode()) PlaybackEventCollector.get().updateHistory(history);
+        if (modeController.shouldPublishPlaybackHistory()) PlaybackEventCollector.get().updateHistory(history);
         syncDanmakuCompatHistory();
     }
 
@@ -12704,9 +12854,6 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
                 Objects.toString(getIntent().getStringExtra("tmdb_poster"), ""),
                 Objects.toString(getIntent().getStringExtra("tmdb_backdrop"), ""),
                 Objects.toString(getIntent().getStringExtra("tmdb_credit"), ""));
-    }
-
-    private record TmdbBundle(TmdbItem item, JsonObject detail, List<TmdbPerson> cast, List<TmdbPerson> creators, List<String> photos, List<TmdbItem> related, List<Integer> seasons, Map<Integer, Integer> seasonCounts, Map<Integer, List<TmdbEpisode>> seasonEpisodes, Map<Integer, List<TmdbPerson>> seasonCast, Map<Integer, List<String>> seasonPhotos) {
     }
 
     private record TmdbLoadResult(TmdbBundle bundle, List<TmdbItem> searchItems) {

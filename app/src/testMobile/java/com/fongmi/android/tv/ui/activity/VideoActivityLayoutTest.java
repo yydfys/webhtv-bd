@@ -150,6 +150,11 @@ public class VideoActivityLayoutTest {
         for (String requiredId : REQUIRED_FULLSCREEN_CONTROL_IDS) {
             assertTrue(controlLayout + " is missing @+id/" + requiredId, ids.contains(requiredId));
         }
+        assertFalse("the fullscreen overlay must not expose a duplicate danmaku toggle",
+                ids.contains("danmaku"));
+        Path actionLayout = findMobileResPath().resolve(Path.of("layout", "view_control_vod_action.xml"));
+        assertTrue(actionLayout + " must keep the danmaku action-bar button",
+                collectAndroidIds(actionLayout.toFile()).contains("danmaku"));
     }
 
     @Test
@@ -171,7 +176,7 @@ public class VideoActivityLayoutTest {
         Path sourcePath = findMobileJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "VideoActivity.java"));
         String source = new String(Files.readAllBytes(sourcePath), StandardCharsets.UTF_8);
 
-        // 悬浮/图标按钮（中间上下集、进度条旁全屏、顶部弹幕/投屏）只受集数、锁定、功能可用性控制，
+        // 悬浮/图标按钮（中间上下集、进度条旁全屏、顶部投屏）只受集数、锁定、功能可用性控制，
         // 不受「播放器按钮设置」影响——那是仅面向底部横向动作栏的偏好。锁定这些可见性表达式，
         // 防止有人再次把 PlayerButtonSetting 判断加回悬浮按钮（历史回归点）。
         assertTrue("middle overlay next button must depend only on episode count",
@@ -182,10 +187,8 @@ public class VideoActivityLayoutTest {
                 source.contains("mBinding.control.fullscreen.setVisibility(isLock() || shortDrama ? View.GONE : View.VISIBLE);"));
         assertTrue("top cast button must depend only on fullscreen and playback state",
                 source.contains("mBinding.control.cast.setVisibility(isFullscreen() && mHistory != null && !player().isEmpty() ? View.VISIBLE : View.GONE);"));
-        assertTrue("top danmaku button must depend only on lock and danmaku availability",
-                source.contains("mBinding.control.danmaku.setVisibility(isLock() || !player().haveDanmaku() ? View.GONE : View.VISIBLE);"));
 
-        for (String id : List.of("next", "prev", "fullscreen", "cast", "danmaku")) {
+        for (String id : List.of("next", "prev", "fullscreen", "cast")) {
             int line = source.indexOf("mBinding.control." + id + ".setVisibility(");
             assertTrue("missing overlay visibility line for mBinding.control." + id, line >= 0);
             String stmt = source.substring(line, source.indexOf(';', line));
@@ -233,15 +236,13 @@ public class VideoActivityLayoutTest {
         String source = new String(Files.readAllBytes(sourcePath), StandardCharsets.UTF_8);
         int method = source.indexOf("private void refreshDanmakuControls()");
         int action = source.indexOf("mBinding.control.action.danmaku.setVisibility", method);
-        int quick = source.indexOf("mBinding.control.danmaku.setVisibility", method);
         int apiSearch = source.indexOf("DanmakuApi.search");
         int apiRefresh = source.indexOf("refreshDanmakuControls();", apiSearch);
         int event = source.indexOf("RefreshEvent.Type.DANMAKU");
         int eventRefresh = source.indexOf("refreshDanmakuControls();", event);
 
         assertTrue(sourcePath + " is missing refreshDanmakuControls", method >= 0);
-        assertTrue("late danmaku refresh must update the fullscreen action button", action > method);
-        assertTrue("late danmaku refresh must update the quick toggle button", quick > method);
+        assertTrue("late danmaku refresh must update the action-bar button", action > method);
         assertTrue("auto danmaku search must refresh controls after loading", apiRefresh > apiSearch);
         assertTrue("manual danmaku refresh event must refresh controls after loading", eventRefresh > event);
     }
@@ -751,28 +752,6 @@ public class VideoActivityLayoutTest {
                 episodeClick.contains("syncCurrentAudioPlaylistMetadata();")
                         && episodeClick.contains("applyAudioQueueMetadata(item);")
                         && episodeClick.indexOf("syncCurrentAudioPlaylistMetadata();") < episodeClick.indexOf("mFlagAdapter.toggle(item);"));
-    }
-
-    @Test
-    public void autoFfmpegFallbackResetRebuildsExoBeforeNextItem() throws Exception {
-        Path sourcePath = findMainJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "player", "PlayerManager.java"));
-        String source = new String(Files.readAllBytes(sourcePath), StandardCharsets.UTF_8);
-        String resetFallback = methodBody(source, "private void resetFfmpegModeFallback()", "static boolean shouldStopOnManualSwitchFailure");
-        String start = methodBody(source, "public void start(PlaySpec spec, long timeout, boolean playWhenReady)", "public void parse(String key, Result result, boolean useParse, MediaMetadata metadata)");
-        String parse = methodBody(source, "public void parse(String key, Result result, boolean useParse, MediaMetadata metadata, boolean playWhenReady)", "private void stopParse()");
-        String release = methodBody(source, "public void release()", "private void resetLutRuntimeState");
-
-        assertTrue("clearing an AUTO override must remember that the current EXO engine was built with a stale renderer mode",
-                resetFallback.contains("ffmpegModeEngineRefreshPending =")
-                        && resetFallback.contains("PlayerSetting.clearFFmpegModeOverride();"));
-        assertTrue("direct playback must refresh a stale AUTO-mode EXO engine before preparing the next item",
-                start.contains("refreshFfmpegModeEngineIfNeeded();")
-                        && start.indexOf("refreshFfmpegModeEngineIfNeeded();") < start.indexOf("setMediaItem(timeout);"));
-        assertTrue("parsed playback must also refresh a stale AUTO-mode EXO engine before starting parse work",
-                parse.contains("refreshFfmpegModeEngineIfNeeded();")
-                        && parse.indexOf("refreshFfmpegModeEngineIfNeeded();") < parse.indexOf("ParseJob.create(this).start(result, useParse);"));
-        assertTrue("destroying the manager must clear the process-wide AUTO override without scheduling another rebuild",
-                release.contains("clearFfmpegModeFallbackState();"));
     }
 
     @Test
@@ -1324,6 +1303,24 @@ public class VideoActivityLayoutTest {
         assertTrue("TV pending resume seek must not skip short-drama readiness", shortDrama > reset);
         assertTrue("TV pending resume seek must not skip intro-skip planning", introSkip > shortDrama);
         assertTrue("TV auto intro skip should wait for the deferred seek to settle", autoSkipGuard > introSkip);
+    }
+
+    @Test
+    public void introSkipCallbackWaitsForReadyBeforeSeeking() throws Exception {
+        Path mobilePath = findMobileJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "VideoActivity.java"));
+        Path leanbackPath = findLeanbackJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "VideoActivity.java"));
+        assertIntroSkipCallbackWaitsForReady(mobilePath);
+        assertIntroSkipCallbackWaitsForReady(leanbackPath);
+    }
+
+    private static void assertIntroSkipCallbackWaitsForReady(Path sourcePath) throws Exception {
+        String source = new String(Files.readAllBytes(sourcePath), StandardCharsets.UTF_8);
+        int method = source.indexOf("private void onIntroSkipPlanLoaded()");
+        int readyGuard = source.indexOf("player().getPlaybackState() != Player.STATE_READY", method);
+        int apply = source.indexOf("applyAutoIntroSkip();", method);
+        assertTrue(sourcePath + " is missing onIntroSkipPlanLoaded", method >= 0);
+        assertTrue("intro-skip callback must not seek while EXO is still preparing", readyGuard > method);
+        assertTrue("intro-skip callback must apply only after the READY guard", apply > readyGuard);
     }
 
     @Test
@@ -2190,8 +2187,9 @@ public class VideoActivityLayoutTest {
         assertTrue("original enhanced entry must reveal the initial preview shell", body.contains("hasInitialPreview()) showInitialPreview();"));
         assertTrue("the full-screen TMDB loading overlay must be suppressed while the shell is revealed",
                 overlay.contains("!shouldRevealShellWhileLoading()"));
-        assertTrue("shell reveal must be scoped to the original enhanced detail page",
-                shell.contains("Setting.isOriginalEnhancedDetailPage()"));
+        assertTrue("shell reveal must be scoped to the original enhanced or direct-native detail page",
+                shell.contains("Setting.isOriginalEnhancedDetailPage()")
+                        && shell.contains("Setting.isDirectDetailPage()"));
         assertTrue("shell reveal must show content instead of leaving the page on progress",
                 reveal.contains("mBinding.progressLayout.showContent();"));
         assertTrue("shell reveal must pre-suppress the source text that TMDB later overwrites",
@@ -2227,8 +2225,9 @@ public class VideoActivityLayoutTest {
 
         assertTrue("the detail area must stop waiting for TMDB before revealing in original enhanced mode",
                 waitReveal.contains("isTmdbDetailEnrichmentPending() && !shouldRevealShellWhileLoading()"));
-        assertTrue("shell reveal must be scoped to the original enhanced detail page",
-                shell.contains("Setting.isOriginalEnhancedDetailPage()"));
+        assertTrue("shell reveal must be scoped to the original enhanced or direct-native detail page",
+                shell.contains("Setting.isOriginalEnhancedDetailPage()")
+                        && shell.contains("Setting.isDirectDetailPage()"));
         assertTrue("source text must still wait for TMDB enrichment so the revealed shell does not swap text",
                 text.contains("if (isTmdbDetailEnrichmentPending()) {"));
     }

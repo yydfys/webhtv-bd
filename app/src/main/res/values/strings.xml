@@ -522,7 +522,7 @@
     <string name="site_health_report_summary_reason">%1$d sites · %2$d samples · %3$d failures · %4$d degraded · Top %5$s x%6$d</string>
     <string name="site_health_report_setting_summary">%1$d sites · %2$d samples</string>
     <string name="site_health_report_row_meta">%1$d samples · %2$d failures</string>
-    <string name="site_health_report_ad_blocked">Ads blocked · %1$d</string>
+    <string name="site_health_report_ad_blocked">Playback %1$d / Ad blocks %2$d</string>
     <string name="site_health_report_stage">%1$s · %2$s · %3$d/%4$d</string>
     <string name="site_health_report_rate">%1$d%%</string>
     <string name="site_health_report_no_data">No data</string>
@@ -536,6 +536,11 @@
     <string name="site_health_clear_site">Clear this site</string>
     <string name="site_health_clear_site_title">Clear site health?</string>
     <string name="site_health_clear_site_message">Clear health samples for %1$s?</string>
+    <string name="site_health_clear_all">Clear all samples</string>
+    <string name="site_health_clear_all_title">Clear all site health samples?</string>
+    <string name="site_health_clear_all_message">This will delete all playback-chain health samples. This action cannot be undone.</string>
+    <string name="site_health_stage_home">Home</string>
+    <string name="site_health_stage_category">Category</string>
     <string name="site_health_stage_search">Search</string>
     <string name="site_health_stage_detail">Detail</string>
     <string name="site_health_stage_parse">Parse</string>
@@ -967,6 +972,7 @@
     <string name="sync_item_webhome">WebHome saved data</string>
     <string name="sync_item_search">Search records</string>
     <string name="sync_item_history">Watch history</string>
+    <string name="history_watched_time">Watched %1$s</string>
     <string name="sync_item_keep">Favorites</string>
     <string name="sync_item_settings">App settings</string>
     <string name="sync_item_remote_relay">Relay server config</string>
@@ -1168,6 +1174,18 @@
     <string name="player_mpv_config">MPV config manager</string>
     <string name="player_mpv_render">MPV renderer</string>
     <string name="mpv_render_native_unavailable">Unavailable</string>
+    <string name="player_bluray_menu">Blu-ray disc menu</string>
+    <string name="disc_menu_root">Top menu</string>
+    <string name="disc_menu_popup">Pop-up menu</string>
+    <string name="disc_menu_previous">Back</string>
+    <string name="disc_menu_up">Up</string>
+    <string name="disc_menu_down">Down</string>
+    <string name="disc_menu_left">Left</string>
+    <string name="disc_menu_right">Right</string>
+    <string name="disc_menu_open">Disc menu</string>
+    <string name="disc_menu_open_hint">Open the disc top menu. Long press for navigation controls.</string>
+    <string name="disc_menu_navigation">Menu navigation</string>
+    <string name="disc_menu_touch_hint">Tap the disc buttons directly, or select with these controls.</string>
     <string name="mpv_config_target">%1$s · %2$s</string>
     <string name="mpv_config_default">Default</string>
     <string name="mpv_config_local">Local mpv.conf</string>
@@ -1218,6 +1236,7 @@
     <string name="mpv_config_script_text_edit">Create from text</string>
     <string name="mpv_config_script_text_edit_desc">Open the text editor to enter and save the Lua script</string>
     <string name="mpv_config_script_settings_title">Script settings</string>
+    <string name="mpv_config_script_enabled">Enable script</string>
     <string name="mpv_config_script_settings_desc">Set the name, enabled state, and trigger</string>
     <string name="mpv_config_script_open_editor">Open editor</string>
     <string name="mpv_config_script_import_url">Import script from URL</string>
@@ -1281,7 +1300,6 @@
     <string name="player_audio_decode">Audio software decode</string>
     <string name="player_audio_passthrough">Audio passthrough</string>
     <string name="player_video_decode">Video software decode</string>
-    <string name="player_ffmpeg_mode">FFmpeg mode</string>
     <string name="player_aac_track">Prefer aac track</string>
     <string name="player_music_notification">Music background notification</string>
     <string name="player_audio_book_notification">Audiobook background notification</string>
@@ -1312,7 +1330,11 @@
     <string name="player_osd">On-screen display</string>
     <string name="player_subtitle_auto_match">Auto subtitle match</string>
     <string name="player_subtitle_language">Preferred subtitle language</string>
-    <string name="player_subtitle_assrt_token">ASSRT token</string>
+    <string name="player_subtitle_source_environment">Environment variables (JSON)</string>
+    <string name="player_subtitle_source_environment_invalid">Enter a valid JSON object</string>
+    <string name="player_subtitle_source">Subtitle sources</string>
+    <string name="player_subtitle_source_count">%1$d loaded</string>
+    <string name="player_subtitle_source_empty">No subtitle sources available</string>
     <string name="player_subtitle_ai_max_concurrency">AI subtitle max concurrency</string>
     <string name="player_subtitle_ai_chunk_count">AI subtitle chunks</string>
     <string name="subtitle_auto_match_hit">Subtitle matched: %1$s</string>
@@ -1611,8 +1633,9 @@
     <string name="update_download_source_unavailable">The selected update source is not available for this release.</string>
 
     <!-- Crash -->
-    <string name="crash_info">An unexpected error occurred.\nSorry for the inconvenience.</string>
+    <string name="crash_info">An unexpected error occurred.\nRestarting automatically without reloading the interface.</string>
     <string name="crash_restart">Restart app</string>
+    <string name="crash_silent_restart">Silent restart</string>
     <string name="crash_details">Error details</string>
     <string name="crash_details_title">Error details</string>
     <string name="crash_details_message">App version: %1$s\n\n%2$s</string>
@@ -1773,6 +1796,19 @@
         <item>Auto-match source</item>
         <item>Choose source from search</item>
     </string-array>
+
+    <string-array name="select_interface_failover_mode">
+        <item>Off</item>
+        <item>Auto</item>
+        <item>Confirm</item>
+    </string-array>
+
+    <string name="setting_interface_failover">VOD config failover</string>
+    <string name="interface_failover_title">Interface load failed</string>
+    <string name="interface_failover_message">Current: %1$s</string>
+    <string name="interface_failover_next">Trying next interface: %1$s</string>
+    <string name="interface_failover_switch">Switch</string>
+    <string name="interface_failover_cancelled">Interface switch cancelled</string>
 
     <string-array name="select_auto_skip_intro_outro">
         <item>Off</item>
@@ -2239,12 +2275,30 @@
     <string name="ad_block_total">Total blocked</string>
     <string name="ad_feedback_count">AI reports</string>
     <string name="ad_ai_success_rate">AI success rate</string>
-    <string name="ad_site_rank">Top blocked sites</string>
-    <string name="ad_rule_rank">Top matching rules</string>
+    <string name="ad_site_rank">Sites</string>
+    <string name="ad_rule_rank">Rules</string>
+    <string name="ad_pipeline_rank">Pipelines</string>
+    <string name="site_health_report_ad_summary">Ad blocking: %1$d total · %2$s</string>
     <string name="ad_stats_reset">Reset stats</string>
     <string name="ad_stats_reset_confirm">Reset all statistics?</string>
     <string name="ad_stats_empty">No statistics yet</string>
     <string name="ad_stats_overview">Overview</string>
+    <string name="ad_stats_log">Block log</string>
+    <string name="ad_stats_chart">Charts</string>
+    <string name="ad_log_site_name">Site name</string>
+    <string name="ad_log_site_domain">Site domain</string>
+    <string name="ad_log_rule_domain">Block rule (domain)</string>
+    <string name="ad_log_blocked_at">Blocked at</string>
+    <string name="ad_log_segment_start">Segment start time</string>
+    <string name="ad_log_segment_end">Segment end time</string>
+    <string name="ad_log_segment_duration">Segment duration</string>
+    <string name="ad_log_playback_context">Playback title / line / episode</string>
+    <string name="ad_log_pipeline">Pipeline</string>
+    <string name="ad_log_unknown">Unknown</string>
+    <string name="ad_site_overview">Site overview</string>
+    <string name="ad_site_count">Sites involved</string>
+    <string name="ad_top_site">Most blocked site</string>
+    <string name="ad_top_site_share">Share of blocks</string>
     <string name="ad_stats_times">times</string>
     <string name="ad_stats_percent">%.1f%%</string>
     <string name="ad_stats_site_name">Site</string>
@@ -2702,4 +2756,14 @@
     <string name="setting_ad_probe_revision">Revision %1$d · %2$d rules</string>
     <string name="setting_ad_probe_never">Never fetched</string>
     <string name="setting_ad_probe_url_invalid">The rule source must start with https://</string>
-    <string name="setting_ad_probe_source_disabled">Set a community rule source first</string></resources>
+    <string name="setting_ad_probe_source_disabled">Set a community rule source first</string>
+    <string name="dialog_tmdb_test_config">Test configuration</string>
+    <string name="dialog_tmdb_test_result_title">Configuration test</string>
+    <string name="dialog_tmdb_test_api_success">TMDB API: connected and returned valid data (%1$d ms)</string>
+    <string name="dialog_tmdb_test_api_failed">TMDB API: failed (%1$s, %2$d ms)</string>
+    <string name="dialog_tmdb_test_image_success">Image domain: connected and returned a valid image (%1$d ms)</string>
+    <string name="dialog_tmdb_test_image_failed">Image domain: failed (%1$s, %2$d ms)</string>
+    <string name="dialog_tmdb_test_omdb_success">OMDb API: connected and returned valid data (%1$d ms)</string>
+    <string name="dialog_tmdb_test_omdb_failed">OMDb API: failed (%1$s, %2$d ms)</string>
+    <string name="site_health_report_search_hint">Search by site name</string>
+</resources>

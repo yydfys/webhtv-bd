@@ -182,6 +182,8 @@ public class BackupPreferenceFilterTest {
     public void updateDownloadSettingsFollowAppSettingsSync() {
         SyncOptions settings = new SyncOptions().config(false).spider(false).settings(true);
 
+        assertTrue(Backup.include("interface_failover_mode", settings));
+        assertTrue(Backup.include("interface_order_vod", settings));
         assertTrue(Backup.include("update_source", settings));
         // 旧键仍要备份：恢复到新版后 Setting.migrateLegacyGithubProxy() 靠它们把
         // 用户当年的代理选择迁成 github_proxy 多源列表，剔掉就等于丢弃而非迁移。

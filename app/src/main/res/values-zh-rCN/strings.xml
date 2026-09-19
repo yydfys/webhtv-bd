@@ -533,6 +533,11 @@
     <string name="site_health_clear_site">清空本站</string>
     <string name="site_health_clear_site_title">清空站点统计？</string>
     <string name="site_health_clear_site_message">清空“%1$s”的健康样本？</string>
+    <string name="site_health_clear_all">一键清空样本</string>
+    <string name="site_health_clear_all_title">清空全部站点健康样本？</string>
+    <string name="site_health_clear_all_message">将删除全部播放链路健康样本，且无法撤销。</string>
+    <string name="site_health_stage_home">首页</string>
+    <string name="site_health_stage_category">分类</string>
     <string name="site_health_stage_search">搜索</string>
     <string name="site_health_stage_detail">详情</string>
     <string name="site_health_stage_parse">解析</string>
@@ -964,6 +969,7 @@
     <string name="sync_item_webhome">WebHome 主页数据</string>
     <string name="sync_item_search">搜索记录</string>
     <string name="sync_item_history">观看记录</string>
+    <string name="history_watched_time">已看 %1$s</string>
     <string name="sync_item_keep">收藏数据</string>
     <string name="sync_item_settings">应用设置</string>
     <string name="sync_item_remote_relay">中转服务配置</string>
@@ -1165,6 +1171,18 @@
     <string name="player_mpv_config">MPV 配置管理</string>
     <string name="player_mpv_render">MPV 渲染后端</string>
     <string name="mpv_render_native_unavailable">当前不可用</string>
+    <string name="player_bluray_menu">蓝光原盘菜单</string>
+    <string name="disc_menu_root">主菜单</string>
+    <string name="disc_menu_popup">弹出菜单</string>
+    <string name="disc_menu_previous">菜单返回</string>
+    <string name="disc_menu_up">上</string>
+    <string name="disc_menu_down">下</string>
+    <string name="disc_menu_left">左</string>
+    <string name="disc_menu_right">右</string>
+    <string name="disc_menu_open">原盘菜单</string>
+    <string name="disc_menu_open_hint">打开原盘主菜单；长按打开菜单导航</string>
+    <string name="disc_menu_navigation">菜单导航</string>
+    <string name="disc_menu_touch_hint">可直接点击画面中的菜单按钮，也可使用方向键选择</string>
     <string name="mpv_config_target">%1$s · %2$s</string>
     <string name="mpv_config_default">默认</string>
     <string name="mpv_config_local">本地 mpv.conf</string>
@@ -1266,6 +1284,7 @@
     <string name="mpv_config_script_text_edit">通过文本创建</string>
     <string name="mpv_config_script_text_edit_desc">打开文本编辑器，输入并保存 Lua 脚本</string>
     <string name="mpv_config_script_settings_title">脚本设置</string>
+    <string name="mpv_config_script_enabled">启用脚本</string>
     <string name="mpv_config_script_settings_desc">设置名称、启用状态和执行时机</string>
     <string name="mpv_config_script_open_editor">打开编辑窗口</string>
     <string name="mpv_config_script_import_url">通过 URL 导入脚本</string>
@@ -1278,7 +1297,6 @@
     <string name="player_audio_decode">音频软解</string>
     <string name="player_audio_passthrough">音频直通</string>
     <string name="player_video_decode">视频软解</string>
-    <string name="player_ffmpeg_mode">FFmpeg模式</string>
     <string name="player_aac_track">AAC优先</string>
     <string name="player_music_notification">音乐后台通知</string>
     <string name="player_audio_book_notification">有声书后台通知</string>
@@ -1309,7 +1327,11 @@
     <string name="player_osd">屏显设置</string>
     <string name="player_subtitle_auto_match">自动匹配字幕</string>
     <string name="player_subtitle_language">字幕偏好语言</string>
-    <string name="player_subtitle_assrt_token">射手网 Token</string>
+    <string name="player_subtitle_source_environment">环境变量（JSON）</string>
+    <string name="player_subtitle_source_environment_invalid">请输入有效的 JSON 对象</string>
+    <string name="player_subtitle_source">字幕源</string>
+    <string name="player_subtitle_source_count">已加载 %1$d 个</string>
+    <string name="player_subtitle_source_empty">暂无可用字幕源</string>
     <string name="player_subtitle_ai_max_concurrency">AI字幕最大并发数</string>
     <string name="player_subtitle_ai_chunk_count">AI字幕分块数量</string>
     <string name="subtitle_auto_match_hit">已自动匹配字幕：%1$s</string>
@@ -1580,8 +1602,9 @@
     <string name="update_download_source_unavailable">此版本没有可用的更新来源。</string>
 
     <!-- Crash -->
-    <string name="crash_info">发生意外错误\n抱歉给您带来不便</string>
+    <string name="crash_info">发生意外错误\n即将自动重启，本次不重新加载接口</string>
     <string name="crash_restart">重新启动</string>
+    <string name="crash_silent_restart">静默重启</string>
     <string name="crash_details">错误信息</string>
     <string name="crash_details_title">错误信息</string>
     <string name="crash_details_message">应用版本：%1$s\n\n%2$s</string>
@@ -1737,6 +1760,19 @@
         <item>自动匹配播放源</item>
         <item>搜索后选择播放源</item>
     </string-array>
+
+    <string-array name="select_interface_failover_mode">
+        <item>关闭</item>
+        <item>自动容灾</item>
+        <item>手动确认</item>
+    </string-array>
+
+    <string name="setting_interface_failover">点播接口容灾</string>
+    <string name="interface_failover_title">接口加载失败</string>
+    <string name="interface_failover_message">当前接口：%1$s</string>
+    <string name="interface_failover_next">正在尝试下一个接口：%1$s</string>
+    <string name="interface_failover_switch">切换接口</string>
+    <string name="interface_failover_cancelled">已取消接口切换</string>
 
     <string-array name="select_auto_skip_intro_outro">
         <item>关闭</item>
@@ -2488,7 +2524,7 @@
 
     <!-- Auto-generated missing translations -->
     <string name="live_no_epg">00:00 - 23:59 暂无节目信息</string>
-    <string name="site_health_report_ad_blocked">广告拦截 · %1$d 次</string>
+    <string name="site_health_report_ad_blocked">播放 %1$d 次 / 广告拦截 %2$d 次</string>
     <string name="search_column">搜索布局</string>
     <string name="dialog_audio_enabled_label">启用规则</string>
     <string name="dialog_audio_add_hint">添加关键词或站点…</string>
@@ -2572,12 +2608,29 @@
     <string name="ad_block_total">总拦截次数</string>
     <string name="ad_feedback_count">AI 反馈次数</string>
     <string name="ad_ai_success_rate">AI 分析成功率</string>
-    <string name="ad_site_rank">站点拦截排行</string>
-    <string name="ad_rule_rank">规则命中排行</string>
+    <string name="ad_site_rank">站点</string>
+    <string name="ad_rule_rank">规则</string>
+    <string name="ad_pipeline_rank">播放链路</string>
     <string name="ad_stats_reset">重置统计</string>
     <string name="ad_stats_reset_confirm">确定重置所有统计数据吗？</string>
     <string name="ad_stats_empty">暂无统计数据</string>
-    <string name="ad_stats_overview">统计概览</string>
+    <string name="ad_stats_overview">概览</string>
+    <string name="ad_stats_log">拦截日志</string>
+    <string name="ad_stats_chart">统计图表</string>
+    <string name="ad_log_site_name">站点名称</string>
+    <string name="ad_log_site_domain">站点域名</string>
+    <string name="ad_log_rule_domain">拦截规则（域名）</string>
+    <string name="ad_log_blocked_at">拦截时间</string>
+    <string name="ad_log_segment_start">切片开始时间</string>
+    <string name="ad_log_segment_end">切片结束时间</string>
+    <string name="ad_log_segment_duration">切片时长</string>
+    <string name="ad_log_playback_context">剧名 / 线路名称 / 集数名称</string>
+    <string name="ad_log_pipeline">播放链路</string>
+    <string name="ad_log_unknown">未知</string>
+    <string name="ad_site_overview">站点统计概览</string>
+    <string name="ad_site_count">涉及站点数</string>
+    <string name="ad_top_site">拦截最多站点</string>
+    <string name="ad_top_site_share">拦截占比</string>
     <string name="ad_stats_times">次</string>
     <string name="ad_stats_percent">%.1f%%</string>
     <string name="ad_stats_site_name">站点</string>
@@ -2698,4 +2751,14 @@
     <string name="setting_ad_probe_revision">revision %1$d · %2$d 条规则</string>
     <string name="setting_ad_probe_never">尚未拉取</string>
     <string name="setting_ad_probe_url_invalid">规则源必须以 https:// 开头</string>
-    <string name="setting_ad_probe_source_disabled">请先填写社区规则源地址</string></resources>
+    <string name="setting_ad_probe_source_disabled">请先填写社区规则源地址</string>
+    <string name="dialog_tmdb_test_config">测试配置</string>
+    <string name="dialog_tmdb_test_result_title">配置测试结果</string>
+    <string name="dialog_tmdb_test_api_success">TMDB API：连接成功并返回有效数据（%1$d 毫秒）</string>
+    <string name="dialog_tmdb_test_api_failed">TMDB API：测试失败（%1$s，%2$d 毫秒）</string>
+    <string name="dialog_tmdb_test_image_success">图片域名：连接成功并返回有效图片（%1$d 毫秒）</string>
+    <string name="dialog_tmdb_test_image_failed">图片域名：测试失败（%1$s，%2$d 毫秒）</string>
+    <string name="dialog_tmdb_test_omdb_success">OMDb API：连接成功并返回有效数据（%1$d 毫秒）</string>
+    <string name="dialog_tmdb_test_omdb_failed">OMDb API：测试失败（%1$s，%2$d 毫秒）</string>
+    <string name="site_health_report_search_hint">按站点名称搜索</string>
+</resources>
