@@ -56,9 +56,11 @@ public class TmdbDetailActivityLayoutTest {
         String adapter = readJava("com", "fongmi", "android", "tv", "ui", "adapter", "TmdbEpisodeAdapter.java");
         String cardSize = javaBlockAt(adapter, "private void applyCardSize(");
 
-        assertTrue("the episode grid must align its logical start edge with the other detail rails while keeping a full gap after every card",
-                cardSize.contains("int marginStart = 0;")
-                        && cardSize.contains("int marginEnd = mode == Mode.GRID ? gridSpacing : dp(holder.itemView, 12);"));
+        assertTrue("the episode grid must distribute column margins like the playback grid so both outer edges align and cards keep equal widths",
+                cardSize.contains("int gridColumn = position >= 0 ? position % gridSpanCount : 0;")
+                        && cardSize.contains("int marginStart = mode == Mode.GRID ? gridSpacing * gridColumn / gridSpanCount : 0;")
+                        && cardSize.contains("int marginEnd = mode == Mode.GRID")
+                        && cardSize.contains("? gridSpacing - gridSpacing * (gridColumn + 1) / gridSpanCount"));
     }
 
     @Test
@@ -2238,6 +2240,7 @@ public class TmdbDetailActivityLayoutTest {
                 "adapter_tmdb_person_photo.xml",
                 "adapter_tmdb_rail_item.xml",
                 "adapter_tmdb_rail_landscape.xml",
+                "adapter_tmdb_recommendation.xml",
                 "adapter_tmdb_recommendation_landscape.xml",
                 "adapter_tmdb_work.xml",
                 "item_tmdb_person_photo.xml",
@@ -3498,6 +3501,7 @@ public class TmdbDetailActivityLayoutTest {
         assertTrue("unmapped cards and API failures must still open a source detail dialog",
                 detail.contains("if (boundTmdbEpisode == null)")
                         && detail.contains("EpisodeDetailDialog.show(this, episode, getSite(), null, null, dismissListener);")
+                        && detail.contains("EpisodeDetailDialog.show(this, episode, boundTmdbEpisode, getSite(), null, null, dismissListener);")
                         && detail.contains("if (!isTmdbEpisodeDetailSeasonCurrent(displaySeasonNumber)) return;"));
     }
 
