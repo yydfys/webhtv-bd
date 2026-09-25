@@ -30,6 +30,7 @@ import com.fongmi.android.tv.lab.SystemVpnService;
 import com.fongmi.android.tv.server.Server;
 import com.fongmi.android.tv.utils.Notify;
 import com.fongmi.android.tv.utils.QRCode;
+import com.fongmi.android.tv.utils.Util;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import com.google.android.material.materialswitch.MaterialSwitch;
 
@@ -221,6 +222,8 @@ public class VpnSettingsDialog extends BaseAlertDialog {
     public void onStart() {
         super.onStart();
         EventBus.getDefault().register(this);
+        // 遥控器（TV）下主动请求焦点，避免弹窗无焦点
+        if (Util.isLeanback()) binding.getRoot().post(() -> binding.mihomoSwitch.requestFocus());
     }
 
     @Override

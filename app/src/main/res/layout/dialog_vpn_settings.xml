@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:focusable="false"
     android:layout_width="match_parent"
     android:layout_height="wrap_content">
 
@@ -59,7 +60,8 @@
             <com.google.android.material.materialswitch.MaterialSwitch
                 android:id="@+id/mihomoSwitch"
                 android:layout_width="wrap_content"
-                android:layout_height="wrap_content" />
+                android:layout_height="wrap_content"
+                android:nextFocusDown="@id/subUrl" />
         </LinearLayout>
 
         <!-- 订阅地址输入 + 扫码 -->
@@ -83,6 +85,12 @@
                 <com.google.android.material.textfield.TextInputEditText
                     android:id="@+id/subUrl"
                     android:layout_width="match_parent"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:focusableInTouchMode="true"
+                    android:nextFocusDown="@id/vpnSwitch"
+                    android:nextFocusRight="@id/qrBtn"
+                    android:nextFocusUp="@id/mihomoSwitch"
                     android:layout_height="wrap_content"
                     android:inputType="textUri"
                     android:maxLines="2"
@@ -97,8 +105,13 @@
                 android:layout_height="40dp"
                 android:layout_gravity="center_vertical"
                 android:layout_marginStart="8dp"
-                android:background="?android:attr/selectableItemBackgroundBorderless"
+                android:background="@drawable/sel_focus_round"
+                android:clickable="true"
                 android:contentDescription="扫码推送订阅"
+                android:focusable="true"
+                android:nextFocusDown="@id/vpnSwitch"
+                android:nextFocusLeft="@id/subUrl"
+                android:nextFocusUp="@id/mihomoSwitch"
                 android:padding="6dp"
                 android:src="@drawable/ic_remote_qr"
                 android:tint="#1976d2" />
@@ -140,7 +153,9 @@
             <com.google.android.material.materialswitch.MaterialSwitch
                 android:id="@+id/vpnSwitch"
                 android:layout_width="wrap_content"
-                android:layout_height="wrap_content" />
+                android:layout_height="wrap_content"
+                android:nextFocusDown="@id/nodeRow"
+                android:nextFocusUp="@id/subUrl" />
         </LinearLayout>
 
         <!-- 节点管理入口（浏览订阅节点 / 手动切换） -->
@@ -153,6 +168,8 @@
             android:clickable="true"
             android:focusable="true"
             android:gravity="center_vertical"
+            android:nextFocusDown="@id/positive"
+            android:nextFocusUp="@id/vpnSwitch"
             android:orientation="horizontal"
             android:paddingTop="4dp"
             android:paddingBottom="4dp">
@@ -205,6 +222,8 @@
                 android:layout_marginEnd="12dp"
                 android:layout_weight="1"
                 android:minHeight="40dp"
+                android:nextFocusRight="@id/positive"
+                android:nextFocusUp="@id/nodeRow"
                 android:text="@string/dialog_negative"
                 android:textSize="14sp" />
 
@@ -215,6 +234,8 @@
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
                 android:minHeight="40dp"
+                android:nextFocusLeft="@id/negative"
+                android:nextFocusUp="@id/nodeRow"
                 android:text="@string/dialog_positive"
                 android:textSize="14sp" />
         </LinearLayout>

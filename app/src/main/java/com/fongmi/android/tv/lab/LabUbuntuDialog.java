@@ -130,6 +130,8 @@ public final class LabUbuntuDialog {
         terminalButton.setOnClickListener(v -> LabTerminalActivity.start(themed, "Ubuntu", null, LabUbuntu.shellCommand(themed)));
 
         dialog.show();
+        // 遥控器（TV）下主动请求焦点，避免弹窗无焦点
+        if (com.fongmi.android.tv.utils.Util.isLeanback()) dialog.getWindow().getDecorView().post(installButton::requestFocus);
     }
 
     private static void startInstall(Context context, boolean[] busy, AlertDialog dialog, View progressBox,

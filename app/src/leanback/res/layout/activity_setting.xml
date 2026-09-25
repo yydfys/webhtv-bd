@@ -450,7 +450,7 @@
                 android:nextFocusLeft="@id/subtitle"
                 android:nextFocusRight="@id/personal"
                 android:nextFocusUp="@id/ai"
-                android:nextFocusDown="@id/doh"
+                android:nextFocusDown="@id/vpn"
                 android:orientation="horizontal">
 
                 <com.google.android.material.textview.MaterialTextView
@@ -473,7 +473,7 @@
                 android:nextFocusLeft="@id/appearance"
                 android:nextFocusRight="@id/personal"
                 android:nextFocusUp="@id/ai"
-                android:nextFocusDown="@id/doh"
+                android:nextFocusDown="@id/vpn"
                 android:orientation="horizontal">
 
                 <com.google.android.material.textview.MaterialTextView
@@ -502,7 +502,7 @@
                 android:focusable="true"
                 android:focusableInTouchMode="true"
                 android:nextFocusLeft="@id/incognito"
-                android:nextFocusRight="@id/doh"
+                android:nextFocusRight="@id/vpn"
                 android:nextFocusUp="@id/subtitle"
                 android:nextFocusDown="@id/backup"
                 android:orientation="horizontal">
@@ -536,7 +536,10 @@
                 android:background="@drawable/selector_item"
                 android:focusable="true"
                 android:focusableInTouchMode="true"
-                android:nextFocusDown="@id/doh"
+                android:nextFocusLeft="@id/incognito"
+                android:nextFocusRight="@id/doh"
+                android:nextFocusUp="@id/appearance"
+                android:nextFocusDown="@id/restore"
                 android:orientation="horizontal">
 
                 <com.google.android.material.textview.MaterialTextView
@@ -570,7 +573,7 @@
                 android:background="@drawable/selector_item"
                 android:focusable="true"
                 android:focusableInTouchMode="true"
-                android:nextFocusLeft="@id/incognito"
+                android:nextFocusLeft="@id/vpn"
                 android:nextFocusRight="@id/doh"
                 android:nextFocusUp="@id/appearance"
                 android:nextFocusDown="@id/restore"

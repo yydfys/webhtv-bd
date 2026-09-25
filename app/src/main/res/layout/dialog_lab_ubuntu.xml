@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <ScrollView xmlns:android="http://schemas.android.com/apk/res/android" xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:focusable="false"
     android:layout_width="match_parent"
     android:layout_height="wrap_content">
     <androidx.appcompat.widget.LinearLayoutCompat
@@ -81,6 +82,10 @@
             android:textColor="#1976d2"
             android:id="@+id/advancedToggle"
             android:background="?android:attr/selectableItemBackground"
+            android:clickable="true"
+            android:focusable="true"
+            android:nextFocusDown="@id/releaseDropdown"
+            android:nextFocusUp="@id/terminalButton"
             android:paddingTop="10dp"
             android:paddingBottom="10dp"
             android:layout_width="match_parent"
@@ -105,6 +110,11 @@
                     android:textSize="14sp"
                     android:textColor="@color/lab_text_primary"
                     android:id="@+id/releaseDropdown"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:focusableInTouchMode="true"
+                    android:nextFocusDown="@id/rootfsSourceDropdown"
+                    android:nextFocusUp="@id/advancedToggle"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:inputType="none"/>
@@ -122,6 +132,11 @@
                     android:textSize="14sp"
                     android:textColor="@color/lab_text_primary"
                     android:id="@+id/rootfsSourceDropdown"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:focusableInTouchMode="true"
+                    android:nextFocusDown="@id/rootfsUrlInput"
+                    android:nextFocusUp="@id/releaseDropdown"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:inputType="none"/>
@@ -142,6 +157,11 @@
                     android:textSize="13sp"
                     android:textColor="@color/lab_text_primary"
                     android:id="@+id/rootfsUrlInput"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:focusableInTouchMode="true"
+                    android:nextFocusDown="@id/aptSourceDropdown"
+                    android:nextFocusUp="@id/rootfsSourceDropdown"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:minHeight="48dp"
@@ -163,6 +183,11 @@
                     android:id="@+id/aptSourceDropdown"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:focusableInTouchMode="true"
+                    android:nextFocusDown="@id/aptUrlInput"
+                    android:nextFocusUp="@id/rootfsUrlInput"
                     android:inputType="none"/>
             </com.google.android.material.textfield.TextInputLayout>
             <com.google.android.material.textfield.TextInputLayout
@@ -185,6 +210,10 @@
                     android:layout_height="wrap_content"
                     android:minHeight="48dp"
                     android:maxLines="2"
+                    android:focusable="true"
+                    android:focusableInTouchMode="true"
+                    android:nextFocusDown="@id/sharedStorageSwitch"
+                    android:nextFocusUp="@id/aptSourceDropdown"
                     android:inputType="textUri"/>
             </com.google.android.material.textfield.TextInputLayout>
             <androidx.appcompat.widget.LinearLayoutCompat
@@ -216,7 +245,8 @@
                 <com.google.android.material.materialswitch.MaterialSwitch
                     android:id="@+id/sharedStorageSwitch"
                     android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"/>
+                    android:layout_height="wrap_content"
+                    android:nextFocusUp="@id/aptUrlInput"/>
             </androidx.appcompat.widget.LinearLayoutCompat>
         </androidx.appcompat.widget.LinearLayoutCompat>
         <com.google.android.material.textview.MaterialTextView
