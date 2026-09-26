@@ -204,3 +204,37 @@ jobs:
             --title "WebHTV ${VERSION_NAME}" \
             --notes "$NOTES"
           echo "release created: $TAG"
+
+      - name: Publish update channel manifests
+        # 与 android-release.yml 的「Publish update channel manifests」同源逻辑，适配 debug-build：
+        # 出包（do_release=true）后把 dist/*.json 刷到 update-channel Release —— App 检查更新的第一入口
+        # （Github.getChannelAsset()，4s 超时失败才退到 releases/latest）。不刷则通道变旧，App 会误判“已是最新”。
+        if: steps.relflag.outputs.do_release == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          UPDATE_CHANNEL_TAG: update-channel
+        run: |
+          set -euo pipefail
+          rm -rf channel-manifests existing-manifests
+          mkdir -p channel-manifests existing-manifests
+          cp dist/*.json channel-manifests/
+
+          # 通道里已有的 beta 清单保留（本仓库当前无 beta 发版；将来有则自动并入）
+          if gh release view "$UPDATE_CHANNEL_TAG" >/dev/null 2>&1; then
+            gh release download "$UPDATE_CHANNEL_TAG" --pattern "*-beta.json" --dir existing-manifests || true
+          fi
+          for manifest in existing-manifests/*.json; do
+            [ -e "$manifest" ] || continue
+            cp "$manifest" channel-manifests/
+          done
+
+          if ! gh release view "$UPDATE_CHANNEL_TAG" >/dev/null 2>&1; then
+            gh release create "$UPDATE_CHANNEL_TAG" \
+              --target "$GITHUB_SHA" \
+              --title "Update channel manifests" \
+              --notes "Machine-managed stable and beta update manifests." \
+              --prerelease
+          fi
+          gh release upload "$UPDATE_CHANNEL_TAG" channel-manifests/*.json --clobber
+          echo "update channel manifests refreshed:"
+          ls -l channel-manifests/
