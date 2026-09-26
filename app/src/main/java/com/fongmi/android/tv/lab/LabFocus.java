@@ -125,9 +125,13 @@ public final class LabFocus {
                 if (tint != null) v.setBackgroundTintList(hasFocus ? ColorStateList.valueOf(FOCUS_COLOR) : tint);
             } catch (Throwable ignored) {
             }
-            if (text != null && v instanceof TextView) ((TextView) v).setTextColor(hasFocus ? Color.WHITE : text);
+            if (text != null && v instanceof TextView) {
+                TextView tv = (TextView) v;
+                if (hasFocus) tv.setTextColor(Color.WHITE);
+                else tv.setTextColor(text);
+            }
         });
-        if (view instanceof Button) view.setAllCaps(false);
+        if (view instanceof Button) ((Button) view).setAllCaps(false);
     }
 
     /** 把弹窗内容区最下方可聚焦控件与按钮条串起来，保证遥控器「下」能到按钮 */
