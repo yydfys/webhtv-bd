@@ -142,6 +142,13 @@ public final class LabCommandSheet implements LabRunner.OutputListener {
             if (callback != null) callback.onChanged();
         });
         dialog.show();
+        try {
+            dialog.getBehavior().setSkipCollapsed(true);
+            dialog.getBehavior().setDraggable(true);
+            dialog.getBehavior().setState(com.google.android.material.bottomsheet.BottomSheetBehavior.STATE_EXPANDED);
+        } catch (Throwable ignored) {
+        }
+        LabFocus.capHeight(dialog.findViewById(R.id.sheetRoot), 96);
         // TV（遥控器）：面板里四个按钮 + 下载地址输入框都要能选中并高亮，进面板默认焦点落在「执行」上
         LabFocus.enable(sheetBtnEdit, sheetBtnStop, sheetBtnRun, sheetBtnOutput, sheetDownloadUrl);
         if (LabFocus.tv()) sheetBtnRun.post(() -> LabFocus.firstShown(sheetBtnRun, sheetBtnStop, sheetBtnOutput, sheetBtnEdit));

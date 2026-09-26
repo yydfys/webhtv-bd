@@ -4,7 +4,9 @@ import android.content.Context;
 import android.content.Intent;
 import android.graphics.Color;
 import android.os.Bundle;
+import android.view.KeyEvent;
 import android.view.Menu;
+import androidx.recyclerview.widget.RecyclerView;
 import android.view.MenuItem;
 import android.view.View;
 import android.widget.EditText;
@@ -133,9 +135,10 @@ public class LabDetailActivity extends AppCompatActivity implements LabCommandAd
         mBinding.commandRecycler.setVisibility(hasCommands ? View.VISIBLE : View.GONE);
         invalidateOptionsMenu();
         updateButtons();
-        // TV：进页面默认焦点落在第一条命令条目上（等列表真正布局完成再抢，避免焦点落到顶部返回箭头）
-        if (hasCommands) LabFocus.focusFirstChildOnLayout(mBinding.commandRecycler, 0);
-        else if (LabFocus.tv()) mBinding.btnTerminal.post(mBinding.btnTerminal::requestFocus);
+        // TV：默认焦点落在主操作按钮（安装/更新/卸载）上，取不到再回退到终端按钮
+        if (LabFocus.tv()) {
+            mBinding.btnDownload.post(() -> LabFocus.firstShown(mBinding.btnDownload, mBinding.btnUninstall, mBinding.btnTerminal));
+        }
         // 「终端」类条目（terminal_auto_open）：进详情页即附着容器终端，不在中间页停留
         if (item.terminal_auto_open && item.isUbuntu() && LabUbuntu.installed(this)) {
             String shell = LabUbuntu.shellCommand(this);
@@ -427,7 +430,37 @@ public class LabDetailActivity extends AppCompatActivity implements LabCommandAd
                 .show();
     }
 
+    /** TV：命令条之间只用 上/下 切换，左右切到运行/停止按钮；第一条命令按「上」进入工具栏图标 */
     @Override
+    public boolean dispatchKeyEvent(KeyEvent event) {
+        if (LabFocus.tv() && event.getAction() == KeyEvent.ACTION_DOWN) {
+            View focused = getCurrentFocus();
+            if (focused != null && focused.getParent() == mBinding.commandRecycler) {
+                int position = mBinding.commandRecycler.getChildAdapterPosition(focused);
+                if (event.getKeyCode() == KeyEvent.KEYCODE_DPAD_UP) {
+                    if (position <= 0) return mBinding.btnTerminal.requestFocus();
+                    return focusCommandRow(position - 1);
+                }
+                if (event.getKeyCode() == KeyEvent.KEYCODE_DPAD_DOWN) {
+                    return focusCommandRow(position + 1);
+                }
+            }
+        }
+        return super.dispatchKeyEvent(event);
+    }
+
+    private boolean focusCommandRow(int position) {
+        RecyclerView list = mBinding.commandRecycler;
+        RecyclerView.Adapter<?> adapter = list.getAdapter();
+        if (adapter == null || position < 0 || position >= adapter.getItemCount()) return false;
+        list.scrollToPosition(position);
+        list.post(() -> {
+            RecyclerView.ViewHolder holder = list.findViewHolderForAdapterPosition(position);
+            if (holder != null) holder.itemView.requestFocus();
+        });
+        return true;
+    }
+
     public void onOpen(LabModels.Item item, LabModels.Command command) {
         LabCustomCommands.CustomCommand custom = customCommand(command);
         if (custom != null) {

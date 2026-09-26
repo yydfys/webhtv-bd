@@ -132,6 +132,8 @@
                             android:layout_weight="1"/>
                         <ImageView
                             android:id="@+id/btnTerminal"
+                            android:focusable="true"
+                            android:focusableInTouchMode="true"
                             android:background="?attr/selectableItemBackgroundBorderless"
                             android:padding="4dp"
                             android:layout_width="28dp"
@@ -140,6 +142,8 @@
                             app:tint="@color/white_50"/>
                         <ImageView
                             android:id="@+id/btnAddCommand"
+                            android:focusable="true"
+                            android:focusableInTouchMode="true"
                             android:background="?attr/selectableItemBackgroundBorderless"
                             android:padding="4dp"
                             android:layout_width="28dp"
@@ -148,6 +152,8 @@
                             app:tint="@color/white_50"/>
                         <ImageView
                             android:id="@+id/btnRefreshCommand"
+                            android:focusable="true"
+                            android:focusableInTouchMode="true"
                             android:background="?attr/selectableItemBackgroundBorderless"
                             android:padding="4dp"
                             android:layout_width="28dp"

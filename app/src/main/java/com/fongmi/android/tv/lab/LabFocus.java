@@ -1,5 +1,7 @@
 package com.fongmi.android.tv.lab;
 
+import android.content.Context;
+
 import android.content.res.ColorStateList;
 import android.graphics.Color;
 import android.view.View;
@@ -70,6 +72,10 @@ public final class LabFocus {
 
     /** 命令卡片 / 列表开关：换成带蓝色焦点环的背景（手机端保留原背景） */
     public static void commandCard(View... views) {
+        // 所有环境下命令条都要能被遥控器/键盘选中；手机端触摸点击不受影响
+        for (View view : views) {
+            if (view != null) view.setFocusable(true);
+        }
         if (!tv()) return;
         for (View view : views) {
             if (view == null) continue;
@@ -223,5 +229,36 @@ public final class LabFocus {
             if (child instanceof ViewGroup) collectFocusable((ViewGroup) child, out);
             else if (child.isFocusable() && child.isShown()) out.add(child);
         }
+    }
+
+    public static int dp(Context context, int value) {
+        return Math.round(value * context.getResources().getDisplayMetrics().density);
+    }
+
+    /** 弹窗内容比屏幕还高时按屏幕高度收口，保证底部按钮不被挤出屏幕（手机 / TV 通用） */
+    public static void capHeight(final View root, final int reserveDp) {
+        if (root == null) return;
+        // 弹窗刚 show 出来时还没完成布局，getHeight() 会是 0 —— 所以必须等第一次真实布局后再收口，
+        // 否则收口会被静默跳过，底部按钮依旧被挤出屏幕。
+        root.getViewTreeObserver().addOnGlobalLayoutListener(new ViewTreeObserver.OnGlobalLayoutListener() {
+            @Override
+            public void onGlobalLayout() {
+                try {
+                    int natural = root.getHeight();
+                    if (natural <= 0) return; // 还没量出高度，等下一轮布局
+                    ViewTreeObserver observer = root.getViewTreeObserver();
+                    if (observer.isAlive()) observer.removeOnGlobalLayoutListener(this);
+                    Context context = root.getContext();
+                    int screen = context.getResources().getDisplayMetrics().heightPixels;
+                    int maxHeight = screen - dp(context, reserveDp);
+                    if (natural <= maxHeight) return;
+                    ViewGroup.LayoutParams params = root.getLayoutParams();
+                    if (params == null) return;
+                    params.height = maxHeight;
+                    root.setLayoutParams(params);
+                } catch (Throwable ignored) {
+                }
+            }
+        });
     }
 }

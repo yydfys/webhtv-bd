@@ -86,6 +86,7 @@ public final class LabCommandEditDialog {
             dialog.dismiss();
         }));
         dialog.show();
+        LabFocus.capHeight(dialog.findViewById(R.id.dialogRoot), 190);
     }
 
     private static void saveCommand(Activity activity, LabModels.Item item, LabModels.Command command, String name, String description, String commandText, boolean autoExecute, Map<String, String> vars) {
