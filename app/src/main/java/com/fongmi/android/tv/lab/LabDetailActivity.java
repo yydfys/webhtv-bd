@@ -129,6 +129,10 @@ public class LabDetailActivity extends AppCompatActivity implements LabCommandAd
         if (item.icon != null && !item.icon.isEmpty()) {
             Glide.with(mBinding.icon).load(item.icon).placeholder(R.drawable.ic_logo).error(R.drawable.ic_logo).into(mBinding.icon);
         }
+        // 重建列表（setItem → notifyDataSetChanged）会把遥控器焦点打飞，所以在重建前先记下
+        // 「焦点在第几行、在卡片列还是按钮列」，重建后原地放回；只有首次进入（本来就没焦点）才走默认落焦。
+        final int keptPosition = focusedCommandPosition();
+        final boolean keptAction = actionFocused();
         commandAdapter.setItem(item);
         boolean hasCommands = commandAdapter.getItemCount() > 0;
         mBinding.emptyCommand.setVisibility(hasCommands ? View.GONE : View.VISIBLE);
@@ -137,7 +141,11 @@ public class LabDetailActivity extends AppCompatActivity implements LabCommandAd
         updateButtons();
         // TV：默认焦点落在主操作按钮（安装/更新/卸载）上，取不到再回退到终端按钮
         if (LabFocus.tv()) {
-            mBinding.btnDownload.post(() -> LabFocus.firstShown(mBinding.btnDownload, mBinding.btnUninstall, mBinding.btnTerminal));
+            if (keptPosition >= 0 && keptPosition < commandAdapter.getItemCount()) {
+                mBinding.commandRecycler.post(() -> restoreCommandFocus(keptPosition, keptAction));
+            } else {
+                mBinding.btnDownload.post(() -> LabFocus.firstShown(mBinding.btnDownload, mBinding.btnUninstall, mBinding.btnTerminal));
+            }
         }
         // 「终端」类条目（terminal_auto_open）：进详情页即附着容器终端，不在中间页停留
         if (item.terminal_auto_open && item.isUbuntu() && LabUbuntu.installed(this)) {
@@ -153,7 +161,11 @@ public class LabDetailActivity extends AppCompatActivity implements LabCommandAd
         return LabEnv.displayVersion(item);
     }
 
+    /** 上一次刷新按钮/状态条时的状态指纹（见 updateButtons 内的说明）。 */
+    private String lastButtonState;
+
     private void updateButtons() {
+        if (item == null) return;
         // 安装状态一律以 LabEnv.installed() 为准（ubuntu 看标记 + rootfs 内二进制），
         // 不再叠加 installDone：那条走 proot 检测，proot 有个风吹草动就会误判成"已装好"。
         boolean installed = LabEnv.installed(this, item);
@@ -162,26 +174,38 @@ public class LabDetailActivity extends AppCompatActivity implements LabCommandAd
         // 只有"需要安装"的条目才谈安装状态；纯命令条目（终端/二进制/直跑）不显示未安装
         boolean needsInstall = LabEnv.needsInstall(item);
         boolean plainUbuntu = !needsInstall;
-        mBinding.btnDownload.setText(item.isUbuntu() && needsInstall ? "安装环境" : (update ? "更新" : "下载安装"));
-        mBinding.btnDownload.setVisibility(plainUbuntu || (installed && !update) ? View.GONE : View.VISIBLE);
-        mBinding.btnUninstall.setVisibility(installed && needsInstall ? View.VISIBLE : View.GONE);
-        if (running) {
-            mBinding.status.setText(R.string.lab_running);
-            mBinding.status.setBackgroundResource(R.drawable.shape_lab_running_tag);
-            mBinding.status.setVisibility(View.VISIBLE);
-        } else if (!needsInstall) {
-            // 无需安装的条目：状态位对用户没有意义，直接收起
-            mBinding.status.setVisibility(View.GONE);
-        } else if (installed) {
-            mBinding.status.setText(R.string.lab_installed);
-            mBinding.status.setBackgroundResource(R.drawable.shape_lab_installed);
-            mBinding.status.setVisibility(View.VISIBLE);
-        } else {
-            mBinding.status.setText(R.string.lab_not_installed);
-            mBinding.status.setBackgroundResource(R.drawable.shape_lab_not_installed);
-            mBinding.status.setVisibility(View.VISIBLE);
+        boolean showDownload = !(plainUbuntu || (installed && !update));
+        boolean showUninstall = installed && needsInstall;
+        // 状态位：0=运行中 1=已安装 2=未安装 3=不显示
+        int statusMode = running ? 0 : (!needsInstall ? 3 : (installed ? 1 : 2));
+        String signature = installed + "|" + running + "|" + update + "|" + needsInstall + "|"
+                + showDownload + "|" + showUninstall + "|" + statusMode;
+        // 这个方法由 2 秒一次的轮询在调，原来每轮都 notifyDataSetChanged()：重建列表会把遥控器
+        // 正在选中的那一行拆掉，焦点被框架丢回工具栏的返回箭头。状态没变就一个控件都不碰，
+        // 每个命令行的运行标记由 refreshRunningStates() 就地刷新（不动焦点）。
+        if (!signature.equals(lastButtonState)) {
+            lastButtonState = signature;
+            mBinding.btnDownload.setText(item.isUbuntu() && needsInstall ? "安装环境" : (update ? "更新" : "下载安装"));
+            mBinding.btnDownload.setVisibility(showDownload ? View.VISIBLE : View.GONE);
+            mBinding.btnUninstall.setVisibility(showUninstall ? View.VISIBLE : View.GONE);
+            if (statusMode == 0) {
+                mBinding.status.setText(R.string.lab_running);
+                mBinding.status.setBackgroundResource(R.drawable.shape_lab_running_tag);
+                mBinding.status.setVisibility(View.VISIBLE);
+            } else if (statusMode == 3) {
+                // 无需安装的条目：状态位对用户没有意义，直接收起
+                mBinding.status.setVisibility(View.GONE);
+            } else if (statusMode == 1) {
+                mBinding.status.setText(R.string.lab_installed);
+                mBinding.status.setBackgroundResource(R.drawable.shape_lab_installed);
+                mBinding.status.setVisibility(View.VISIBLE);
+            } else {
+                mBinding.status.setText(R.string.lab_not_installed);
+                mBinding.status.setBackgroundResource(R.drawable.shape_lab_not_installed);
+                mBinding.status.setVisibility(View.VISIBLE);
+            }
         }
-        commandAdapter.notifyDataSetChanged();
+        commandAdapter.refreshRunningStates();
     }
 
     private boolean hasNewVersion() {
@@ -437,6 +461,9 @@ public class LabDetailActivity extends AppCompatActivity implements LabCommandAd
             View focused = getCurrentFocus();
             if (focused != null && focused.getParent() == mBinding.commandRecycler) {
                 int position = mBinding.commandRecycler.getChildAdapterPosition(focused);
+                // 列表正在重建时焦点控件可能已经是游离状态：这次上/下按键直接吃掉，
+                // 否则 position = -1 会被当成「在第 0 行」，一跳就回到列表顶部。
+                if (position == RecyclerView.NO_POSITION) return true;
                 if (event.getKeyCode() == KeyEvent.KEYCODE_DPAD_UP) {
                     if (position <= 0) return mBinding.btnTerminal.requestFocus();
                     return focusCommandRow(position - 1);
@@ -447,6 +474,32 @@ public class LabDetailActivity extends AppCompatActivity implements LabCommandAd
             }
         }
         return super.dispatchKeyEvent(event);
+    }
+
+    /** 当前焦点落在命令列表的哪一行（-1 = 焦点不在列表里）。 */
+    private int focusedCommandPosition() {
+        View view = getCurrentFocus();
+        while (view != null) {
+            if (view.getParent() == mBinding.commandRecycler) {
+                return mBinding.commandRecycler.getChildAdapterPosition(view);
+            }
+            view = view.getParent() instanceof View ? (View) view.getParent() : null;
+        }
+        return -1;
+    }
+
+    /** 焦点是否停在某一行右侧的「运行/停止」按钮上（重建列表后要放回同一列）。 */
+    private boolean actionFocused() {
+        View focused = getCurrentFocus();
+        return focused != null && focused.getId() == R.id.btnAction;
+    }
+
+    /** 把焦点放回重建后的第 position 行（action=true 落在右侧的按钮列）。 */
+    private void restoreCommandFocus(int position, boolean action) {
+        RecyclerView.ViewHolder holder = mBinding.commandRecycler.findViewHolderForAdapterPosition(position);
+        if (holder == null) return;
+        View target = action ? holder.itemView.findViewById(R.id.btnAction) : holder.itemView;
+        if (target != null) target.requestFocus();
     }
 
     private boolean focusCommandRow(int position) {
