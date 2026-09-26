@@ -71,6 +71,7 @@ public class LabActivity extends AppCompatActivity implements LabPackageAdapter.
         super.onCreate(savedInstanceState);
         mBinding = ActivityLabBinding.inflate(getLayoutInflater());
         setContentView(mBinding.getRoot());
+        LabFocus.toolbarMenu(mBinding.toolbar);
         mBinding.toolbar.setTitleTextColor(Color.WHITE);
         mBinding.toolbar.setOnMenuItemClickListener(item -> {
             int id = item.getItemId();
@@ -393,6 +394,7 @@ public class LabActivity extends AppCompatActivity implements LabPackageAdapter.
         applySourceFields(input, folder, source);
         dropdown.setOnItemClickListener((parent, view, position, id) -> applySourceFields(input, folder, SOURCE_MODES[position]));
         folder.setOnClickListener(v -> openLocalPicker());
+        LabFocus.ring(ubuntuRow, folder);
         rootInput.setText(LabConfig.get().getValidRootOverride());
         foreground.setChecked(LabConfig.get().getForeground());
         battery.setChecked(LabConfig.get().getBattery());

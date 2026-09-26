@@ -133,8 +133,8 @@ public class LabDetailActivity extends AppCompatActivity implements LabCommandAd
         mBinding.commandRecycler.setVisibility(hasCommands ? View.VISIBLE : View.GONE);
         invalidateOptionsMenu();
         updateButtons();
-        // TV：进页面默认焦点落在第一条命令的「执行」按钮上，没有命令就落到工具栏
-        if (hasCommands) LabFocus.focusFirstChildWhenReady(mBinding.commandRecycler, R.id.btnAction);
+        // TV：进页面默认焦点落在第一条命令条目上（等列表真正布局完成再抢，避免焦点落到顶部返回箭头）
+        if (hasCommands) LabFocus.focusFirstChildOnLayout(mBinding.commandRecycler, 0);
         else if (LabFocus.tv()) mBinding.btnTerminal.post(mBinding.btnTerminal::requestFocus);
         // 「终端」类条目（terminal_auto_open）：进详情页即附着容器终端，不在中间页停留
         if (item.terminal_auto_open && item.isUbuntu() && LabUbuntu.installed(this)) {

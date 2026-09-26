@@ -25,6 +25,7 @@ import com.fongmi.android.tv.databinding.DialogVpnSettingsBinding;
 import com.fongmi.android.tv.event.ServerEvent;
 import com.fongmi.android.tv.event.VpnStateEvent;
 import com.fongmi.android.tv.lab.LabConfig;
+import com.fongmi.android.tv.lab.LabFocus;
 import com.fongmi.android.tv.lab.LabVpnActivity;
 import com.fongmi.android.tv.lab.SystemVpnService;
 import com.fongmi.android.tv.server.Server;
@@ -224,6 +225,9 @@ public class VpnSettingsDialog extends BaseAlertDialog {
         EventBus.getDefault().register(this);
         // 遥控器（TV）下主动请求焦点，避免弹窗无焦点
         if (Util.isLeanback()) binding.getRoot().post(() -> binding.mihomoSwitch.requestFocus());
+        // 确定 / 取消 按钮使用统一的遥控器选中高亮样式（自定义按钮不走 AlertDialog 的按钮通道）
+        LabFocus.styleButton(binding.negative);
+        LabFocus.styleButton(binding.positive);
     }
 
     @Override

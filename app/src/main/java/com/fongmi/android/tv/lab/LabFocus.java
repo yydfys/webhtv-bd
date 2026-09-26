@@ -4,6 +4,7 @@ import android.content.res.ColorStateList;
 import android.graphics.Color;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.ViewTreeObserver;
 import android.widget.Button;
 import android.widget.TextView;
 
@@ -104,9 +105,9 @@ public final class LabFocus {
         View negative = dialog.getButton(AlertDialog.BUTTON_NEGATIVE);
         View neutral = dialog.getButton(AlertDialog.BUTTON_NEUTRAL);
         View positive = dialog.getButton(AlertDialog.BUTTON_POSITIVE);
-        style(negative);
-        style(neutral);
-        style(positive);
+        styleButton(negative);
+        styleButton(neutral);
+        styleButton(positive);
         View bar = negative != null ? negative : (positive != null ? positive : neutral);
         if (bar == null) return;
         View decor = dialog.getWindow() != null ? dialog.getWindow().getDecorView() : null;
@@ -114,8 +115,8 @@ public final class LabFocus {
         if (focusNegative) bar.requestFocus();
     }
 
-    private static void style(View view) {
-        if (view == null) return;
+    public static void styleButton(View view) {
+        if (view == null || !tv()) return;
         view.setFocusable(true);
         view.setFocusableInTouchMode(true);
         final ColorStateList tint = view.getBackgroundTintList();
@@ -154,6 +155,66 @@ public final class LabFocus {
             if (bottom != null) bottom.setNextFocusDownId(bar.getId());
             bar.setNextFocusUpId(bottom != null ? bottom.getId() : View.NO_ID);
         });
+    }
+
+    /**
+     * 等 RecyclerView 子项真正布局完成再抢焦点。
+     * 只判断 childCount > 0 并不够：此刻子项可能还是 0x0，requestFocus() 会静默失败，
+     * 焦点就会落到窗口里第一个可聚焦控件（通常是顶部的返回箭头）上。
+     */
+    public static void focusFirstChildOnLayout(final ViewGroup parent, final int targetId) {
+        if (!tv() || parent == null) return;
+        parent.getViewTreeObserver().addOnGlobalLayoutListener(new ViewTreeObserver.OnGlobalLayoutListener() {
+            @Override
+            public void onGlobalLayout() {
+                View child = targetId <= 0 ? (parent.getChildCount() > 0 ? parent.getChildAt(0) : null) : parent.findViewById(targetId);
+                if (child == null || !child.isLaidOut() || child.getWidth() <= 0) return;
+                ViewTreeObserver observer = parent.getViewTreeObserver();
+                if (observer.isAlive()) observer.removeOnGlobalLayoutListener(this);
+                child.requestFocus();
+            }
+        });
+    }
+
+    /** 给没有统一选中态的行/图标补 12dp 圆角选中环（仅 TV 生效，手机端保持原生水波纹）。 */
+    public static void ring(View... views) {
+        if (!tv()) return;
+        for (View view : views) {
+            if (view == null) continue;
+            view.setFocusable(true);
+            view.setFocusableInTouchMode(true);
+            view.setBackgroundResource(R.drawable.selector_lab_tool_btn);
+        }
+    }
+
+    /**
+     * Toolbar 右上角菜单图标（关于实验室 / 导入包 / 实验室配置源）统一选中环。
+     * 菜单项是 Toolbar 动态生成的 ActionMenuItemView，只能在布局完成后遍历补样式。
+     */
+    public static void toolbarMenu(final ViewGroup toolbar) {
+        if (!tv() || toolbar == null) return;
+        toolbar.postDelayed(new Runnable() {
+            private int tries;
+
+            @Override
+            public void run() {
+                List<View> items = new ArrayList<>();
+                collectMenuIcons(toolbar, items);
+                if (items.isEmpty() && tries++ < 8) {
+                    toolbar.postDelayed(this, 120);
+                    return;
+                }
+                for (View item : items) ring(item);
+            }
+        }, 120);
+    }
+
+    private static void collectMenuIcons(ViewGroup parent, List<View> out) {
+        for (int i = 0; i < parent.getChildCount(); i++) {
+            View child = parent.getChildAt(i);
+            if (child instanceof ViewGroup) collectMenuIcons((ViewGroup) child, out);
+            else if (child.getClass().getName().endsWith("ActionMenuItemView")) out.add(child);
+        }
     }
 
     private static void collectFocusable(ViewGroup parent, List<View> out) {

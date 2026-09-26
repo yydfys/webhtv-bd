@@ -95,7 +95,7 @@
                     android:inputType="textUri"
                     android:maxLines="2"
                     android:minHeight="48dp"
-                    android:textColor="@color/lab_text_primary"
+                    android:textColor="#1976d2"
                     android:textSize="13sp" />
             </com.google.android.material.textfield.TextInputLayout>
 

@@ -8,6 +8,7 @@ import android.view.View;
 import android.widget.ArrayAdapter;
 import android.widget.AutoCompleteTextView;
 import android.widget.Filter;
+import android.widget.ImageView;
 import android.widget.TextView;
 
 import androidx.appcompat.app.AlertDialog;
@@ -46,6 +47,8 @@ public class AiConfigDialog {
     private AutoCompleteTextView protocol;
     private TextInputEditText endpoint;
     private TextInputEditText apiKey;
+    private ImageView endpointQr;
+    private ImageView aiKeyQr;
     private AutoCompleteTextView model;
     private TextInputEditText userAgent;
     private MaterialButton fetchModels;
@@ -72,6 +75,8 @@ public class AiConfigDialog {
         protocol = view.findViewById(R.id.protocol);
         endpoint = view.findViewById(R.id.endpoint);
         apiKey = view.findViewById(R.id.apiKey);
+        endpointQr = view.findViewById(R.id.endpointQr);
+        aiKeyQr = view.findViewById(R.id.aiKeyQr);
         model = view.findViewById(R.id.model);
         userAgent = view.findViewById(R.id.userAgent);
         fetchModels = view.findViewById(R.id.fetchModels);
@@ -92,6 +97,14 @@ public class AiConfigDialog {
         prompt.setOnClickListener(v -> showPromptConfig());
         fetchModels.setOnClickListener(v -> fetchModels(fetchModels));
         test.setOnClickListener(v -> testConfig(test));
+        if (endpointQr != null) endpointQr.setOnClickListener(v -> QrPush.show(activity, QrPush.SLOT_AI_ENDPOINT, "手机扫码后，在网页“配置”框里粘贴 API 服务端点 / 基地址，点确定即回填", text -> {
+            endpoint.setText(text);
+            if (endpoint.getText() != null) endpoint.setSelection(endpoint.getText().length());
+        }));
+        if (aiKeyQr != null) aiKeyQr.setOnClickListener(v -> QrPush.show(activity, QrPush.SLOT_AI_KEY, "手机扫码后，在网页“配置”框里粘贴 API KEY，点确定即回填", text -> {
+            apiKey.setText(text);
+            if (apiKey.getText() != null) apiKey.setSelection(apiKey.getText().length());
+        }));
 
         AlertDialog dialog = builder
                 .setTitle(R.string.setting_ai_recommendation)
@@ -216,8 +229,10 @@ public class AiConfigDialog {
         wireDpadFocus(enabled, null, titleExtraction, null, null);
         wireDpadFocus(titleExtraction, enabled, protocol, null, null);
         wireDpadFocus(protocol, titleExtraction, endpoint, null, null);
-        wireDpadFocus(endpoint, protocol, apiKey, null, null);
-        wireDpadFocus(apiKey, endpoint, model, null, null);
+        wireDpadFocus(endpoint, protocol, apiKey, null, endpointQr);
+        wireDpadFocus(apiKey, endpoint, model, null, aiKeyQr);
+        if (endpointQr != null) wireDpadFocus(endpointQr, endpoint, apiKey, endpoint, null);
+        if (aiKeyQr != null) wireDpadFocus(aiKeyQr, apiKey, model, apiKey, null);
         wireDropdownDpadFocus(model, apiKey, userAgent, null, fetchModels);
         wireDpadFocus(fetchModels, apiKey, userAgent, model, null);
         wireDpadFocus(userAgent, model, prompt, null, null);

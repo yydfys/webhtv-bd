@@ -8,6 +8,7 @@ import android.view.LayoutInflater;
 import android.view.View;
 import android.view.inputmethod.EditorInfo;
 import android.widget.EditText;
+import android.widget.ImageView;
 import android.widget.TextView;
 
 import androidx.appcompat.app.AlertDialog;
@@ -49,6 +50,8 @@ public class TmdbSourceDialog {
     private EditText apiHostInput;
     private EditText imageHostInput;
     private EditText omdbApiKeyInput;
+    private ImageView apiKeyQr;
+    private ImageView omdbApiKeyQr;
     private Runnable onDismiss;
 
     private List<String> tempEnabledRules;
@@ -80,6 +83,10 @@ public class TmdbSourceDialog {
         apiHostInput = view.findViewById(R.id.apiHostInput);
         imageHostInput = view.findViewById(R.id.imageHostInput);
         omdbApiKeyInput = view.findViewById(R.id.omdbApiKeyInput);
+        apiKeyQr = view.findViewById(R.id.apiKeyQr);
+        omdbApiKeyQr = view.findViewById(R.id.omdbApiKeyQr);
+        apiKeyQr.setOnClickListener(v -> QrPush.show(activity, QrPush.SLOT_TMDB_KEY, "手机扫码后，在网页“配置”框里粘贴 TMDB API Key / Access Token，点确定即回填", text -> apiKeyInput.setText(text)));
+        omdbApiKeyQr.setOnClickListener(v -> QrPush.show(activity, QrPush.SLOT_OMDB_KEY, "手机扫码后，在网页“配置”框里粘贴 OMDb API Key，点确定即回填", text -> omdbApiKeyInput.setText(text)));
         EditText ruleInput = view.findViewById(R.id.ruleInput);
         EditText disabledRuleInput = view.findViewById(R.id.disabledRuleInput);
         TextView addBtn = view.findViewById(R.id.add);
@@ -187,11 +194,13 @@ public class TmdbSourceDialog {
     private void wireConfigDialogFocus(AlertDialog dialog, EditText ruleInput, View addBtn, EditText disabledRuleInput, View addDisabledBtn, View manageBtn, View testBtn, View resetBtn) {
         View positive = dialog.getButton(AlertDialog.BUTTON_POSITIVE);
         View negative = dialog.getButton(AlertDialog.BUTTON_NEGATIVE);
-        wireTextDpadFocus(apiKeyInput, null, languageInput, null, null);
+        wireTextDpadFocus(apiKeyInput, null, languageInput, null, apiKeyQr);
         wireTextDpadFocus(languageInput, apiKeyInput, apiHostInput, null, null);
         wireTextDpadFocus(apiHostInput, languageInput, imageHostInput, null, null);
         wireTextDpadFocus(imageHostInput, apiHostInput, omdbApiKeyInput, null, null);
-        wireTextDpadFocus(omdbApiKeyInput, imageHostInput, ruleInput, null, null);
+        wireTextDpadFocus(omdbApiKeyInput, imageHostInput, ruleInput, null, omdbApiKeyQr);
+        wireDpadFocus(apiKeyQr, apiKeyInput, languageInput, apiKeyInput, null);
+        wireDpadFocus(omdbApiKeyQr, imageHostInput, ruleInput, omdbApiKeyInput, null);
         wireTextDpadFocus(ruleInput, omdbApiKeyInput, disabledRuleInput, null, addBtn);
         wireDpadFocus(addBtn, omdbApiKeyInput, addDisabledBtn, ruleInput, null);
         wireTextDpadFocus(disabledRuleInput, ruleInput, manageBtn, null, addDisabledBtn);

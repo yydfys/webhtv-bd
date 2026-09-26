@@ -1,4 +1,4 @@
-﻿const icDir = `data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23F5A623'><path d='M10 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z'/></svg>`;
+const icDir = `data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23F5A623'><path d='M10 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z'/></svg>`;
 const icFile = `data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23717970'><path d='M14 2H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V8l-6-6zm4 18H6V4h7v5h5v11z'/></svg>`;
 let currentRoot = '';
 let currentFile = '';
@@ -298,8 +298,15 @@ function showPanel(id) {
     if (id === 5 && document.getElementById('file_list').innerHTML === '') listFile('');
 }
 
-const tab = parseInt(new URLSearchParams(window.location.search).get('tab')) || 1;
+const urlParams = new URLSearchParams(window.location.search);
+const tab = parseInt(urlParams.get('tab')) || 1;
+const slot = (urlParams.get('slot') || '').trim();
 history.replaceState(null, '');
+// 电视端「扫码推送」：slot 预填进隐藏的「名称」框，服务端回来的 name 即 slot，用来区分是哪个输入框
+if (slot) {
+    $('#setting_name').val(slot).closest('.md-field').hide();
+    $('#setting_text').attr('placeholder', '掃碼推送：貼上內容後點確定');
+}
 showPanel(tab);
 
 window.addEventListener('popstate', function () {

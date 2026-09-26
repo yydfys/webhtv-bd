@@ -52,10 +52,17 @@
                     android:paddingBottom="8dp"
                     android:text="@string/dialog_tmdb_api_key_label" />
 
-                <com.google.android.material.textfield.TextInputEditText
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+
+                    <com.google.android.material.textfield.TextInputEditText
                     android:id="@+id/apiKeyInput"
                     style="@style/Widget.WebHTV.LightDialog.Input"
-                    android:layout_width="match_parent"
+                    android:layout_width="0dp"
+                    android:layout_weight="1"
                     android:layout_height="44dp"
                     android:gravity="center_vertical"
                     android:hint="@string/dialog_tmdb_api_key_hint"
@@ -64,6 +71,21 @@
                     android:paddingStart="12dp"
                     android:paddingEnd="12dp"
                     android:selectAllOnFocus="false" />
+
+                    <ImageView
+                        android:id="@+id/apiKeyQr"
+                        android:layout_width="40dp"
+                        android:layout_height="40dp"
+                        android:layout_gravity="center_vertical"
+                        android:layout_marginStart="8dp"
+                        android:background="@drawable/sel_focus_round"
+                        android:clickable="true"
+                        android:contentDescription="扫码推送 TMDB API Key / Access Token"
+                        android:focusable="true"
+                        android:padding="6dp"
+                        android:src="@drawable/ic_remote_qr"
+                        android:tint="#1976d2" />
+                </LinearLayout>
 
                 <com.google.android.material.textview.MaterialTextView
                     style="@style/Widget.WebHTV.LightDialog.Helper"
@@ -168,10 +190,17 @@
                     android:paddingBottom="8dp"
                     android:text="@string/dialog_omdb_api_key_label" />
 
-                <com.google.android.material.textfield.TextInputEditText
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+
+                    <com.google.android.material.textfield.TextInputEditText
                     android:id="@+id/omdbApiKeyInput"
                     style="@style/Widget.WebHTV.LightDialog.Input"
-                    android:layout_width="match_parent"
+                    android:layout_width="0dp"
+                    android:layout_weight="1"
                     android:layout_height="44dp"
                     android:gravity="center_vertical"
                     android:hint="@string/dialog_omdb_api_key_hint"
@@ -180,6 +209,21 @@
                     android:paddingStart="12dp"
                     android:paddingEnd="12dp"
                     android:selectAllOnFocus="false" />
+
+                    <ImageView
+                        android:id="@+id/omdbApiKeyQr"
+                        android:layout_width="40dp"
+                        android:layout_height="40dp"
+                        android:layout_gravity="center_vertical"
+                        android:layout_marginStart="8dp"
+                        android:background="@drawable/sel_focus_round"
+                        android:clickable="true"
+                        android:contentDescription="扫码推送 OMDb API Key"
+                        android:focusable="true"
+                        android:padding="6dp"
+                        android:src="@drawable/ic_remote_qr"
+                        android:tint="#1976d2" />
+                </LinearLayout>
 
                 <com.google.android.material.textview.MaterialTextView
                     style="@style/Widget.WebHTV.LightDialog.Helper"

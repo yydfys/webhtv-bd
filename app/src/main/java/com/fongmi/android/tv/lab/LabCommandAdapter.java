@@ -85,6 +85,8 @@ public final class LabCommandAdapter extends RecyclerView.Adapter<LabCommandAdap
                 }
                 return false;
             });
+            // TV：第一条命令往上切能落到工具栏的「终端 / 加号 / 重置」三个按钮上
+            holder.itemView.setNextFocusUpId(position == 0 ? R.id.btnTerminal : View.NO_ID);
             holder.itemView.setOnKeyListener((v, keyCode, event) -> {
                 if (event.getAction() == MotionEvent.ACTION_DOWN && keyCode == KeyEvent.KEYCODE_DPAD_RIGHT) {
                     return holder.btnAction.requestFocus();

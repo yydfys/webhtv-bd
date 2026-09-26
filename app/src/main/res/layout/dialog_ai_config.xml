@@ -111,10 +111,17 @@
                     android:paddingBottom="8dp"
                     android:text="@string/dialog_ai_endpoint_label" />
 
-                <com.google.android.material.textfield.TextInputEditText
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+
+                    <com.google.android.material.textfield.TextInputEditText
                     style="@style/Widget.WebHTV.LightDialog.Input"
                     android:id="@+id/endpoint"
-                    android:layout_width="match_parent"
+                    android:layout_width="0dp"
+                    android:layout_weight="1"
                     android:layout_height="44dp"
                     android:gravity="center_vertical"
                     android:hint="@string/dialog_ai_endpoint_hint"
@@ -122,6 +129,21 @@
                     android:maxLines="1"
                     android:paddingStart="12dp"
                     android:paddingEnd="12dp" />
+
+                    <ImageView
+                        android:id="@+id/endpointQr"
+                        android:layout_width="40dp"
+                        android:layout_height="40dp"
+                        android:layout_gravity="center_vertical"
+                        android:layout_marginStart="8dp"
+                        android:background="@drawable/sel_focus_round"
+                        android:clickable="true"
+                        android:contentDescription="扫码推送 API 服务端点"
+                        android:focusable="true"
+                        android:padding="6dp"
+                        android:src="@drawable/ic_remote_qr"
+                        android:tint="#1976d2" />
+                </LinearLayout>
 
                 <com.google.android.material.textview.MaterialTextView
                     style="@style/Widget.WebHTV.LightDialog.Label"
@@ -131,10 +153,17 @@
                     android:paddingBottom="8dp"
                     android:text="@string/dialog_ai_api_key_label" />
 
-                <com.google.android.material.textfield.TextInputEditText
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+
+                    <com.google.android.material.textfield.TextInputEditText
                     style="@style/Widget.WebHTV.LightDialog.Input"
                     android:id="@+id/apiKey"
-                    android:layout_width="match_parent"
+                    android:layout_width="0dp"
+                    android:layout_weight="1"
                     android:layout_height="44dp"
                     android:gravity="center_vertical"
                     android:hint="@string/dialog_ai_api_key_hint"
@@ -142,6 +171,21 @@
                     android:maxLines="1"
                     android:paddingStart="12dp"
                     android:paddingEnd="12dp" />
+
+                    <ImageView
+                        android:id="@+id/aiKeyQr"
+                        android:layout_width="40dp"
+                        android:layout_height="40dp"
+                        android:layout_gravity="center_vertical"
+                        android:layout_marginStart="8dp"
+                        android:background="@drawable/sel_focus_round"
+                        android:clickable="true"
+                        android:contentDescription="扫码推送 API KEY"
+                        android:focusable="true"
+                        android:padding="6dp"
+                        android:src="@drawable/ic_remote_qr"
+                        android:tint="#1976d2" />
+                </LinearLayout>
 
             </androidx.appcompat.widget.LinearLayoutCompat>
         </com.google.android.material.card.MaterialCardView>
