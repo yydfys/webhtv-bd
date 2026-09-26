@@ -1,0 +1,163 @@
+{
+    "version": "1.0",
+    "root": "/storage/emulated/0/WebHTV",
+    "groups": [
+        {
+            "id": "terminal",
+            "name": "终端",
+            "order": 1
+        },
+        {
+            "id": "runtime",
+            "name": "ubuntu环境",
+            "order": 3
+        }
+    ],
+    "lists": [
+        {
+            "name": "php",
+            "runtime": "ubuntu",
+            "group": "runtime",
+            "icon": "https://img.icons8.com/?size=240&id=121463&format=png&color=000000",
+            "info": "在 Ubuntu Rootfs 中独立安装并运行 PHP CLI，wwwroot 目录会被php、python环境共用，卸载单个环境时不会删除目录本身，只清理自身文件。",
+            "show": true,
+            "version": "8.3.6",
+            "auto_install": false,
+            "available": true,
+            "downloads": [],
+            "install": {
+                "check_command": "test -f '{package_dir}/.installed' && command -v php >/dev/null 2>&1",
+                "command": "export DEBIAN_FRONTEND=noninteractive; apt-get update && apt-get install -y php-cli && mkdir -p '/storage/emulated/0/WebHTV/wwwroot' && printf '%s\\n' '<?php echo \"Hello from Ubuntu PHP \" . PHP_VERSION;' > '/storage/emulated/0/WebHTV/wwwroot/index.php' && touch '{package_dir}/.installed'",
+                "mode": "terminal",
+                "uninstall_command": "export DEBIAN_FRONTEND=noninteractive; __p=$(dpkg -l 2>/dev/null | awk '$1 ~ /^i/ || $1==\"rc\" {print $2}' | grep -E '^php' | tr '\\n' ' '); echo \"[lab] 待卸载 php 包: ${__p:-（无）}\"; [ -n \"$__p\" ] && apt-get purge -y $__p; apt-get autoremove -y; rm -f '/storage/emulated/0/WebHTV/wwwroot/index.php'; rm -f '{package_dir}/.installed'; if command -v php >/dev/null 2>&1; then echo '[lab] php 仍在 rootfs，卸载未完成'; false; else echo '[lab] php 已从 rootfs 移除'; true; fi",
+                "reset_command": "export DEBIAN_FRONTEND=noninteractive; __p=$(dpkg -l 2>/dev/null | awk '$1 ~ /^i/ || $1==\"rc\" {print $2}' | grep -E '^php' | tr '\\n' ' '); [ -n \"$__p\" ] && apt-get purge -y $__p; apt-get autoremove -y >/dev/null 2>&1; rm -f '{package_dir}/.installed'; true"
+            },
+            "commands": [
+                {
+                    "id": "php_server",
+                    "name": "启动 PHP Web服务",
+                    "auto_execute": true,
+                    "background": true,
+                    "show_output": true,
+                    "check_command": "pgrep -f '[p]hp -S 0.0.0.0:{port}'",
+                    "command": "php -S 0.0.0.0:{port} -t {www_dir} -d memory_limit={memory_limit}M",
+                    "stop_command": "pkill -f '[p]hp -S 0.0.0.0:{port}' 2>/dev/null; fuser -k {port}/tcp 2>/dev/null; exit 0",
+                    "variables": [
+                        {
+                            "key": "port",
+                            "name": "端口号",
+                            "type": "number",
+                            "default": 8901,
+                            "hint": "服务器监听端口",
+                            "required": true,
+                            "min": 1024,
+                            "max": 65535
+                        },
+                        {
+                            "key": "www_dir",
+                            "name": "Web根目录",
+                            "type": "directory",
+                            "default": "/storage/emulated/0/WebHTV/wwwroot",
+                            "hint": "php文件目录",
+                            "required": true
+                        },
+                        {
+                            "key": "memory_limit",
+                            "name": "内存占用大小",
+                            "type": "number",
+                            "default": 1024,
+                            "hint": "内存限制(MB)",
+                            "required": true,
+                            "min": 8,
+                            "max": 2048
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "name": "python3",
+            "group": "runtime",
+            "runtime": "ubuntu",
+            "icon": "https://img.icons8.com/?size=240&id=13441&format=png&color=000000",
+            "info": "在 Ubuntu Rootfs 中独立安装并运行 Python3，wwwroot 目录会被php、python环境共用，卸载单个环境时不会删除目录本身，只清理自身文件。",
+            "show": true,
+            "version": "3.12.3",
+            "auto_install": false,
+            "available": true,
+            "downloads": [],
+            "install": {
+                "check_command": "test -f '{package_dir}/.installed' && command -v python3 >/dev/null 2>&1",
+                "command": "export DEBIAN_FRONTEND=noninteractive; apt-get update && apt-get install -y python3 && mkdir -p '/storage/emulated/0/WebHTV/wwwroot' && printf '%s\\n' '<!doctype html><meta charset=\"utf-8\"><h1>Hello from Ubuntu Python3</h1>' > '/storage/emulated/0/WebHTV/wwwroot/index.html' && touch '{package_dir}/.installed'",
+                "mode": "terminal",
+                "uninstall_command": "export DEBIAN_FRONTEND=noninteractive; __p=$(dpkg -l 2>/dev/null | awk '$1 ~ /^i/ || $1==\"rc\" {print $2}' | grep -E '^python3' | tr '\\n' ' '); echo \"[lab] 待卸载 python3 包: ${__p:-（无）}\"; [ -n \"$__p\" ] && apt-get purge -y $__p; apt-get autoremove -y; rm -rf /usr/local/lib/python3* /usr/local/bin/pip /usr/local/bin/pip3* /root/.cache/pip; rm -f '/storage/emulated/0/WebHTV/wwwroot/index.html'; rm -f '{package_dir}/.installed'; if command -v python3 >/dev/null 2>&1; then echo '[lab] python3 仍在 rootfs，卸载未完成'; false; else echo '[lab] python3 已从 rootfs 移除'; true; fi",
+                "reset_command": "export DEBIAN_FRONTEND=noninteractive; __p=$(dpkg -l 2>/dev/null | awk '$1 ~ /^i/ || $1==\"rc\" {print $2}' | grep -E '^python3' | tr '\\n' ' '); [ -n \"$__p\" ] && apt-get purge -y $__p; apt-get autoremove -y >/dev/null 2>&1; rm -f '{package_dir}/.installed'; true"
+            },
+            "commands": []
+        },
+        {
+            "name": "nodejs",
+            "runtime": "ubuntu",
+            "group": "runtime",
+            "icon": "https://img.icons8.com/?size=240&id=hsPbhkOH4FMe&format=png&color=000000",
+            "info": "在 Ubuntu Rootfs 中独立安装并运行 Node.js。 ｜ arm64/amd64 → NodeSource 官方源 (Node 24)；32 位 ARM（armv7/armhf）→ 官方 armv7l 二进制 (Node 22 LTS)，已内置 libatomic1 依赖 + npm 兜底 + 安装后自检",
+            "show": true,
+            "version": "24.19.0",
+            "auto_install": false,
+            "available": true,
+            "downloads": [],
+            "install": {
+                "check_command": "test -f '{package_dir}/.installed' && command -v node >/dev/null 2>&1 && node -e 'process.exit(0)'",
+                "command": "export DEBIAN_FRONTEND=noninteractive; ARCH=$(dpkg --print-architecture); echo \"[lab] 架构: $ARCH\"; mkdir -p /tmp && chmod 1777 /tmp; apt-get update; apt-get install -y curl ca-certificates xz-utils gnupg libatomic1 libstdc++6; if [ \"$ARCH\" = \"arm64\" ] || [ \"$ARCH\" = \"amd64\" ]; then echo \"[lab] $ARCH: 走 NodeSource 官方源 (Node 24)\"; curl -fsSL https://deb.nodesource.com/setup_24.x | bash - && apt-get install -y nodejs; else echo \"[lab] $ARCH: NodeSource 不提供 32 位 ARM 包，改用官方 armv7l 二进制 (Node 22 LTS)\"; F=$(curl -fsSL https://mirrors.huaweicloud.com/nodejs/latest-v22.x/ | grep -oE 'node-v[0-9.]+-linux-armv7l\\.tar\\.xz' | sort -V | tail -1); case \"$F\" in ''|*[!A-Za-z0-9._-]*) F=node-v22.22.3-linux-armv7l.tar.xz;; esac; echo \"[lab] 下载 $F\"; (curl -fL --retry 3 -o /tmp/node.tar.xz \"https://mirrors.huaweicloud.com/nodejs/latest-v22.x/$F\" || curl -fL --retry 3 -o /tmp/node.tar.xz \"https://registry.npmmirror.com/-/binary/node/latest-v22.x/$F\") && tar -xJf /tmp/node.tar.xz -C /usr/local --strip-components=1 && rm -f /tmp/node.tar.xz; command -v ldconfig >/dev/null 2>&1 && ldconfig >/dev/null 2>&1; fi; if ! command -v npm >/dev/null 2>&1 && command -v node >/dev/null 2>&1; then ln -sf /usr/local/lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm 2>/dev/null; ln -sf /usr/local/lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx 2>/dev/null; fi; if command -v npm >/dev/null 2>&1; then npm config set registry https://registry.npmmirror.com >/dev/null 2>&1; npm install -g npm@latest >/dev/null 2>&1 || echo \"[lab] ⚠️ npm 升级失败（不影响使用）\"; npm config set registry https://registry.npmmirror.com >/dev/null 2>&1; fi; echo \"===== nodejs 环境自检 =====\"; command -v node >/dev/null 2>&1 || { echo \"[lab] ❌ node 未安装到 PATH\"; exit 1; }; echo \"[lab] node 路径: $(command -v node)\"; node --version || { echo \"[lab] ❌ node 无法运行（armv7l 常见原因：缺 libatomic1，执行 apt-get install -y libatomic1）\"; exit 1; }; if command -v npm >/dev/null 2>&1; then echo \"[lab] npm 路径: $(command -v npm)\"; npm --version; else echo \"[lab] ⚠️ npm 不可用\"; fi; node -e 'console.log(\"[lab] node 自检 OK\")'; touch '{package_dir}/.installed'; echo \"[lab] ✅ nodejs 环境就绪\"",
+                "mode": "terminal",
+                "uninstall_command": "export DEBIAN_FRONTEND=noninteractive; __p=$(dpkg -l 2>/dev/null | awk '$1 ~ /^i/ || $1==\"rc\" {print $2}' | grep -E '^node' | tr '\\n' ' '); echo \"[lab] 待卸载 node 包: ${__p:-（无）}\"; [ -n \"$__p\" ] && apt-get purge -y $__p; apt-get autoremove -y; rm -f /etc/apt/sources.list.d/nodesource.list /etc/apt/sources.list.d/nodesource.sources /etc/apt/keyrings/nodesource.gpg /usr/share/keyrings/nodesource.gpg; rm -rf /usr/lib/node_modules /usr/local/lib/node_modules /root/.npm /root/.node-gyp; rm -f '{package_dir}/.installed'; if command -v node >/dev/null 2>&1; then echo '[lab] node 仍在 rootfs，卸载未完成'; false; else echo '[lab] node 已从 rootfs 移除'; true; fi",
+                "reset_command": "export DEBIAN_FRONTEND=noninteractive; __p=$(dpkg -l 2>/dev/null | awk '$1 ~ /^i/ || $1==\"rc\" {print $2}' | grep -E '^node' | tr '\\n' ' '); [ -n \"$__p\" ] && apt-get purge -y $__p; apt-get autoremove -y >/dev/null 2>&1; rm -f '{package_dir}/.installed'; true"
+            },
+            "commands": [
+                {
+                    "id": "danmu_api_local",
+                    "name": "🅿️ 弹幕 |本地单文件版",
+                    "description": "本地弹幕服务单文件版，不需要考虑安装依赖！",
+                    "command": "cd /storage/emulated/0/WebHTV/danmu/danmu_api && node danmu_api.js",
+                    "check_command": "pgrep -f '[d]anmu_api.js'",
+                    "stop_command": "pkill -f '[d]anmu_api.js' 2>/dev/null; exit 0",
+                    "auto_execute": false,
+                    "background": true,
+                    "show_output": false,
+                    "clicks": [
+                        {
+                            "title": "打开服务",
+                            "action": "open",
+                            "value": "http://127.0.0.1:9321/938944"
+                        },
+                        {
+                            "title": "管理后台",
+                            "action": "open",
+                            "value": "http://127.0.0.1:9321/yyff"
+                        },
+                        {
+                            "title": "复制API",
+                            "action": "copy",
+                            "value": "http://127.0.0.1:9321/938944/danmaku"
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "name": "Ubuntu终端",
+            "runtime": "ubuntu",
+            "group": "terminal",
+            "version": "24.04",
+            "icon": "https://img.icons8.com/color/240/ubuntu.png",
+            "info": "不执行下载安装，进入详情后直接附着独立 Ubuntu 终端。",
+            "auto_install": false,
+            "install_required": false,
+            "terminal_auto_open": true,
+            "show": true,
+            "available": true,
+            "commands": [],
+            "downloads": []
+        }
+    ]
+}

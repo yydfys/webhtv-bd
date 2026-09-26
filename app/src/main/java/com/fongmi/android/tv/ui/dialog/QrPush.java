@@ -32,6 +32,8 @@ public final class QrPush {
 
     /** TMDB 数据配置面板：API Key / Access Token 输入框 */
     public static final String SLOT_TMDB_KEY = "tmdb_key";
+    /** 实验室-配置源 URL */
+    public static final String SLOT_LAB_URL = "lab_url";
     /** TMDB 数据配置面板：OMDb API Key 输入框 */
     public static final String SLOT_OMDB_KEY = "omdb_key";
     /** AI 通用配置面板：API 服务端点 / 基地址 输入框 */

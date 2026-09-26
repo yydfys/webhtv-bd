@@ -356,7 +356,21 @@ public final class LabEnv {
 
     public static void syncWebhtvAssets(Context context) {
         syncAssets(context, "WebHTV", new File(LabConfig.get().getRoot()), false);
+        syncDanmuAssets(context);
     }
+
+    /** 内置弹幕组件：首次运行释放到 {root}/danmu/，本地已有就不覆盖（用户自己改的以本地为准）。
+     *  aapt 打包会丢弃点开头的文件，所以 assets 里用 danmu/config/env 占位，落地后补回 .env。 */
+    private static void syncDanmuAssets(Context context) {
+        File dir = new File(LabConfig.get().getRoot(), "danmu");
+        syncAssets(context, "danmu", dir, false);
+        File alias = new File(dir, "config/env");
+        File real = new File(dir, "config/.env");
+        if (!alias.isFile()) return;
+        if (!real.isFile()) alias.renameTo(real);
+        else alias.delete();
+    }
+
 
     private static void syncAssets(Context context, String assetPath, File dest, boolean overwrite) {
         try {

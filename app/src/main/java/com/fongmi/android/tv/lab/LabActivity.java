@@ -41,6 +41,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import com.fongmi.android.tv.ui.dialog.QrPush;
 
 public class LabActivity extends AppCompatActivity implements LabPackageAdapter.Listener, LabGroupAdapter.Listener {
 
@@ -316,6 +317,7 @@ public class LabActivity extends AppCompatActivity implements LabPackageAdapter.
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
+        LabFilePicker.onActivityResult(requestCode, resultCode, data);
         if (requestCode == REQUEST_IMPORT && resultCode == RESULT_OK && data != null && data.getData() != null) {
             importArchive(data.getData());
         } else if (requestCode == REQUEST_LOCAL_CONFIG && resultCode == RESULT_OK && data != null && data.getData() != null) {
@@ -372,6 +374,7 @@ public class LabActivity extends AppCompatActivity implements LabPackageAdapter.
         EditText input = root.findViewById(R.id.input);
         EditText rootInput = root.findViewById(R.id.rootInput);
         View folder = root.findViewById(R.id.folder);
+        View urlQr = root.findViewById(R.id.urlQr);
         MaterialSwitch foreground = root.findViewById(R.id.foregroundSwitch);
         MaterialSwitch battery = root.findViewById(R.id.batterySwitch);
         MaterialSwitch proxy = root.findViewById(R.id.proxySwitch);
@@ -391,9 +394,10 @@ public class LabActivity extends AppCompatActivity implements LabPackageAdapter.
         dropdown.setAdapter(new ArrayAdapter<>(this, android.R.layout.simple_dropdown_item_1line, items));
         int source = LabConfig.get().getSource();
         dropdown.setText(items[indexOfSource(source)], false);
-        applySourceFields(input, folder, source);
-        dropdown.setOnItemClickListener((parent, view, position, id) -> applySourceFields(input, folder, SOURCE_MODES[position]));
+        applySourceFields(root, input, folder, urlQr, source);
+        dropdown.setOnItemClickListener((parent, view, position, id) -> applySourceFields(root, input, folder, urlQr, SOURCE_MODES[position]));
         folder.setOnClickListener(v -> openLocalPicker());
+        urlQr.setOnClickListener(v -> QrPush.show(this, QrPush.SLOT_LAB_URL, "手机扫码后，在网页\"配置\"框里粘贴配置源 URL，点确定即回填", text -> input.setText(text)));
         LabFocus.ring(ubuntuRow, folder);
         rootInput.setText(LabConfig.get().getValidRootOverride());
         foreground.setChecked(LabConfig.get().getForeground());
@@ -451,15 +455,42 @@ public class LabActivity extends AppCompatActivity implements LabPackageAdapter.
         settingsDialog.show();
     }
 
-    private void openLocalPicker() {
-        try {
-            Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
-            intent.addCategory(Intent.CATEGORY_OPENABLE);
-            intent.setType("*/*");
-            startActivityForResult(intent, REQUEST_LOCAL_CONFIG);
-        } catch (Exception e) {
-            Notify.show("无法打开文件选择器: " + e.getMessage());
+    /**
+     * TV 遥控器焦点链。
+     * 下拉框(ExposedDropdown)的上下键会被系统拿去开菜单，几何焦点搜索根本轮不到下面的控件，
+     * 表现就是"本地配置时选择本地配置文件按钮选不上，得先跑到取消按钮再往回走"。
+     * 所以这里给每条控件显式指定上下左右邻居。
+     */
+    private void wireSettingsFocus(View root, View input, View folder, View urlQr) {
+        View dropdown = root.findViewById(R.id.sourceDropdown);
+        View rootInput = root.findViewById(R.id.rootInput);
+        if (dropdown == null || input == null || folder == null || rootInput == null) return;
+        boolean url = input.getVisibility() == View.VISIBLE;
+        boolean qr = urlQr != null && urlQr.getVisibility() == View.VISIBLE;
+        dropdown.setNextFocusDownId(url ? (qr ? R.id.urlQr : R.id.input) : R.id.folder);
+        input.setNextFocusUpId(R.id.sourceDropdown);
+        input.setNextFocusDownId(qr ? R.id.urlQr : R.id.rootInput);
+        input.setNextFocusRightId(qr ? R.id.urlQr : View.NO_ID);
+        if (urlQr != null) {
+            urlQr.setNextFocusLeftId(R.id.input);
+            urlQr.setNextFocusUpId(R.id.input);
+            urlQr.setNextFocusDownId(R.id.rootInput);
         }
+        folder.setNextFocusUpId(R.id.sourceDropdown);
+        folder.setNextFocusDownId(R.id.rootInput);
+        rootInput.setNextFocusUpId(url ? (qr ? R.id.urlQr : R.id.input) : R.id.folder);
+    }
+
+    private void openLocalPicker() {
+        // 电视上没有系统文件选择器（ACTION_OPEN_DOCUMENT 直接 ActivityNotFound），
+        // 改走内置目录浏览器：遥控器可上下选择，选到文件即回填；真机（手机）也兼容。
+        LabFilePicker.pick(this, false, "*/*", path -> {
+            if (path == null || path.isEmpty()) return;
+            LabConfig.get().setLocalPath(path);
+            LabConfig.get().setSource(LabConfig.SOURCE_LOCAL);
+            Notify.show("本地配置已选择");
+            reload();
+        });
     }
 
     private int indexOf(String[] items, String value) {
@@ -477,13 +508,21 @@ public class LabActivity extends AppCompatActivity implements LabPackageAdapter.
     }
 
     /** 本地配置用文件选择器填路径（只读输入框），网络 URL 用手输。 */
-    private void applySourceFields(EditText input, View folder, int source) {
+    private void applySourceFields(View root, EditText input, View folder, View urlQr, int source) {
         boolean url = source == LabConfig.SOURCE_URL;
         input.setVisibility(url ? View.VISIBLE : View.GONE);
         folder.setVisibility(url ? View.GONE : View.VISIBLE);
         input.setText(url ? LabConfig.get().getUrl() : LabConfig.get().getLocalPath());
         input.setFocusable(url);
         input.setFocusableInTouchMode(url);
+        // TV 遥控器：URL 模式露出扫码推送图标；本地模式确保"选择本地配置文件"能落焦
+        urlQr.setVisibility(url ? View.VISIBLE : View.GONE);
+        urlQr.setFocusable(url);
+        urlQr.setFocusableInTouchMode(url);
+        folder.setFocusable(true);
+        folder.setFocusableInTouchMode(true);
+        wireSettingsFocus(root, input, folder, urlQr);
+
     }
 }
 

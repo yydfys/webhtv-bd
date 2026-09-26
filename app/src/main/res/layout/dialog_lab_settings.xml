@@ -109,12 +109,27 @@
             <androidx.appcompat.widget.AppCompatImageView
                 android:layout_gravity="center_vertical"
                 android:id="@+id/folder"
+                android:focusable="true"
+                android:focusableInTouchMode="true"
+                android:clickable="true"
+                android:contentDescription="选择本地配置文件"
                 android:background="?android:attr/selectableItemBackgroundBorderless"
                 android:padding="12dp"
                 android:visibility="gone"
                 android:layout_width="48dp"
                 android:layout_height="48dp"
                 android:src="@drawable/ic_setting_folder"
+                android:tint="#1976d2"
+                android:layout_marginStart="8dp"/>
+            <androidx.appcompat.widget.AppCompatImageView
+                android:layout_gravity="center_vertical"
+                android:id="@+id/urlQr"
+                android:background="?android:attr/selectableItemBackgroundBorderless"
+                android:padding="12dp"
+                android:visibility="gone"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:src="@drawable/ic_remote_qr"
                 android:tint="#1976d2"
                 android:layout_marginStart="8dp"/>
         </LinearLayout>
