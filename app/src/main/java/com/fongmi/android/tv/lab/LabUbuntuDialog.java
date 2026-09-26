@@ -131,7 +131,11 @@ public final class LabUbuntuDialog {
 
         dialog.show();
         // 遥控器（TV）下主动请求焦点，避免弹窗无焦点
-        if (com.fongmi.android.tv.utils.Util.isLeanback()) dialog.getWindow().getDecorView().post(installButton::requestFocus);
+        if (LabFocus.tv() && dialog.getWindow() != null) dialog.getWindow().getDecorView().post(installButton::requestFocus);
+        // 下拉框 / 输入框 / 开关都要能被遥控器选中（之前只有安装按钮有焦点）
+        LabFocus.enable(releaseDropdown, rootfsDropdown, aptDropdown, rootfsUrlInput, aptUrlInput, sharedSwitch);
+        // 「取消」按钮同样要能被遥控选中，但面板默认焦点仍留在「安装」上
+        LabFocus.fixDialogButtons(dialog, false);
     }
 
     private static void startInstall(Context context, boolean[] busy, AlertDialog dialog, View progressBox,

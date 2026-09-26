@@ -26,6 +26,29 @@ public class QRCode {
         return getBitmap(content, size, margin, Color.BLACK, Color.WHITE);
     }
 
+    /**
+     * 白底黑码的二维码位图（自带静区）。
+     * 原来的 getLightBitmap 背景是透明的，放在深色弹窗里黑码压在深色底上根本看不清；
+     * 这里直接把整张图铺成白底、码点画成方块，任何主题下都清晰可扫，缩放到实际显示尺寸也不发虚。
+     */
+    public static Bitmap getPanelBitmap(String content, int size, int margin) {
+        try {
+            BitMatrix matrix = encode(content, size, margin);
+            int width = matrix.getWidth();
+            int height = matrix.getHeight();
+            int[] pixels = new int[width * height];
+            for (int y = 0; y < height; y++) {
+                int offset = y * width;
+                for (int x = 0; x < width; x++) pixels[offset + x] = matrix.get(x, y) ? Color.BLACK : Color.WHITE;
+            }
+            Bitmap bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
+            bitmap.setPixels(pixels, 0, width, 0, 0, width, height);
+            return bitmap;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
     private static Bitmap getBitmap(String content, int size, int margin, int foreground, int finderBackground) {
         try {
             BitMatrix matrix = encode(content, size, margin);

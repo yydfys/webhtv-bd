@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 二维码白色圆角面板：深色弹窗里给二维码一块纯白底，保证黑码对比度足够 -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
+    <solid android:color="#FFFFFFFF"/>
+    <corners android:radius="16dp"/>
+</shape>

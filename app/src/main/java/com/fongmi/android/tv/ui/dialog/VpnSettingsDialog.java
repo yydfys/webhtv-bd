@@ -138,7 +138,7 @@ public class VpnSettingsDialog extends BaseAlertDialog {
     private void onQr(View view) {
         if (qrDialog != null && qrDialog.isShowing()) qrDialog.dismiss();
         final String value = Server.get().getAddress(4);
-        Bitmap bitmap = QRCode.getLightBitmap(value, 480, 0);
+        Bitmap bitmap = QRCode.getPanelBitmap(value, 212, 2);
         View root = getLayoutInflater().inflate(R.layout.dialog_lab_qrcode, null, false);
         ImageView image = root.findViewById(R.id.qrImage);
         TextView text = root.findViewById(R.id.value);

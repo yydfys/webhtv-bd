@@ -142,6 +142,9 @@ public final class LabCommandSheet implements LabRunner.OutputListener {
             if (callback != null) callback.onChanged();
         });
         dialog.show();
+        // TV（遥控器）：面板里四个按钮 + 下载地址输入框都要能选中并高亮，进面板默认焦点落在「执行」上
+        LabFocus.enable(sheetBtnEdit, sheetBtnStop, sheetBtnRun, sheetBtnOutput, sheetDownloadUrl);
+        if (LabFocus.tv()) sheetBtnRun.post(() -> LabFocus.firstShown(sheetBtnRun, sheetBtnStop, sheetBtnOutput, sheetBtnEdit));
         mStateHandler.post(mStateRunnable);
         loaded = true;
         running = LabRunner.isRunning(key());

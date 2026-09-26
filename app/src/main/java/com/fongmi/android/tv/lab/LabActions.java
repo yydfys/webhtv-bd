@@ -29,10 +29,7 @@ import com.fongmi.android.tv.App;
 import com.fongmi.android.tv.R;
 import com.fongmi.android.tv.utils.Notify;
 import com.fongmi.android.tv.utils.PermissionUtil;
-import com.google.zxing.BarcodeFormat;
-import com.google.zxing.EncodeHintType;
-import com.google.zxing.common.BitMatrix;
-import com.google.zxing.qrcode.QRCodeWriter;
+import com.fongmi.android.tv.utils.QRCode;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 
 import java.util.ArrayList;
@@ -604,24 +601,9 @@ public final class LabActions {
 
     private static void showQrCode(Activity activity, LabModels.Click click, String value) {
         if (value == null || value.isEmpty()) return;
-        int size = (int) (activity.getResources().getDisplayMetrics().density * 200);
-        Bitmap bitmap;
-        try {
-            QRCodeWriter writer = new QRCodeWriter();
-            java.util.Map<EncodeHintType, Object> hints = new HashMap<>();
-            hints.put(EncodeHintType.CHARACTER_SET, "UTF-8");
-            hints.put(EncodeHintType.MARGIN, 1);
-            BitMatrix matrix = writer.encode(value, BarcodeFormat.QR_CODE, size, size, hints);
-            int[] pixels = new int[size * size];
-            for (int y = 0; y < size; y++) {
-                for (int x = 0; x < size; x++) {
-                    pixels[y * size + x] = matrix.get(x, y) ? 0xFF000000 : 0xFFFFFFFF;
-                }
-            }
-            bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888);
-            bitmap.setPixels(pixels, 0, size, 0, 0, size, size);
-        } catch (Exception e) {
-            Toast.makeText(activity, "二维码生成失败: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+        Bitmap bitmap = QRCode.getPanelBitmap(value, 212, 2);
+        if (bitmap == null) {
+            Toast.makeText(activity, "二维码生成失败", Toast.LENGTH_SHORT).show();
             return;
         }
         View root = activity.getLayoutInflater().inflate(R.layout.dialog_lab_qrcode, null, false);

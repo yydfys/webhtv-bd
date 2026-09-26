@@ -63,6 +63,7 @@ public final class LabGroupAdapter extends RecyclerView.Adapter<LabGroupAdapter.
         Row row = rows.get(position);
         holder.text.setText(row.name);
         holder.text.setActivated(position == selected);
+        LabFocus.enable(holder.itemView);
         holder.itemView.setOnClickListener(v -> {
             select(position);
             if (listener != null) listener.onGroup(row.id);

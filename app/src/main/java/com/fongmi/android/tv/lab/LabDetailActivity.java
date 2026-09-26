@@ -81,6 +81,9 @@ public class LabDetailActivity extends AppCompatActivity implements LabCommandAd
         mBinding.btnTerminal.setOnClickListener(v -> openTerminal());
         mBinding.btnAddCommand.setOnClickListener(v -> LabCommandEditDialog.show(this, item, null, this::reload));
         mBinding.btnRefreshCommand.setOnClickListener(v -> onRefreshCommands());
+        // TV（遥控器）：工具栏三个图标 + 底部「下载 / 卸载」都要能被选中并高亮
+        LabFocus.toolbarButton(mBinding.btnTerminal, mBinding.btnAddCommand, mBinding.btnRefreshCommand);
+        LabFocus.enable(mBinding.btnDownload, mBinding.btnUninstall);
         commandAdapter = new LabCommandAdapter(this, this);
         mBinding.commandRecycler.setLayoutManager(new androidx.recyclerview.widget.LinearLayoutManager(this));
         mBinding.commandRecycler.setAdapter(commandAdapter);
@@ -130,6 +133,9 @@ public class LabDetailActivity extends AppCompatActivity implements LabCommandAd
         mBinding.commandRecycler.setVisibility(hasCommands ? View.VISIBLE : View.GONE);
         invalidateOptionsMenu();
         updateButtons();
+        // TV：进页面默认焦点落在第一条命令的「执行」按钮上，没有命令就落到工具栏
+        if (hasCommands) LabFocus.focusFirstChildWhenReady(mBinding.commandRecycler, R.id.btnAction);
+        else if (LabFocus.tv()) mBinding.btnTerminal.post(mBinding.btnTerminal::requestFocus);
         // 「终端」类条目（terminal_auto_open）：进详情页即附着容器终端，不在中间页停留
         if (item.terminal_auto_open && item.isUbuntu() && LabUbuntu.installed(this)) {
             String shell = LabUbuntu.shellCommand(this);

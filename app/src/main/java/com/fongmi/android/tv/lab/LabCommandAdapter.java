@@ -1,7 +1,9 @@
 package com.fongmi.android.tv.lab;
 
 import android.content.Context;
+import android.view.KeyEvent;
 import android.view.LayoutInflater;
+import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.TextView;
@@ -70,6 +72,26 @@ public final class LabCommandAdapter extends RecyclerView.Adapter<LabCommandAdap
         holder.runningTag.setVisibility(running ? View.VISIBLE : View.GONE);
         holder.btnAction.setText(running ? R.string.lab_stop : R.string.lab_run);
         holder.btnAction.setBackgroundResource(running ? R.drawable.shape_lab_stop_btn : R.drawable.shape_lab_run_btn);
+        LabFocus.commandCard(holder.itemView);
+        LabFocus.enable(holder.btnAction);
+        if (LabFocus.tv()) {
+            // 卡片与「运行」按钮都要能被遥控选中：卡片默认焦点，右键进本行的按钮，左键回到本行卡片。
+            // 这里刻意不用 nextFocus*Id —— 同一 id 在每行都出现，框架按 root.findViewById 找会命中
+            // 第一行（列表顶部）的同名控件，导致焦点乱跳；键监听是行内绑定的，不会串行。
+            if (holder.itemView.getId() == View.NO_ID) holder.itemView.setId(View.generateViewId());
+            holder.btnAction.setOnKeyListener((v, keyCode, event) -> {
+                if (event.getAction() == MotionEvent.ACTION_DOWN && keyCode == KeyEvent.KEYCODE_DPAD_LEFT) {
+                    return holder.itemView.requestFocus();
+                }
+                return false;
+            });
+            holder.itemView.setOnKeyListener((v, keyCode, event) -> {
+                if (event.getAction() == MotionEvent.ACTION_DOWN && keyCode == KeyEvent.KEYCODE_DPAD_RIGHT) {
+                    return holder.btnAction.requestFocus();
+                }
+                return false;
+            });
+        }
         holder.itemView.setOnClickListener(v -> {
             if (listener != null) listener.onOpen(item, command);
         });
