@@ -81,6 +81,15 @@ public class WebDav implements Process {
 
     @Override
     public Response doResponse(IHTTPSession session, String url, Map<String, String> files) {
+        // 所有 /dav 响应统一带上 Connection: close。
+        // MT 管理器的 OkHttp 带连接池：服务端空闲关连接后，池里留着的就是死连接。
+        // 带 body 的 PUT 命中死连接时 OkHttp 不会自动重试，直接抛 unexpected end of stream；
+        // 而没 body 的浏览/读取请求会自动换连接重试 —— 这正是"能看不能写"的根因。
+        // 声明 close 后客户端不再复用连接，PUT 永远走新连接，不可能再骑到死连接上。
+        return closeAfter(handle(session, url, files));
+    }
+
+    private Response handle(IHTTPSession session, String url, Map<String, String> files) {
         if (!authorized(session)) return unauthorized(session);
         String path = isDav(url) ? url.substring(PREFIX.length()) : url;
         if (path.isEmpty()) path = "/";
@@ -123,6 +132,11 @@ public class WebDav implements Process {
         } catch (Exception e) {
             return text(Status.INTERNAL_ERROR, "错误：" + e);
         }
+    }
+
+    private static Response closeAfter(Response response) {
+        if (response != null) response.closeConnection(true);
+        return response;
     }
 
     private boolean isDav(String url) {
