@@ -81,7 +81,7 @@ public class WebDav implements Process {
 
     @Override
     public Response doResponse(IHTTPSession session, String url, Map<String, String> files) {
-        if (!authorized(session)) return unauthorized();
+        if (!authorized(session)) return unauthorized(session);
         String path = isDav(url) ? url.substring(PREFIX.length()) : url;
         if (path.isEmpty()) path = "/";
         try {
@@ -129,9 +129,14 @@ public class WebDav implements Process {
         return url.equals(PREFIX) || url.startsWith(PREFIX + "/");
     }
 
-    private Response unauthorized() {
+    private Response unauthorized(IHTTPSession session) {
+        // 必须先吃完请求体：否则客户端（MT 管理器等）写入一半就被 401 打断，
+        // 残留字节还会被当成下一个请求，客户端只看到 "unexpected end of stream"。
+        boolean drained = drain(session);
         Response response = NanoHTTPD.newFixedLengthResponse(Status.UNAUTHORIZED, CT_TEXT, "401 Unauthorized");
         response.addHeader("WWW-Authenticate", "Basic realm=\"" + AUTH_REALM + "\", charset=\"UTF-8\"");
+        // 没读完就必须断开，避免 keep-alive 连接上的残留字节污染下一个请求
+        if (!drained) response.closeConnection(true);
         return response;
     }
 
@@ -452,19 +457,43 @@ public class WebDav implements Process {
         return builder.length() == 0 ? null : builder.toString();
     }
 
-    private void drain(IHTTPSession session) {
-        long length = headerLong(session, "content-length", 0);
-        if (length <= 0) return;
+    /** 丢弃请求体；返回 true 表示已全部读完（连接可以继续复用）。 */
+    private boolean drain(IHTTPSession session) {
         try {
             InputStream in = session.getInputStream();
+            String encoding = header(session, "transfer-encoding");
+            if (encoding != null && encoding.toLowerCase(Locale.ROOT).contains("chunked")) return drainChunked(in);
+            long length = headerLong(session, "content-length", 0);
+            if (length <= 0) return true;
             byte[] buffer = new byte[8 * 1024];
-            long remaining = Math.min(length, 1024L * 1024L);
+            long remaining = length;
             while (remaining > 0) {
                 int read = in.read(buffer, 0, (int) Math.min(buffer.length, remaining));
-                if (read < 0) break;
+                if (read < 0) return false;
                 remaining -= read;
             }
-        } catch (Exception ignored) {
+            return true;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    private boolean drainChunked(InputStream in) {
+        try {
+            while (true) {
+                String line = readLine(in);
+                if (line == null) return false;
+                int end = line.indexOf(';');
+                long size = Long.parseLong((end < 0 ? line : line.substring(0, end)).trim(), 16);
+                if (size <= 0) {
+                    drainChunkEnd(in);
+                    return true;
+                }
+                skip(in, size);
+                readLine(in);
+            }
+        } catch (Exception e) {
+            return false;
         }
     }
 

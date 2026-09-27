@@ -68,7 +68,10 @@ public class Server {
         for (int i = 9978; i < 9999; i++) {
             try {
                 nano = new Nano(i);
-                nano.start(500);
+                // 读超时：500ms 太短，keep-alive 连接空闲超时会被服务端直接掐断，
+                // 且客户端（如 MT 管理器的 WebDAV 上传）在 1s 内才发请求体时会被判超时，
+                // 表现为客户端 "unexpected end of stream"。这里放宽到 30s。
+                nano.start(30000);
                 Proxy.set(i);
                 if (routeRegistration != null) routeRegistration.close();
                 routeRegistration = PlaybackRouteRegistry.registerAppService(i, PlaybackRouteRegistry.AppOwner.MAIN_SERVER);
