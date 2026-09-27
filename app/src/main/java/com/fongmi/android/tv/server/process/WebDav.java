@@ -1,5 +1,7 @@
 package com.fongmi.android.tv.server.process;
 
+import android.util.Base64;
+
 import com.fongmi.android.tv.server.impl.Process;
 import com.github.catvod.utils.Path;
 
@@ -31,10 +33,16 @@ import fi.iki.elonen.NanoHTTPD.Response.Status;
  * <p>
  * 接入地址两种都行：http://ip:9978/dav 或 http://ip:9978 （根即网盘根）。
  * 只有 /dav 前缀下的 GET/HEAD 走本类，根路径的 GET 仍然返回原来的网页，不影响原有功能。
+ * <p>
+ * 认证：本类处理的请求（即 WebDAV 这一层）统一要求 HTTP Basic 认证，用户名 admin，
+ * 密码 aB@123456。9978 的其余功能（网页、接口等）不走本类，因此不受影响。
  */
 public class WebDav implements Process {
 
     private static final String PREFIX = "/dav";
+    private static final String AUTH_USER = "admin";
+    private static final String AUTH_PASS = "aB@123456";
+    private static final String AUTH_REALM = "WebHTV";
     private static final String CT_XML = "application/xml; charset=utf-8";
     private static final String CT_TEXT = "text/plain; charset=utf-8";
     private static final String CT_HTML = "text/html; charset=utf-8";
@@ -73,6 +81,7 @@ public class WebDav implements Process {
 
     @Override
     public Response doResponse(IHTTPSession session, String url, Map<String, String> files) {
+        if (!authorized(session)) return unauthorized();
         String path = isDav(url) ? url.substring(PREFIX.length()) : url;
         if (path.isEmpty()) path = "/";
         try {
@@ -118,6 +127,28 @@ public class WebDav implements Process {
 
     private boolean isDav(String url) {
         return url.equals(PREFIX) || url.startsWith(PREFIX + "/");
+    }
+
+    private Response unauthorized() {
+        Response response = NanoHTTPD.newFixedLengthResponse(Status.UNAUTHORIZED, CT_TEXT, "401 Unauthorized");
+        response.addHeader("WWW-Authenticate", "Basic realm=\"" + AUTH_REALM + "\", charset=\"UTF-8\"");
+        return response;
+    }
+
+    private boolean authorized(IHTTPSession session) {
+        String header = header(session, "authorization");
+        if (header == null) return false;
+        String value = header.trim();
+        if (value.length() < 6 || !value.substring(0, 6).equalsIgnoreCase("basic ")) return false;
+        String plain;
+        try {
+            plain = new String(Base64.decode(value.substring(6).trim(), Base64.DEFAULT), StandardCharsets.UTF_8);
+        } catch (Exception e) {
+            return false;
+        }
+        int index = plain.indexOf(':');
+        if (index < 0) return false;
+        return AUTH_USER.equals(plain.substring(0, index)) && AUTH_PASS.equals(plain.substring(index + 1));
     }
 
     private File resolve(String path) throws Exception {
