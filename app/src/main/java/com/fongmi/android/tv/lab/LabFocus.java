@@ -261,4 +261,66 @@ public final class LabFocus {
             }
         });
     }
+
+    // ---------------- v582: 对话框行级选中（TV 专属，手机端空操作） ----------------
+
+    /**
+     * 行级选中：整行作为遥控器焦点位，行内控件（开关/文字）让出焦点，
+     * 使 VPN 面板 / 节点管理 等对话框在遥控器下能看出当前落在哪一行。
+     */
+    public static void rowRing(View row, View... inner) {
+        if (row == null || !tv()) return;
+        for (View v : inner) {
+            if (v == null) continue;
+            v.setFocusable(false);
+            v.setFocusableInTouchMode(false);
+        }
+        ring(row);
+    }
+
+    /** 行可用性：整行置灰并退出遥控器焦点链（手机端不改变默认外观） */
+    public static void rowEnable(View row, boolean enabled) {
+        if (row == null || !tv()) return;
+        row.setEnabled(enabled);
+        row.setAlpha(enabled ? 1.0f : 0.45f);
+        row.setFocusable(enabled);
+        row.setFocusableInTouchMode(enabled);
+    }
+
+    /** 输入框聚焦描边高亮：常态色沿用主题默认描边色 */
+    public static void inputStroke(View target, int focusColor) {
+        if (target == null || !tv()) return;
+        com.google.android.material.textfield.TextInputLayout til = null;
+        if (target instanceof com.google.android.material.textfield.TextInputLayout) {
+            til = (com.google.android.material.textfield.TextInputLayout) target;
+        } else if (target.getParent() instanceof com.google.android.material.textfield.TextInputLayout) {
+            til = (com.google.android.material.textfield.TextInputLayout) target.getParent();
+        }
+        if (til == null) return;
+        int normal = til.getBoxStrokeColor();
+        til.setBoxStrokeColor(new ColorStateList(
+                new int[][]{new int[]{android.R.attr.state_focused}, new int[]{}},
+                new int[]{focusColor, normal}));
+    }
+
+    /** 列表焦点：首个可聚焦行出现即抢焦点；列表为空时回落到兜底控件 */
+    public static void focusListOr(final ViewGroup list, final View fallback) {
+        if (list == null || !tv()) return;
+        list.getViewTreeObserver().addOnGlobalLayoutListener(new ViewTreeObserver.OnGlobalLayoutListener() {
+            @Override
+            public void onGlobalLayout() {
+                if (list.getChildCount() == 0) return;
+                View first = list.getChildAt(0);
+                if (first == null || first.getWidth() <= 0) return;
+                list.getViewTreeObserver().removeOnGlobalLayoutListener(this);
+                first.requestFocus();
+            }
+        });
+        list.postDelayed(new Runnable() {
+            @Override
+            public void run() {
+                if (list.getChildCount() == 0 && fallback != null && fallback.isShown()) fallback.requestFocus();
+            }
+        }, 700);
+    }
 }

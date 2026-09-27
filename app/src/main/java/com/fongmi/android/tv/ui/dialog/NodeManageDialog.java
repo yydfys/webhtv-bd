@@ -2,6 +2,7 @@ package com.fongmi.android.tv.ui.dialog;
 
 import android.view.LayoutInflater;
 import android.view.View;
+import com.fongmi.android.tv.lab.LabFocus;
 import android.view.ViewGroup;
 import android.view.Window;
 import android.view.WindowManager;
@@ -222,6 +223,7 @@ public class NodeManageDialog extends BaseAlertDialog {
         }
         binding.status.setText(groups.size() + " groups");
         adapter.notifyDataSetChanged();
+        LabFocus.focusListOr(binding.recycler, binding.refresh);
     }
 
     private long delayOf(String name) {
@@ -341,6 +343,7 @@ public class NodeManageDialog extends BaseAlertDialog {
         @Override
         public VH onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
             AdapterNodeManageBinding binding = AdapterNodeManageBinding.inflate(LayoutInflater.from(parent.getContext()), parent, false);
+            LabFocus.rowRing(binding.getRoot());
             return new VH(binding);
         }
 

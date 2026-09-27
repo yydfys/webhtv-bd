@@ -109,6 +109,7 @@ public class VpnSettingsDialog extends BaseAlertDialog {
     private void applyVpnDependency() {
         boolean enabled = mihomo.isChecked();
         vpn.setEnabled(enabled);
+        syncRowState();
         if (!enabled) vpn.setChecked(false);
     }
 
@@ -226,7 +227,11 @@ public class VpnSettingsDialog extends BaseAlertDialog {
         super.onStart();
         EventBus.getDefault().register(this);
         // 遥控器（TV）下主动请求焦点，避免弹窗无焦点
-        if (Util.isLeanback()) binding.getRoot().post(() -> binding.mihomoSwitch.requestFocus());
+                if (Util.isLeanback()) {
+            setupTvRows();
+            syncRowState();
+            requestInitialFocus();
+        }
         // 确定 / 取消 按钮使用统一的遥控器选中高亮样式（自定义按钮不走 AlertDialog 的按钮通道）
         LabFocus.styleButton(binding.negative);
         LabFocus.styleButton(binding.positive);
@@ -258,10 +263,13 @@ public class VpnSettingsDialog extends BaseAlertDialog {
                 binding.autoStartSwitch.setChecked(auto);
                 if (auto) {
                     binding.mihomoSwitch.setEnabled(false);
+                    syncRowState();
                     binding.mihomoSwitch.setChecked(running);
                 } else {
                     binding.mihomoSwitch.setEnabled(true);
+                    syncRowState();
                     binding.autoStartSwitch.setEnabled(!(running && binding.mihomoSwitch.isChecked()));
+                    syncRowState();
                 }
             } finally {
                 syncing = false;
@@ -292,14 +300,17 @@ public class VpnSettingsDialog extends BaseAlertDialog {
             LabConfig.get().setMihomo(false);
             if (on) {
                 binding.mihomoSwitch.setEnabled(false);
+                syncRowState();
                 startMihomoNow();
                 binding.mihomoSwitch.setChecked(SystemVpnService.isProxyRunning());
             } else {
                 SystemVpnService.stopAll(requireContext());
                 binding.mihomoSwitch.setEnabled(true);
+                syncRowState();
                 binding.mihomoSwitch.setChecked(false);
             }
             binding.autoStartSwitch.setEnabled(true);
+            syncRowState();
         } finally {
             syncing = false;
         }
@@ -314,6 +325,7 @@ public class VpnSettingsDialog extends BaseAlertDialog {
             LabConfig.get().setMihomoAutoStart(false);
             binding.autoStartSwitch.setChecked(false);
             binding.autoStartSwitch.setEnabled(!on);
+            syncRowState();
             if (on) startMihomoNow();
             else SystemVpnService.stopAll(requireContext());   // 两个开关都关 = 停代理，避免"开关全灭内核还在跑"
         } finally {
@@ -327,5 +339,50 @@ public class VpnSettingsDialog extends BaseAlertDialog {
         String sub = cs == null ? "" : cs.toString().trim();
         if (!sub.isEmpty()) LabConfig.get().setSubUrl(sub);
         if (!SystemVpnService.isProxyRunning()) SystemVpnService.startProxy(requireContext());
+    }
+
+    // ---------------- v582: TV 焦点链（统一走"行"，手机端不改变行为） ----------------
+
+    /** 行级选中 + 焦点链：整行走 ring，行内开关不抢焦点 */
+    private void setupTvRows() {
+        LabFocus.rowRing(binding.autoStartRow, binding.autoStartSwitch);
+        LabFocus.rowRing(binding.mihomoRow, binding.mihomoSwitch);
+        LabFocus.rowRing(binding.vpnRow, binding.vpnSwitch);
+        LabFocus.rowRing(binding.nodeRow);
+        LabFocus.inputStroke(binding.subUrlLayout, 0xFF2F6FED);
+        if (!Util.isLeanback()) return;
+        binding.autoStartRow.setOnClickListener(v -> toggleSwitch(binding.autoStartSwitch));
+        binding.mihomoRow.setOnClickListener(v -> toggleSwitch(binding.mihomoSwitch));
+        binding.vpnRow.setOnClickListener(v -> toggleSwitch(binding.vpnSwitch));
+        binding.subUrl.setNextFocusDownId(R.id.autoStartRow);
+        binding.qrBtn.setNextFocusDownId(R.id.autoStartRow);
+        binding.autoStartRow.setNextFocusUpId(R.id.subUrl);
+        binding.autoStartRow.setNextFocusDownId(R.id.mihomoRow);
+        binding.mihomoRow.setNextFocusUpId(R.id.autoStartRow);
+        binding.mihomoRow.setNextFocusDownId(R.id.nodeRow);
+        binding.nodeRow.setNextFocusUpId(R.id.mihomoRow);
+        binding.nodeRow.setNextFocusDownId(R.id.positive);
+        binding.negative.setNextFocusUpId(R.id.nodeRow);
+        binding.positive.setNextFocusUpId(R.id.nodeRow);
+    }
+
+    private void toggleSwitch(android.widget.CompoundButton sw) {
+        if (sw != null && sw.isEnabled()) sw.toggle();
+    }
+
+    /** 行可用性与开关可用性保持一致（TV） */
+    private void syncRowState() {
+        LabFocus.rowEnable(binding.mihomoRow, binding.mihomoSwitch.isEnabled());
+        LabFocus.rowEnable(binding.autoStartRow, binding.autoStartSwitch.isEnabled());
+        LabFocus.rowEnable(binding.vpnRow, binding.vpnSwitch.isEnabled());
+    }
+
+    /** 默认焦点：落在第一个可用行，避免投到会变灰的开关/输入框 */
+    private void requestInitialFocus() {
+        int target = R.id.autoStartRow;
+        if (!binding.autoStartRow.isFocusable()) {
+            target = binding.mihomoRow.isFocusable() ? R.id.mihomoRow : R.id.subUrl;
+        }
+        LabFocus.focusFirstChildOnLayout(binding.getRoot(), target);
     }
 }
