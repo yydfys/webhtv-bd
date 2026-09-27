@@ -18,6 +18,7 @@ import com.fongmi.android.tv.server.process.Proxy;
 import com.fongmi.android.tv.server.process.CatMessage;
 import com.fongmi.android.tv.server.process.RemoteTrustSetup;
 import com.fongmi.android.tv.server.process.SpiderApi;
+import com.fongmi.android.tv.server.process.WebDav;
 import com.fongmi.android.tv.server.process.WebResourceGateway;
 import com.github.catvod.crawler.SpiderDebug;
 import com.github.catvod.utils.Asset;
@@ -58,6 +59,7 @@ public class Nano extends NanoHTTPD {
         process.add(new CatMessage());
         process.add(new RemoteTrustSetup());
         process.add(new SpiderApi());
+        process.add(new WebDav());
         process.add(new WebResourceGateway());
     }
 
