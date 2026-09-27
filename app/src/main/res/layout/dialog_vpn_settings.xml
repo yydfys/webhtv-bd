@@ -17,12 +17,11 @@
         <!-- 状态说明 -->
         <com.google.android.material.textview.MaterialTextView
             android:id="@+id/status"
+            style="@style/Widget.WebHTV.LightDialog.Helper"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginBottom="8dp"
-            android:text="@string/vpn_state_off"
-            android:textColor="@color/lab_panel_text_secondary"
-            android:textSize="13sp" />
+            android:text="@string/vpn_state_off" />
 
         <!-- 订阅地址 + 扫码推送 -->
         <LinearLayout
@@ -38,8 +37,6 @@
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
                 android:hint="@string/lab_sub_url_hint"
-                app:boxStrokeColor="#1976d2"
-                app:hintTextColor="#1976d2"
                 style="@style/Widget.Material3.TextInputLayout.OutlinedBox">
 
                 <com.google.android.material.textfield.TextInputEditText
@@ -55,8 +52,8 @@
                     android:inputType="textUri"
                     android:maxLines="2"
                     android:minHeight="48dp"
-                    android:textColor="#1976d2"
-                    android:textSize="13sp" />
+                    android:textColor="@color/lab_panel_text"
+                    android:textSize="14sp" />
             </com.google.android.material.textfield.TextInputLayout>
 
             <androidx.appcompat.widget.AppCompatImageView
@@ -74,7 +71,7 @@
                 android:nextFocusUp="@id/autoStartSwitch"
                 android:padding="6dp"
                 android:src="@drawable/ic_remote_qr"
-                android:tint="#1976d2" />
+                android:tint="@color/lab_panel_accent" />
         </LinearLayout>
 
         <!-- mihomo 自启动开关（仅 TV 显示，与手动代理开关互斥） -->
@@ -95,20 +92,18 @@
 
                 <TextView
                     android:id="@+id/autoStartTitle"
+                    style="@style/Widget.WebHTV.LightDialog.Label"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="@string/lab_mihomo_autostart_title"
-                    android:textColor="@color/lab_panel_text"
-                    android:textSize="14sp" />
+                    android:text="@string/lab_mihomo_autostart_title" />
 
                 <TextView
                     android:id="@+id/autoStartHint"
+                    style="@style/Widget.WebHTV.LightDialog.Helper"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="2dp"
-                    android:text="@string/lab_mihomo_autostart_hint"
-                    android:textColor="@color/lab_panel_text_secondary"
-                    android:textSize="12sp" />
+                    android:text="@string/lab_mihomo_autostart_hint" />
             </LinearLayout>
 
             <com.google.android.material.materialswitch.MaterialSwitch
@@ -136,20 +131,18 @@
 
                 <TextView
                     android:id="@+id/mihomoTitle"
+                    style="@style/Widget.WebHTV.LightDialog.Label"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="@string/lab_mihomo_title"
-                    android:textColor="@color/lab_panel_text"
-                    android:textSize="14sp" />
+                    android:text="@string/lab_mihomo_title" />
 
                 <TextView
                     android:id="@+id/mihomoHint"
+                    style="@style/Widget.WebHTV.LightDialog.Helper"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="2dp"
-                    android:text="@string/lab_mihomo_hint"
-                    android:textColor="@color/lab_panel_text_secondary"
-                    android:textSize="12sp" />
+                    android:text="@string/lab_mihomo_hint" />
             </LinearLayout>
 
             <com.google.android.material.materialswitch.MaterialSwitch
@@ -177,20 +170,18 @@
 
                 <TextView
                     android:id="@+id/vpnTitle"
+                    style="@style/Widget.WebHTV.LightDialog.Label"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="@string/lab_system_vpn_title"
-                    android:textColor="@color/lab_panel_text"
-                    android:textSize="14sp" />
+                    android:text="@string/lab_system_vpn_title" />
 
                 <TextView
                     android:id="@+id/vpnHint"
+                    style="@style/Widget.WebHTV.LightDialog.Helper"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="2dp"
-                    android:text="@string/lab_system_vpn_hint"
-                    android:textColor="@color/lab_panel_text_secondary"
-                    android:textSize="12sp" />
+                    android:text="@string/lab_system_vpn_hint" />
             </LinearLayout>
 
             <com.google.android.material.materialswitch.MaterialSwitch
@@ -225,21 +216,18 @@
 
                 <TextView
                     android:id="@+id/nodeTitle"
+                    style="@style/Widget.WebHTV.LightDialog.Label"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="@string/node_manage_title"
-                    android:textColor="@color/lab_panel_text"
-                    android:textSize="14sp"
-                    android:textStyle="bold" />
+                    android:text="@string/node_manage_title" />
 
                 <TextView
                     android:id="@+id/nodeHint"
+                    style="@style/Widget.WebHTV.LightDialog.Helper"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="2dp"
-                    android:text="@string/node_manage_hint"
-                    android:textColor="@color/lab_panel_text_secondary"
-                    android:textSize="12sp" />
+                    android:text="@string/node_manage_hint" />
             </LinearLayout>
 
             <TextView
@@ -259,7 +247,7 @@
 
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/negative"
-                style="@style/Widget.Material3.Button.OutlinedButton"
+                style="@style/Widget.WebHTV.LightDialog.Button.Outlined"
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_marginEnd="12dp"
@@ -272,7 +260,7 @@
 
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/positive"
-                style="@style/Widget.Material3.Button"
+                style="@style/Widget.WebHTV.LightDialog.Button.Tonal"
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"

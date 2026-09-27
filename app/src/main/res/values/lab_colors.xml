@@ -11,4 +11,12 @@
     <color name="lab_panel_bg">#FFFFFF</color>
     <color name="lab_panel_text">#1C1B1F</color>
     <color name="lab_panel_text_secondary">#5C5C66</color>
+    <!-- v583 固定浅底弹窗（VPN 代理面板 / 节点管理面板）文字/强调/描边色 -->
+    <color name="lab_panel_text_hint">#8A8F98</color>
+    <color name="lab_panel_accent">#2F6FED</color>
+    <color name="lab_panel_on_accent">#FFFFFF</color>
+    <color name="lab_panel_outline">#C7C7CE</color>
+    <color name="lab_panel_surface_variant">#E7E7EE</color>
+    <color name="lab_panel_outline_variant">#DFDFE5</color>
 </resources>
+

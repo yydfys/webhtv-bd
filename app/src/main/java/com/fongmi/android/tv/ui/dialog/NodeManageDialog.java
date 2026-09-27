@@ -51,7 +51,7 @@ public class NodeManageDialog extends BaseAlertDialog {
 
     private static final String API_BASE = "http://127.0.0.1:9090";
     private static final String SECRET = "WEBHTV_MIHOMO_2026";
-    private static final int COLOR_ACCENT = 0xFF1976D2;
+    private static final int COLOR_ACCENT = 0xFF2F6FED;
     private static final int COLOR_PRIMARY = 0xFF1C1B1F;
     private static final int COLOR_SECONDARY = 0xFF5C5C66;
 

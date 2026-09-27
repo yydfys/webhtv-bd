@@ -11,12 +11,11 @@
     <!-- 状态提示：加载中 / 失败 / 组信息 -->
     <com.google.android.material.textview.MaterialTextView
         android:id="@+id/status"
+        style="@style/Widget.WebHTV.LightDialog.Helper"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_marginBottom="8dp"
-        android:text="@string/node_manage_loading"
-        android:textColor="@color/lab_panel_text_secondary"
-        android:textSize="13sp" />
+        android:text="@string/node_manage_loading" />
 
     <!-- 代理组 / 节点列表 -->
     <androidx.recyclerview.widget.RecyclerView
@@ -36,7 +35,7 @@
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/refresh"
-            style="@style/Widget.Material3.Button.OutlinedButton"
+            style="@style/Widget.WebHTV.LightDialog.Button.Outlined"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_marginEnd="12dp"
@@ -47,7 +46,7 @@
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/close"
-            style="@style/Widget.Material3.Button"
+            style="@style/Widget.WebHTV.LightDialog.Button.Tonal"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
