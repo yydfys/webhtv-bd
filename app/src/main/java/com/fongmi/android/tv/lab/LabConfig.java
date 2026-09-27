@@ -46,6 +46,8 @@ public final class LabConfig {
     private static final String KEY_GLOBAL_PROXY = "global_proxy";
     private static final String KEY_SYSTEM_VPN = "system_vpn";
     private static final String KEY_MIHOMO = "mihomo";
+    /** v581：mihomo 自启动开关（仅 TV 版使用） */
+    private static final String KEY_MIHOMO_AUTO_START = "mihomo_auto_start";
     private static final String KEY_SUB_URL = "mihomo_sub_url";
     private static final String KEY_GLOBAL_PROXY_PORT = "global_proxy_port";
     private static final String KEY_GLOBAL_PROXY_NO_PROXY = "global_proxy_no_proxy";
