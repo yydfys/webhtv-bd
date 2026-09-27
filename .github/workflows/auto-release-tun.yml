@@ -67,13 +67,14 @@ jobs:
             echo "MERGE_CONFLICT"
             git diff --name-only --diff-filter=U | tee /tmp/conflicts.txt || true
             echo "----- 按已知规则自动解冲突 -----"
-            # 规则见 .github/scripts/resolve_conflicts.py（只解 Manifest / build.gradle，其余一律失败退出）
+            # 规则见 .github/scripts/resolve_conflicts.py（真·三方合并：纯插入两块都留、真冲突按策略，
+            # 未知文件默认保留我方；要严格可给本步骤设 RESOLVE_UNKNOWN=fail）
             python3 .github/scripts/resolve_conflicts.py $(cat /tmp/conflicts.txt | tr '\n' ' ')
             git add -A
-            git commit -m "Merge origin/main into $TARGET (auto-resolved Manifest/build.gradle) [skip ci]"
+            git commit -m "Merge origin/main into $TARGET (auto-resolved conflicts) [skip ci]"
             echo "MERGE_RESOLVED $(git rev-parse --short HEAD)"
             echo "----- 复核：全仓不应再有冲突标记 -----"
-            ! grep -rn "^<<<<<<< \|^>>>>>>> " --exclude-dir=.git --include="*.java" --include="*.xml" --include="*.gradle" --include="*.json" . > /dev/null
+            ! grep -rIn "^<<<<<<< \|^>>>>>>> " --exclude-dir=.git . > /dev/null
           fi
 
       - name: Push merged target branch
