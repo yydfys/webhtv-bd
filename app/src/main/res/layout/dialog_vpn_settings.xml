@@ -21,50 +21,10 @@
             android:layout_height="wrap_content"
             android:layout_marginBottom="8dp"
             android:text="@string/vpn_state_off"
-            android:textColor="@color/lab_text_secondary"
+            android:textColor="@color/lab_panel_text_secondary"
             android:textSize="13sp" />
 
-        <!-- mihomo 代理总开关 -->
-        <LinearLayout
-            android:id="@+id/mihomoRow"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:gravity="center_vertical"
-            android:orientation="horizontal">
-
-            <LinearLayout
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:orientation="vertical">
-
-                <TextView
-                    android:id="@+id/mihomoTitle"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="@string/lab_mihomo_title"
-                    android:textColor="@color/lab_text_primary"
-                    android:textSize="14sp" />
-
-                <TextView
-                    android:id="@+id/mihomoHint"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="2dp"
-                    android:text="@string/lab_mihomo_hint"
-                    android:textColor="@color/lab_text_secondary"
-                    android:textSize="12sp" />
-            </LinearLayout>
-
-            <com.google.android.material.materialswitch.MaterialSwitch
-                android:id="@+id/mihomoSwitch"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:nextFocusDown="@id/subUrl" />
-        </LinearLayout>
-
-        <!-- 订阅地址输入 + 扫码 -->
+        <!-- 订阅地址 + 扫码推送 -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -88,9 +48,9 @@
                     android:clickable="true"
                     android:focusable="true"
                     android:focusableInTouchMode="true"
-                    android:nextFocusDown="@id/vpnSwitch"
+                    android:nextFocusDown="@id/autoStartSwitch"
                     android:nextFocusRight="@id/qrBtn"
-                    android:nextFocusUp="@id/mihomoSwitch"
+                    android:nextFocusUp="@id/autoStartSwitch"
                     android:layout_height="wrap_content"
                     android:inputType="textUri"
                     android:maxLines="2"
@@ -109,16 +69,99 @@
                 android:clickable="true"
                 android:contentDescription="扫码推送订阅"
                 android:focusable="true"
-                android:nextFocusDown="@id/vpnSwitch"
+                android:nextFocusDown="@id/autoStartSwitch"
                 android:nextFocusLeft="@id/subUrl"
-                android:nextFocusUp="@id/mihomoSwitch"
+                android:nextFocusUp="@id/autoStartSwitch"
                 android:padding="6dp"
                 android:src="@drawable/ic_remote_qr"
                 android:tint="#1976d2" />
         </LinearLayout>
 
-        <!-- 系统级 VPN 开关 -->
+        <!-- mihomo 自启动开关（仅 TV 显示，与手动代理开关互斥） -->
         <LinearLayout
+            android:id="@+id/autoStartRow"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:visibility="gone">
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical">
+
+                <TextView
+                    android:id="@+id/autoStartTitle"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/lab_mihomo_autostart_title"
+                    android:textColor="@color/lab_panel_text"
+                    android:textSize="14sp" />
+
+                <TextView
+                    android:id="@+id/autoStartHint"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="2dp"
+                    android:text="@string/lab_mihomo_autostart_hint"
+                    android:textColor="@color/lab_panel_text_secondary"
+                    android:textSize="12sp" />
+            </LinearLayout>
+
+            <com.google.android.material.materialswitch.MaterialSwitch
+                android:id="@+id/autoStartSwitch"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:focusable="true"
+                android:nextFocusDown="@id/mihomoSwitch"
+                android:nextFocusUp="@id/subUrl" />
+        </LinearLayout>
+
+<LinearLayout
+            android:id="@+id/mihomoRow"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical">
+
+                <TextView
+                    android:id="@+id/mihomoTitle"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/lab_mihomo_title"
+                    android:textColor="@color/lab_panel_text"
+                    android:textSize="14sp" />
+
+                <TextView
+                    android:id="@+id/mihomoHint"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="2dp"
+                    android:text="@string/lab_mihomo_hint"
+                    android:textColor="@color/lab_panel_text_secondary"
+                    android:textSize="12sp" />
+            </LinearLayout>
+
+            <com.google.android.material.materialswitch.MaterialSwitch
+                android:id="@+id/mihomoSwitch"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:focusable="true"
+                android:nextFocusDown="@id/vpnSwitch"
+                android:nextFocusUp="@id/autoStartSwitch" />
+        </LinearLayout>
+
+<LinearLayout
             android:id="@+id/vpnRow"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -137,7 +180,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="@string/lab_system_vpn_title"
-                    android:textColor="@color/lab_text_primary"
+                    android:textColor="@color/lab_panel_text"
                     android:textSize="14sp" />
 
                 <TextView
@@ -146,7 +189,7 @@
                     android:layout_height="wrap_content"
                     android:layout_marginTop="2dp"
                     android:text="@string/lab_system_vpn_hint"
-                    android:textColor="@color/lab_text_secondary"
+                    android:textColor="@color/lab_panel_text_secondary"
                     android:textSize="12sp" />
             </LinearLayout>
 
@@ -154,12 +197,12 @@
                 android:id="@+id/vpnSwitch"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
+                android:focusable="true"
                 android:nextFocusDown="@id/nodeRow"
-                android:nextFocusUp="@id/subUrl" />
+                android:nextFocusUp="@id/mihomoSwitch" />
         </LinearLayout>
 
-        <!-- 节点管理入口（浏览订阅节点 / 手动切换） -->
-        <LinearLayout
+<LinearLayout
             android:id="@+id/nodeRow"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -169,7 +212,7 @@
             android:focusable="true"
             android:gravity="center_vertical"
             android:nextFocusDown="@id/positive"
-            android:nextFocusUp="@id/vpnSwitch"
+            android:nextFocusUp="@id/mihomoSwitch"
             android:orientation="horizontal"
             android:paddingTop="4dp"
             android:paddingBottom="4dp">
@@ -185,7 +228,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="@string/node_manage_title"
-                    android:textColor="@color/lab_text_primary"
+                    android:textColor="@color/lab_panel_text"
                     android:textSize="14sp"
                     android:textStyle="bold" />
 
@@ -195,7 +238,7 @@
                     android:layout_height="wrap_content"
                     android:layout_marginTop="2dp"
                     android:text="@string/node_manage_hint"
-                    android:textColor="@color/lab_text_secondary"
+                    android:textColor="@color/lab_panel_text_secondary"
                     android:textSize="12sp" />
             </LinearLayout>
 
@@ -203,7 +246,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text=">"
-                android:textColor="@color/lab_text_secondary"
+                android:textColor="@color/lab_panel_text_secondary"
                 android:textSize="18sp" />
         </LinearLayout>
 

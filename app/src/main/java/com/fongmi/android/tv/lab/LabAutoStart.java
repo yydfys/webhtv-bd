@@ -7,6 +7,7 @@ import com.fongmi.android.tv.App;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
+import com.fongmi.android.tv.utils.Util;
 
 public final class LabAutoStart {
 
@@ -16,6 +17,9 @@ public final class LabAutoStart {
     }
 
     public static void start(Context context) {
+        // v581：TV 自启动模式 —— 壳子启动后（含开机广播拉起进程）自动拉起 mihomo 内核
+        if (Util.isLeanback() && LabConfig.get().getMihomoAutoStart()) SystemVpnService.autoStartMihomo(context);
+
         if (!STARTED.compareAndSet(false, true)) return;
         new Thread(() -> {
             try {

@@ -223,4 +223,15 @@
         <item name="backgroundTint">#174EA6</item>
     </style>
 
+
+    <!-- v581 固定浅底弹窗：VPN 代理面板 / 节点管理面板专用。
+         壳子（TV）是深色主题，parent 里的 ?attr/colorSurfaceContainer 会解析成深色底，
+         再配 #202124 深色字就完全看不清。这里把「窗口底色 / surface」钉死成固定浅色
+         （textColor 沿用 parent 里的深色），两个面板在 TV 深色壳与手机夜间模式下都是白底深字，
+         与二维码弹窗观感一致。注意：不动 surfaceContainerHigh/Highest，避免开关轨道看不见。 -->
+    <style name="ThemeOverlay.WebHTV.FixedLightDialog" parent="ThemeOverlay.WebHTV.LightDialog">
+        <item name="android:colorBackground">@color/lab_panel_bg</item>
+        <item name="colorSurface">@color/lab_panel_bg</item>
+        <item name="colorSurfaceContainer">@color/lab_panel_bg</item>
+    </style>
 </resources>

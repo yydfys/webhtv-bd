@@ -45,6 +45,7 @@ import android.net.Uri;
 /** VPN 代理设置面板（mobile + leanback 共用）。
  *  mihomo 代理总开关 + 订阅地址输入（支持扫码推送）+ 系统级 VPN 二级开关。 */
 public class VpnSettingsDialog extends BaseAlertDialog {
+    private boolean syncing;
 
     private DialogVpnSettingsBinding binding;
     private MaterialSwitch mihomo;
@@ -68,7 +69,7 @@ public class VpnSettingsDialog extends BaseAlertDialog {
 
     @Override
     protected MaterialAlertDialogBuilder getBuilder() {
-        return new MaterialAlertDialogBuilder(requireActivity(), R.style.ThemeOverlay_WebHTV_LightDialog)
+        return new MaterialAlertDialogBuilder(requireActivity(), R.style.ThemeOverlay_WebHTV_FixedLightDialog)
                 .setTitle(R.string.vpn_dialog_title)
                 .setView(getBinding().getRoot());
     }
@@ -88,6 +89,7 @@ public class VpnSettingsDialog extends BaseAlertDialog {
         subUrl.setText(LabConfig.get().getSubUrl());
         refreshStatus();
         applyVpnDependency();
+        setupVpnMode();
     }
 
     @Override
@@ -148,7 +150,7 @@ public class VpnSettingsDialog extends BaseAlertDialog {
         text.setText(value);
         content.setText(R.string.vpn_scan_hint);
         content.setVisibility(View.VISIBLE);
-        qrDialog = new MaterialAlertDialogBuilder(requireActivity(), R.style.ThemeOverlay_WebHTV_LightDialog)
+        qrDialog = new MaterialAlertDialogBuilder(requireActivity(), R.style.ThemeOverlay_WebHTV_FixedLightDialog)
                 .setTitle(R.string.vpn_scan_title)
                 .setView(root)
                 .setNegativeButton(R.string.dialog_negative, null)
@@ -234,5 +236,96 @@ public class VpnSettingsDialog extends BaseAlertDialog {
     public void onStop() {
         super.onStop();
         EventBus.getDefault().unregister(this);
+    }
+
+    /**
+     * v581 TV 双开关装配：
+     *  · TV：只保留「mihomo 代理」（手动）+「mihomo 自启动」两个互斥开关，整行隐藏系统级 VPN（TV 不允许也不需要系统级代理）
+     *  · 手机：保持原样（隐藏自启动行）
+     * 任一开关打开 → 立刻走同一套启动序列：存开关 → 拉订阅 → 没跑就拉起内核。
+     */
+    private void setupVpnMode() {
+        if (Util.isLeanback()) {
+            LabConfig.get().setSystemVpn(false);
+            if (SystemVpnService.isVpnRunning()) SystemVpnService.stopVpn(requireContext());
+            binding.vpnRow.setVisibility(View.GONE);
+            binding.vpnSwitch.setChecked(false);
+            binding.autoStartRow.setVisibility(View.VISIBLE);
+            boolean running = SystemVpnService.isProxyRunning();
+            boolean auto = LabConfig.get().getMihomoAutoStart();
+            syncing = true;
+            try {
+                binding.autoStartSwitch.setChecked(auto);
+                if (auto) {
+                    binding.mihomoSwitch.setEnabled(false);
+                    binding.mihomoSwitch.setChecked(running);
+                } else {
+                    binding.mihomoSwitch.setEnabled(true);
+                    binding.autoStartSwitch.setEnabled(!(running && binding.mihomoSwitch.isChecked()));
+                }
+            } finally {
+                syncing = false;
+            }
+            // 遥控器焦点链：订阅地址 → 自启动 → 代理 → 节点管理 → 按钮
+            binding.subUrl.setNextFocusDownId(R.id.autoStartSwitch);
+            binding.qrBtn.setNextFocusDownId(R.id.autoStartSwitch);
+            binding.autoStartSwitch.setNextFocusUpId(R.id.subUrl);
+            binding.autoStartSwitch.setNextFocusDownId(R.id.mihomoSwitch);
+            binding.mihomoSwitch.setNextFocusUpId(R.id.autoStartSwitch);
+            binding.mihomoSwitch.setNextFocusDownId(R.id.nodeRow);
+            binding.nodeRow.setNextFocusUpId(R.id.mihomoSwitch);
+        } else {
+            binding.autoStartRow.setVisibility(View.GONE);
+            binding.subUrl.setNextFocusDownId(R.id.vpnSwitch);
+            binding.qrBtn.setNextFocusDownId(R.id.vpnSwitch);
+        }
+        binding.autoStartSwitch.setOnClickListener(v -> onAutoStartClicked(binding.autoStartSwitch.isChecked()));
+        binding.mihomoSwitch.setOnClickListener(v -> onManualClicked(binding.mihomoSwitch.isChecked()));
+    }
+
+    /** 自启动模式：开启 = 记开关 + 立刻点亮（拉订阅/检测内核/没跑就拉起）；关闭 = 停代理，回到手动待命。 */
+    private void onAutoStartClicked(boolean on) {
+        if (syncing || !Util.isLeanback()) return;
+        syncing = true;
+        try {
+            LabConfig.get().setMihomoAutoStart(on);
+            LabConfig.get().setMihomo(false);
+            if (on) {
+                binding.mihomoSwitch.setEnabled(false);
+                startMihomoNow();
+                binding.mihomoSwitch.setChecked(SystemVpnService.isProxyRunning());
+            } else {
+                SystemVpnService.stopAll(requireContext());
+                binding.mihomoSwitch.setEnabled(true);
+                binding.mihomoSwitch.setChecked(false);
+            }
+            binding.autoStartSwitch.setEnabled(true);
+        } finally {
+            syncing = false;
+        }
+    }
+
+    /** 手动模式：开启 = 记开关 + 立刻点亮 + 自启动置灰；关闭 = 停代理，自启动恢复可点。 */
+    private void onManualClicked(boolean on) {
+        if (syncing || !Util.isLeanback()) return;
+        syncing = true;
+        try {
+            LabConfig.get().setMihomo(on);
+            LabConfig.get().setMihomoAutoStart(false);
+            binding.autoStartSwitch.setChecked(false);
+            binding.autoStartSwitch.setEnabled(!on);
+            if (on) startMihomoNow();
+            else SystemVpnService.stopAll(requireContext());   // 两个开关都关 = 停代理，避免"开关全灭内核还在跑"
+        } finally {
+            syncing = false;
+        }
+    }
+
+    /** 与「确定」同一套启动动作，区别只是不关闭面板：先落订阅地址，再确保内核起来。 */
+    private void startMihomoNow() {
+        CharSequence cs = binding.subUrl.getText();
+        String sub = cs == null ? "" : cs.toString().trim();
+        if (!sub.isEmpty()) LabConfig.get().setSubUrl(sub);
+        if (!SystemVpnService.isProxyRunning()) SystemVpnService.startProxy(requireContext());
     }
 }

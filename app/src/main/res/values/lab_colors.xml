@@ -6,4 +6,9 @@
 <color name="lab_surface">#FFFFFF</color>
 <color name="lab_text_primary">#1C1B1F</color>
 <color name="lab_text_secondary">#5C5C66</color>
+
+    <!-- v581 固定浅底弹窗（VPN 代理面板 / 节点管理面板）专用：不随深色模式变化 -->
+    <color name="lab_panel_bg">#FFFFFF</color>
+    <color name="lab_panel_text">#1C1B1F</color>
+    <color name="lab_panel_text_secondary">#5C5C66</color>
 </resources>

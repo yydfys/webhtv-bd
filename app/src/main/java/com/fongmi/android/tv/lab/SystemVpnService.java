@@ -193,6 +193,33 @@ public class SystemVpnService extends VpnService {
         }
     }
 
+    /**
+     * v581 自启动模式：壳子/TV 启动后按持久化开关自动拉起 mihomo 内核。
+     * 🔴 只拉内核（本地 7890 共享代理），绝不碰系统级 VPN —— TV 不允许也不需要系统级代理。
+     * 网络/订阅还没就绪时最多重试 3 次（每次隔 8 秒），成功后立即返回。
+     */
+    public static void autoStartMihomo(Context context) {
+        try {
+            if (context == null || !LabConfig.get().getMihomoAutoStart()) return;
+            if (isCoreRunning()) return;
+            new Thread(() -> {
+                for (int i = 0; i < 3; i++) {
+                    try {
+                        if (isCoreRunning() || !LabConfig.get().getMihomoAutoStart()) return;
+                        startProxy(context);
+                        Thread.sleep(8000);
+                    } catch (InterruptedException e) {
+                        return;
+                    } catch (Throwable ignored) {
+                        return;
+                    }
+                    if (isCoreRunning()) return;
+                }
+            }, "mihomo-autostart").start();
+        } catch (Throwable ignored) {
+        }
+    }
+
     /** 🔴 开关状态对账（进程重启/打开弹窗时调用）：
      *  运行时状态 proxyState/vpnState 是进程内静态值 —— 进程被杀（壳子中途退出/清后台）后必为 false，
      *  但持久化开关只在本服务的「主动停止」路径里被清，进程被杀时来不及清 → SharedPreferences 残留 true，

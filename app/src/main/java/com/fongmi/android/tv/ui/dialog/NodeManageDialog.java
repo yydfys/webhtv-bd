@@ -71,7 +71,7 @@ public class NodeManageDialog extends BaseAlertDialog {
 
     @Override
     protected MaterialAlertDialogBuilder getBuilder() {
-        return new MaterialAlertDialogBuilder(requireActivity(), R.style.ThemeOverlay_WebHTV_LightDialog)
+        return new MaterialAlertDialogBuilder(requireActivity(), R.style.ThemeOverlay_WebHTV_FixedLightDialog)
                 .setTitle(R.string.node_manage_title)
                 .setView(getBinding().getRoot());
     }

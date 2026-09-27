@@ -190,6 +190,15 @@ public final class LabConfig {
         sp().edit().putBoolean(KEY_MIHOMO, value).apply();
     }
 
+    /** v581：mihomo 自启动开关（TV 版）。开启后壳子启动即自动拉起 mihomo 内核，与手动开关互斥。 */
+    public boolean getMihomoAutoStart() {
+        return sp().getBoolean(KEY_MIHOMO_AUTO_START, false);
+    }
+
+    public void setMihomoAutoStart(boolean on) {
+        sp().edit().putBoolean(KEY_MIHOMO_AUTO_START, on).apply();
+    }
+
     /** mihomo 订阅地址（config.yaml 缺失时用内置模板生成） */
     public String getSubUrl() {
         return sp().getString(KEY_SUB_URL, "");
