@@ -298,7 +298,7 @@ public final class LabFocus {
         }
         if (til == null) return;
         int normal = til.getBoxStrokeColor();
-        til.setBoxStrokeColor(new ColorStateList(
+        til.setBoxStrokeColorStateList(new ColorStateList(
                 new int[][]{new int[]{android.R.attr.state_focused}, new int[]{}},
                 new int[]{focusColor, normal}));
     }
