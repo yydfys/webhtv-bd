@@ -275,13 +275,23 @@ public class WebDav implements Process {
         boolean existed = target.exists();
         long length = headerLong(session, "content-length", -1);
         String encoding = header(session, "transfer-encoding");
-        try (InputStream in = session.getInputStream(); OutputStream out = new FileOutputStream(target)) {
+        // 只关文件流。NanoHTTPD 2.3.1 的 session.getInputStream() 返回的就是 socket 输入流本身
+        // （HTTPSession 里是包着 socket 的 BufferedInputStream），关它等于关掉整个 socket →
+        // 后面的 204/201 响应写不出去 → 客户端只看到 unexpected end of stream，而文件其实已拷完。
+        OutputStream out = new FileOutputStream(target);
+        try {
+            InputStream in = session.getInputStream();
             if (encoding != null && encoding.toLowerCase(Locale.ROOT).contains("chunked")) copyChunked(in, out);
             else if (length >= 0) copy(in, out, length);
             else copyAll(in, out);
         } catch (Exception e) {
             if (!existed) target.delete();
             return text(Status.INTERNAL_ERROR, "写入失败：" + e);
+        } finally {
+            try {
+                out.close();
+            } catch (Exception ignored) {
+            }
         }
         return status(existed ? Status.NO_CONTENT : Status.CREATED);
     }
@@ -416,7 +426,8 @@ public class WebDav implements Process {
         long remaining = length;
         while (remaining > 0) {
             int read = in.read(buffer, 0, (int) Math.min(buffer.length, remaining));
-            if (read < 0) break;
+            // 读不满声明长度 = 请求体被截断（按字节数写盘，静默 break 会存下半截文件且无告警）
+            if (read < 0) throw new Exception("请求体提前结束，还差 " + remaining + " 字节");
             out.write(buffer, 0, read);
             remaining -= read;
         }
