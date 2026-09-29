@@ -883,6 +883,10 @@
     <string name="vpn_dialog_title">VPN 代理</string>
     <string name="vpn_mode_auto_running">自启动模式代理正在运行</string>
     <string name="vpn_mode_manual_running">手动模式代理正在运行</string>
+    <string name="vpn_save_sub">保存订阅</string>
+    <string name="vpn_sub_empty">请先填写订阅地址</string>
+    <string name="vpn_sub_pulling">正在重新拉取订阅节点…</string>
+    <string name="vpn_sub_manual_config">检测到手动 config.yaml，订阅地址已被忽略</string>
     <string name="vpn_dialog_hint">配置 mihomo 代理与系统级 VPN</string>
     <string name="vpn_scan_title">扫码推送订阅地址</string>
     <string name="vpn_scan_hint">手机连接同一局域网扫码打开页面，粘贴 mihomo 订阅地址后提交，会自动填入订阅输入框。

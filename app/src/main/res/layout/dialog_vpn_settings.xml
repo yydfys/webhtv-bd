@@ -72,6 +72,21 @@
                 android:padding="6dp"
                 android:src="@drawable/ic_remote_qr"
                 android:tint="@color/lab_panel_accent" />
+
+            <!-- v591 TV only: Save subscription (mobile keeps it gone) -->
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/saveSubBtn"
+                style="@style/Widget.WebHTV.LightDialog.Button.Tonal"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:minWidth="0dp"
+                android:minHeight="40dp"
+                android:paddingStart="12dp"
+                android:paddingEnd="12dp"
+                android:text="@string/vpn_save_sub"
+                android:textSize="13sp"
+                android:visibility="gone" />
         </LinearLayout>
 
         <!-- mihomo 自启动开关（仅 TV 显示，与手动代理开关互斥） -->

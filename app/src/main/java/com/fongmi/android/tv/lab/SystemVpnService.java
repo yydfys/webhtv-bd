@@ -286,6 +286,21 @@ public class SystemVpnService extends VpnService {
         android.util.Log.i("SystemVpn", "app generated config deleted for resubscribe");
     }
 
+    /**
+     * v591：丢弃订阅节点缓存（providers/ 目录），使内核重启时重新拉取订阅。
+     * 只删缓存文件，不碰 config.yaml（手动配置永不删除）。
+     */
+    public static void deleteSubCache() {
+        File dir = new File(HOME_DIR, "providers");
+        File[] files = dir.listFiles();
+        if (files != null) {
+            for (File f : files) {
+                if (f.isFile() && !f.delete()) android.util.Log.w("SystemVpn", "provider cache delete failed: " + f.getName());
+            }
+        }
+        android.util.Log.i("SystemVpn", "subscription provider cache cleared: " + dir.getPath());
+    }
+
     @Override
     public void onCreate() {
         super.onCreate();

@@ -53,6 +53,7 @@ public class VpnSettingsDialog extends BaseAlertDialog {
     private EditText subUrl;
     private int vpnStartingType = 0;
     private AlertDialog qrDialog;
+    private boolean qrAutoSuppressed;   // v591 TV only: suppress auto QR right after it closes
 
     public static void show(Fragment fragment) {
         new VpnSettingsDialog().show(fragment.getChildFragmentManager(), null);
@@ -97,6 +98,7 @@ public class VpnSettingsDialog extends BaseAlertDialog {
         binding.positive.setOnClickListener(this::onPositive);
         binding.negative.setOnClickListener(this::onNegative);
         binding.qrBtn.setOnClickListener(this::onQr);
+        binding.saveSubBtn.setOnClickListener(this::onSaveSub);   // v591 TV only (gone on mobile)
         binding.nodeRow.setOnClickListener(this::onNode);
         mihomo.setOnCheckedChangeListener((buttonView, isChecked) -> {
             // v590：TV 两个模式开关互斥（手机端仍是老逻辑：mihomo 关 → VPN 置灰并关闭）
@@ -297,6 +299,7 @@ public class VpnSettingsDialog extends BaseAlertDialog {
             binding.vpnRow.setVisibility(View.GONE);
             binding.vpnSwitch.setChecked(false);
             binding.autoStartRow.setVisibility(View.VISIBLE);
+            setupTvSubscriptionRow();   // v591: TV subscription row (no QR icon, no OK, save-sub button)
             boolean running = SystemVpnService.isProxyRunning();
             boolean auto = LabConfig.get().getMihomoAutoStart();
             syncing = true;
@@ -370,6 +373,61 @@ public class VpnSettingsDialog extends BaseAlertDialog {
 
     // ---------------- v582: TV 焦点链（统一走"行"，手机端不改变行为） ----------------
 
+    // ---------------- v591: TV subscription row (TV only, mobile untouched) ----------------
+
+    /**
+     * v591 TV 订阅区装配：
+     *  · 隐藏「扫码推送」图标与「确定」按钮（TV 两个模式开关即点即生效，确定已无意义）
+     *  · 订阅框右侧放「保存订阅」：落盘 + 丢节点缓存 + 重启内核，无条件重新拉取订阅
+     *  · 底部「取消」改名「关闭」（TV 只剩这一个按钮）
+     *  · 订阅框获得焦点自动弹出二维码；关掉弹窗后焦点回落不会重弹，焦点离开再回来才再弹
+     */
+    private void setupTvSubscriptionRow() {
+        binding.qrBtn.setVisibility(View.GONE);
+        binding.positive.setVisibility(View.GONE);
+        binding.saveSubBtn.setVisibility(View.VISIBLE);
+        binding.negative.setText(R.string.dialog_close);
+        binding.negative.setNextFocusRightId(View.NO_ID);
+        LabFocus.styleButton(binding.saveSubBtn);
+        binding.subUrl.setNextFocusRightId(R.id.saveSubBtn);
+        binding.subUrl.setNextFocusDownId(R.id.autoStartRow);
+        binding.saveSubBtn.setNextFocusLeftId(R.id.subUrl);
+        binding.saveSubBtn.setNextFocusRightId(View.NO_ID);
+        binding.saveSubBtn.setNextFocusUpId(R.id.autoStartRow);
+        binding.saveSubBtn.setNextFocusDownId(R.id.autoStartRow);
+        binding.subUrl.setOnFocusChangeListener((v, hasFocus) -> {
+            if (!hasFocus) {
+                qrAutoSuppressed = false;   // 焦点离开订阅框 → 重新武装
+                return;
+            }
+            if (qrAutoSuppressed) return;
+            if (qrDialog != null && qrDialog.isShowing()) return;
+            qrAutoSuppressed = true;
+            onQr(v);
+        });
+    }
+
+    /** v591 TV「保存订阅」：保存地址 + 丢订阅缓存 + 重启内核 → 强制重新拉取订阅节点。 */
+    private void onSaveSub(View view) {
+        String sub = subUrl.getText() == null ? "" : subUrl.getText().toString().trim();
+        if (sub.isEmpty()) {
+            Notify.show(R.string.vpn_sub_empty);
+            return;
+        }
+        LabConfig.get().setSubUrl(sub);
+        if (SystemVpnService.isConfigExists() && !SystemVpnService.isAppGeneratedConfig()) {
+            // 手动放置的 config.yaml 优先级最高：只提示，不删用户自己的配置
+            Notify.show(R.string.vpn_sub_manual_config);
+            return;
+        }
+        if (SystemVpnService.isAppGeneratedConfig()) SystemVpnService.deleteAppGeneratedConfig();
+        SystemVpnService.deleteSubCache();
+        Notify.show(R.string.vpn_sub_pulling);
+        boolean restoreVpn = SystemVpnService.isVpnRunning();
+        if (SystemVpnService.isCoreRunning()) SystemVpnService.restartProxy(requireContext(), restoreVpn);
+        else SystemVpnService.startProxy(requireContext());
+    }
+
     /** 行级选中 + 焦点链：整行走 ring，行内开关不抢焦点 */
     private void setupTvRows() {
         LabFocus.rowRing(binding.autoStartRow, binding.autoStartSwitch);
@@ -392,9 +450,9 @@ public class VpnSettingsDialog extends BaseAlertDialog {
         binding.killRow.setNextFocusUpId(R.id.mihomoRow);
         binding.killRow.setNextFocusDownId(R.id.nodeRow);
         binding.nodeRow.setNextFocusUpId(R.id.killRow);
-        binding.nodeRow.setNextFocusDownId(R.id.positive);
+        binding.nodeRow.setNextFocusDownId(R.id.negative);   // v591: TV has no OK button
         binding.negative.setNextFocusUpId(R.id.nodeRow);
-        binding.positive.setNextFocusUpId(R.id.nodeRow);
+        binding.negative.setNextFocusRightId(View.NO_ID);
     }
 
     private void toggleSwitch(android.widget.CompoundButton sw) {

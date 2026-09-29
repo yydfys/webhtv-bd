@@ -838,6 +838,10 @@
     <string name="vpn_dialog_title">VPN 代理</string>
     <string name="vpn_mode_auto_running">自啟動模式代理正在運行</string>
     <string name="vpn_mode_manual_running">手動模式代理正在運行</string>
+    <string name="vpn_save_sub">儲存訂閱</string>
+    <string name="vpn_sub_empty">請先填寫訂閱網址</string>
+    <string name="vpn_sub_pulling">正在重新拉取訂閱節點…</string>
+    <string name="vpn_sub_manual_config">偵測到手動 config.yaml，訂閱網址已被忽略</string>
     <string name="vpn_dialog_hint">設定 mihomo 代理與系統級 VPN</string>
     <string name="vpn_scan_title">掃碼推送訂閱位址</string>
     <string name="vpn_scan_hint">手機連接同一區域網路掃碼開啟頁面，貼上 mihomo 訂閱位址後送出，會自動填入訂閱輸入框。

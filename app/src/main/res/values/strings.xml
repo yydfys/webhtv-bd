@@ -888,6 +888,10 @@
     <string name="vpn_dialog_title">VPN Proxy</string>
     <string name="vpn_mode_auto_running">Auto-start mode proxy is running</string>
     <string name="vpn_mode_manual_running">Manual mode proxy is running</string>
+    <string name="vpn_save_sub">Save subscription</string>
+    <string name="vpn_sub_empty">Enter a subscription URL first</string>
+    <string name="vpn_sub_pulling">Re-fetching subscription nodes…</string>
+    <string name="vpn_sub_manual_config">Manual config.yaml detected; subscription address is ignored</string>
     <string name="vpn_dialog_hint">Set up mihomo proxy and system-level VPN</string>
     <string name="vpn_scan_title">Scan to push subscription</string>
     <string name="vpn_scan_hint">Scan with phone on LAN, open the page, paste your mihomo subscription URL into the box and submit. It will be filled into the subscription field automatically.</string>
