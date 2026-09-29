@@ -36,6 +36,7 @@ import com.fongmi.android.tv.utils.ImgUtil;
 import com.fongmi.android.tv.utils.ResUtil;
 import com.fongmi.android.tv.utils.Task;
 import com.fongmi.android.tv.utils.TmdbImageSelector;
+import com.fongmi.android.tv.utils.WebThemeAppearance;
 import com.google.android.flexbox.FlexboxLayout;
 import com.google.android.material.button.MaterialButton;
 import com.google.android.material.card.MaterialCardView;
@@ -206,7 +207,8 @@ public class TmdbHeaderView {
             boolean systemNight = (App.get().getResources().getConfiguration().uiMode & Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES;
             return TmdbCinemaTheme.palette(TmdbCinemaTheme.resolveLight(Setting.getTmdbDetailTheme(), systemNight)).background();
         }
-        return Setting.isTmdbNativeStyle() ? COLOR_NATIVE_BACKGROUND : COLOR_PROFILE_BACKGROUND;
+        if (Setting.isTmdbNativeStyle()) return WebThemeAppearance.isActive() ? WebThemeAppearance.getColor() : COLOR_NATIVE_BACKGROUND;
+        return COLOR_PROFILE_BACKGROUND;
     }
 
     /**
@@ -1556,9 +1558,10 @@ public class TmdbHeaderView {
         }
         boolean cinema = style == Setting.DETAIL_STYLE_CINEMA;
         boolean light = cinema ? resolveLightTheme() : style == Setting.DETAIL_STYLE_PROFILE;
-        boolean dark = style == Setting.DETAIL_STYLE_NATIVE || (cinema && !light);
+        boolean themed = style == Setting.DETAIL_STYLE_NATIVE && WebThemeAppearance.isActive();
+        boolean dark = (style == Setting.DETAIL_STYLE_NATIVE && !(themed && !WebThemeAppearance.isDark())) || (cinema && !light);
         setCinemaRows(cinema, cinema, light);
-        int background = cinema ? TmdbCinemaTheme.palette(light).background() : dark ? COLOR_NATIVE_BACKGROUND : COLOR_PROFILE_BACKGROUND;
+        int background = cinema ? TmdbCinemaTheme.palette(light).background() : themed ? getThemeBackgroundColor() : dark ? COLOR_NATIVE_BACKGROUND : COLOR_PROFILE_BACKGROUND;
         int primary = dark ? 0xFFFFFFFF : 0xFF15222B;
         int secondary = dark ? 0xFFC8D2DC : 0xFF40555E;
         int watermark = dark ? 0xFF6B7785 : 0xFF7E938A;

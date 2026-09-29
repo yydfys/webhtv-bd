@@ -33,6 +33,7 @@ import com.fongmi.android.tv.ui.dialog.WebThemeImageViewer;
 import com.fongmi.android.tv.ui.helper.TmdbNavigation;
 import com.fongmi.android.tv.utils.Notify;
 import com.fongmi.android.tv.utils.Util;
+import com.fongmi.android.tv.utils.WebThemeAppearance;
 import com.github.catvod.utils.Json;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
@@ -104,9 +105,16 @@ final class WebHomeThemeBridge {
                 case "image.preview" -> previewImage(payload, context, active);
                 case "image.save" -> saveImage(payload, context, active);
                 case "ui.getViewport" -> controller.getViewportJson();
+                case "ui.setThemeColor" -> setThemeColor(payload);
                 default -> throw new SecurityException("PERMISSION_DENIED");
             };
         };
+    }
+
+    /** 主题上报：记录 HTML 主题基色，供手机版「影视原生模式」详情页背景跟随（TV 版忽略）。 */
+    private String setThemeColor(JsonObject payload) {
+        WebThemeAppearance.applyPayload(payload);
+        return "{}";
     }
 
     private String vodHome(JsonObject payload, CallContext context, BooleanSupplier active) throws Exception {
