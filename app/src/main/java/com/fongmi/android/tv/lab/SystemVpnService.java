@@ -245,6 +245,18 @@ public class SystemVpnService extends VpnService {
         return R.string.vpn_state_off;
     }
 
+    /** v590：TV 双模式状态文案（自启动模式 / 手动模式 互斥，二者只可能命中一个）。
+     *  内核在跑时才说是哪个模式；没跑 → 回落原状态文案（未开启 / 启动中）。 */
+    public static int getModeStateTextRes(int startingType) {
+        if (isProxyRunning()) {
+            try {
+                return LabConfig.get().getMihomoAutoStart() ? R.string.vpn_mode_auto_running : R.string.vpn_mode_manual_running;
+            } catch (Throwable ignored) {
+            }
+        }
+        return getStateTextRes(startingType);
+    }
+
     public static String getHomeDir() {
         return HOME_DIR;
     }

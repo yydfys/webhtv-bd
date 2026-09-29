@@ -98,7 +98,7 @@ public class SettingActivity extends BaseActivity implements ConfigListener, Sit
     private int vpnStartingType = 0;
 
     private void setVpnText() {
-        mBinding.vpnText.setText(SystemVpnService.getStateTextRes(vpnStartingType));
+        mBinding.vpnText.setText(SystemVpnService.getModeStateTextRes(vpnStartingType));
     }
 
     private void setCacheText() {

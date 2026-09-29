@@ -881,6 +881,8 @@
     <string name="vpn_state_proxy">代理运行中</string>
     <string name="vpn_state_vpn">VPN 运行中</string>
     <string name="vpn_dialog_title">VPN 代理</string>
+    <string name="vpn_mode_auto_running">自启动模式代理正在运行</string>
+    <string name="vpn_mode_manual_running">手动模式代理正在运行</string>
     <string name="vpn_dialog_hint">配置 mihomo 代理与系统级 VPN</string>
     <string name="vpn_scan_title">扫码推送订阅地址</string>
     <string name="vpn_scan_hint">手机连接同一局域网扫码打开页面，粘贴 mihomo 订阅地址后提交，会自动填入订阅输入框。

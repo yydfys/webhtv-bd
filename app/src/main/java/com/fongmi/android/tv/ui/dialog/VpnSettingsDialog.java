@@ -99,10 +99,40 @@ public class VpnSettingsDialog extends BaseAlertDialog {
         binding.qrBtn.setOnClickListener(this::onQr);
         binding.nodeRow.setOnClickListener(this::onNode);
         mihomo.setOnCheckedChangeListener((buttonView, isChecked) -> {
+            // v590：TV 两个模式开关互斥（手机端仍是老逻辑：mihomo 关 → VPN 置灰并关闭）
+            if (Util.isLeanback()) {
+                applyModeMutex();
+                return;
+            }
             applyVpnDependency();
             refreshStatus();
         });
-        vpn.setOnCheckedChangeListener((buttonView, isChecked) -> refreshStatus());
+        vpn.setOnCheckedChangeListener((buttonView, isChecked) -> {
+            if (!Util.isLeanback()) refreshStatus();
+        });
+    }
+
+    /** v590：TV 两个模式开关严格互斥 —— 只允许一个在跑。
+     *  都关 → 两个都可选、不置灰；开了一个 → 另一个置灰且复位。手机端不参与。 */
+    private void applyModeMutex() {
+        if (!Util.isLeanback()) return;
+        boolean auto = binding.autoStartSwitch.isChecked();
+        boolean manual = binding.mihomoSwitch.isChecked();
+        if (auto && manual) {
+            // 理论不可达（开一个时会把另一个复位）；真出现以"手动"为准
+            syncing = true;
+            try {
+                binding.autoStartSwitch.setChecked(false);
+                LabConfig.get().setMihomoAutoStart(false);
+            } finally {
+                syncing = false;
+            }
+            auto = false;
+        }
+        binding.autoStartSwitch.setEnabled(!manual);
+        binding.mihomoSwitch.setEnabled(!auto);
+        syncRowState();
+        refreshStatus();
     }
 
     /** mihomo 总开关关 → VPN 置灰并关闭 */
@@ -114,7 +144,18 @@ public class VpnSettingsDialog extends BaseAlertDialog {
     }
 
     private void refreshStatus() {
-        binding.status.setText(SystemVpnService.getStateTextRes(vpnStartingType));
+        if (!Util.isLeanback()) {
+            binding.status.setText(SystemVpnService.getStateTextRes(vpnStartingType));
+            return;
+        }
+        // v590：TV 状态文案跟着"模式开关"走 —— 点了就变，不等异步启动完成
+        if (binding.autoStartSwitch.isChecked()) {
+            binding.status.setText(R.string.vpn_mode_auto_running);
+        } else if (binding.mihomoSwitch.isChecked()) {
+            binding.status.setText(R.string.vpn_mode_manual_running);
+        } else {
+            binding.status.setText(SystemVpnService.getStateTextRes(vpnStartingType));
+        }
     }
 
     /** 节点管理：浏览订阅节点、看延迟、手动切换 select 组 */
@@ -260,15 +301,15 @@ public class VpnSettingsDialog extends BaseAlertDialog {
             boolean auto = LabConfig.get().getMihomoAutoStart();
             syncing = true;
             try {
-                // 两个开关一律保持可选中：自启动=开机拉起策略，代理=内核运行态，互不置灰
-                binding.autoStartSwitch.setEnabled(true);
-                binding.mihomoSwitch.setEnabled(true);
-                binding.autoStartSwitch.setChecked(auto);
-                binding.mihomoSwitch.setChecked(running);
+                // v590：两个模式开关互斥（只能有一个在跑）—— 初始态按"内核真在跑 + 持久开关"判定；
+                // 都关时两个开关都可选、不置灰（见 applyModeMutex）
+                binding.autoStartSwitch.setChecked(auto && running);
+                binding.mihomoSwitch.setChecked(!auto && running);
+                binding.killSwitch.setChecked(false);
             } finally {
                 syncing = false;
             }
-            syncRowState();
+            applyModeMutex();
             // 遥控器焦点链：订阅地址 → 自启动 → 代理 → 节点管理 → 按钮
             binding.subUrl.setNextFocusDownId(R.id.autoStartSwitch);
             binding.qrBtn.setNextFocusDownId(R.id.autoStartSwitch);
@@ -294,22 +335,13 @@ public class VpnSettingsDialog extends BaseAlertDialog {
         try {
             LabConfig.get().setMihomoAutoStart(on);
             LabConfig.get().setMihomo(false);
-            if (on) {
-                binding.mihomoSwitch.setEnabled(true);
-                syncRowState();
-                startMihomoNow();
-                binding.mihomoSwitch.setChecked(SystemVpnService.isProxyRunning());
-            } else {
-                SystemVpnService.stopAll(requireContext());
-                binding.mihomoSwitch.setEnabled(true);
-                syncRowState();
-                binding.mihomoSwitch.setChecked(false);
-            }
-            binding.autoStartSwitch.setEnabled(true);
-            syncRowState();
+            binding.mihomoSwitch.setChecked(false);   // 互斥：自启动开了，手动立刻复位（紧接着被置灰）
+            if (on) startMihomoNow();
+            else SystemVpnService.stopAll(requireContext());
         } finally {
             syncing = false;
         }
+        applyModeMutex();
     }
 
     /** 手动模式：开启 = 记开关 + 立刻点亮 + 自启动互斥回落关闭；关闭 = 停代理。 */
@@ -319,14 +351,13 @@ public class VpnSettingsDialog extends BaseAlertDialog {
         try {
             LabConfig.get().setMihomo(on);
             LabConfig.get().setMihomoAutoStart(false);
-            binding.autoStartSwitch.setChecked(false);
-            binding.autoStartSwitch.setEnabled(true);
-            syncRowState();
+            binding.autoStartSwitch.setChecked(false);   // 互斥：手动开了，自启动立刻复位（紧接着被置灰）
             if (on) startMihomoNow();
             else SystemVpnService.stopAll(requireContext());   // 两个开关都关 = 停代理，避免"开关全灭内核还在跑"
         } finally {
             syncing = false;
         }
+        applyModeMutex();
     }
 
     /** 与「确定」同一套启动动作，区别只是不关闭面板：先落订阅地址，再确保内核起来。 */
@@ -389,15 +420,13 @@ public class VpnSettingsDialog extends BaseAlertDialog {
             LabConfig.get().setMihomoAutoStart(false);
             binding.mihomoSwitch.setChecked(false);
             binding.autoStartSwitch.setChecked(false);
-            binding.autoStartSwitch.setEnabled(true);
-            binding.mihomoSwitch.setEnabled(true);
             binding.killSwitch.setChecked(false);
             binding.killSwitch.setEnabled(true);
-            syncRowState();
-            refreshStatus();
         } finally {
             syncing = false;
         }
+        // v590：两个模式开关都回到"可选中"
+        applyModeMutex();
     }
 
     /** 行可用性与开关可用性保持一致（TV） */
