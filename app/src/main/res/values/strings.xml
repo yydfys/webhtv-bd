@@ -2869,4 +2869,8 @@
     <string name="following_filter_failed">Check failed</string>
     <string name="setting_following">Following updates</string>
     <string name="following_next_season">Follow new season S%1$d</string>
+    <string name="vpn_mode_required">Turn on Auto mode or Manual mode first</string>
+    <string name="vpn_kill_confirm_title">Kill mihomo process</string>
+    <string name="vpn_kill_confirm_message">Kill the mihomo core process? The local proxy will stop.</string>
+    <string name="vpn_kill_done">mihomo core stopped</string>
 </resources>

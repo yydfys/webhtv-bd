@@ -176,12 +176,28 @@ public class VpnSettingsDialog extends BaseAlertDialog {
                 break;
             default:
                 vpnStartingType = 0;
+                // v592：内核真的退了 → 模式开关必须跟着回到关闭（手动模式不留持久状态，自启动模式仍保留）
+                if (Util.isLeanback()) syncModeSwitchesFromRuntime();
                 break;
         }
         refreshStatus();
     }
 
-    /** 扫码推送订阅地址：显示局域网二维码，手机扫码后用网页推订阅地址回来 */
+    /** v592：模式开关跟随内核真实状态 —— 内核在跑就按持久化的模式点亮，内核没了两个开关都回关闭。 */
+    private void syncModeSwitchesFromRuntime() {
+        if (syncing) return;
+        boolean running = SystemVpnService.isCoreRunning();
+        boolean auto = running && LabConfig.get().getMihomoAutoStart();
+        syncing = true;
+        try {
+            binding.autoStartSwitch.setChecked(auto);
+            binding.mihomoSwitch.setChecked(running && !auto);
+        } finally {
+            syncing = false;
+        }
+        applyModeMutex();
+    }
+
     private void onQr(View view) {
         if (qrDialog != null && qrDialog.isShowing()) qrDialog.dismiss();
         final String value = Server.get().getAddress(4);
@@ -203,6 +219,11 @@ public class VpnSettingsDialog extends BaseAlertDialog {
     }
 
     private void onPositive(View view) {
+        // v592：TV 走新流程（模式校验 → 拉服务 → 关面板）；手机端维持原逻辑，零改动
+        if (Util.isLeanback()) {
+            onPositiveTv();
+            return;
+        }
         boolean mihomoOn = mihomo.isChecked();
         boolean vpnOn = vpn.isChecked() && mihomoOn;
         LabConfig.get().setMihomo(mihomoOn);
@@ -247,6 +268,32 @@ public class VpnSettingsDialog extends BaseAlertDialog {
         } else {
             SystemVpnService.stopAll(requireContext());
         }
+        dismiss();
+    }
+
+    /** v592 TV「确定」：没选模式就提示；内核没跑就拉；最后保存模式状态并关面板。 */
+    private void onPositiveTv() {
+        boolean auto = binding.autoStartSwitch.isChecked();
+        boolean manual = binding.mihomoSwitch.isChecked();
+        if (!auto && !manual) {
+            Notify.show(R.string.vpn_mode_required);   // 面板保留，让用户接着选模式
+            return;
+        }
+        CharSequence cs = binding.subUrl.getText();
+        String sub = cs == null ? "" : cs.toString().trim();
+        if (!sub.isEmpty()) LabConfig.get().setSubUrl(sub);
+        String persisted = LabConfig.get().getSubUrl();
+        boolean hasSub = !sub.isEmpty() || (persisted != null && !persisted.trim().isEmpty());
+        // 内核没跑、又没配置、又没订阅地址 → 起不来，直接提示（避免点了确定却什么都没发生）
+        if (!SystemVpnService.isCoreRunning() && !SystemVpnService.isConfigExists() && !hasSub) {
+            Notify.show(R.string.vpn_sub_empty);
+            return;
+        }
+        // 保存模式状态（壳子重启后按这个模式跑：自启动模式会自动拉起内核，手动模式保持关闭）
+        LabConfig.get().setMihomoAutoStart(auto);
+        LabConfig.get().setMihomo(manual);
+        // 有服务就不重复拉取，避免多服务共存
+        startMihomoNow();
         dismiss();
     }
 
@@ -299,28 +346,23 @@ public class VpnSettingsDialog extends BaseAlertDialog {
             binding.vpnRow.setVisibility(View.GONE);
             binding.vpnSwitch.setChecked(false);
             binding.autoStartRow.setVisibility(View.VISIBLE);
-            setupTvSubscriptionRow();   // v591: TV subscription row (no QR icon, no OK, save-sub button)
-            boolean running = SystemVpnService.isProxyRunning();
-            boolean auto = LabConfig.get().getMihomoAutoStart();
+            setupTvSubscriptionRow();   // v592：TV 订阅行（「保存订阅」按钮；确定/取消 走底部的按钮）
+            // v592：模式开关一律以"内核真在跑"为准 —— 手动模式在服务退出后必须回到关闭态
+            boolean running = SystemVpnService.isCoreRunning();
+            boolean auto = running && LabConfig.get().getMihomoAutoStart();
             syncing = true;
             try {
-                // v590：两个模式开关互斥（只能有一个在跑）—— 初始态按"内核真在跑 + 持久开关"判定；
-                // 都关时两个开关都可选、不置灰（见 applyModeMutex）
-                binding.autoStartSwitch.setChecked(auto && running);
-                binding.mihomoSwitch.setChecked(!auto && running);
-                binding.killSwitch.setChecked(false);
+                // 两个模式开关互斥（只能有一个在跑）；都关时两个开关都可选、不置灰（见 applyModeMutex）
+                binding.autoStartSwitch.setChecked(auto);
+                binding.mihomoSwitch.setChecked(running && !auto);
+                // v592：杀死内核不再用开关按钮 —— 整行可点，点了弹确认框（见 setupTvRows/onKillClicked）
+                binding.killSwitch.setVisibility(View.GONE);
             } finally {
                 syncing = false;
             }
             applyModeMutex();
-            // 遥控器焦点链：订阅地址 → 自启动 → 代理 → 节点管理 → 按钮
-            binding.subUrl.setNextFocusDownId(R.id.autoStartSwitch);
-            binding.qrBtn.setNextFocusDownId(R.id.autoStartSwitch);
-            binding.autoStartSwitch.setNextFocusUpId(R.id.subUrl);
-            binding.autoStartSwitch.setNextFocusDownId(R.id.mihomoSwitch);
-            binding.mihomoSwitch.setNextFocusUpId(R.id.autoStartSwitch);
-            binding.mihomoSwitch.setNextFocusDownId(R.id.nodeRow);
-            binding.nodeRow.setNextFocusUpId(R.id.mihomoSwitch);
+            // v592：焦点链统一在 onStart → setupTvRows() 里一次性设置
+            //（订阅框 → 保存订阅 → 自启动模式 → 手动模式 → 杀进程 → 节点管理 → 取消/确定）
         } else {
             binding.autoStartRow.setVisibility(View.GONE);
             binding.killRow.setVisibility(View.GONE); // 杀内核开关仅 TV 版提供，手机端不受影响
@@ -363,12 +405,13 @@ public class VpnSettingsDialog extends BaseAlertDialog {
         applyModeMutex();
     }
 
-    /** 与「确定」同一套启动动作，区别只是不关闭面板：先落订阅地址，再确保内核起来。 */
+    /** 「确定」/模式开关共用的启动动作，区别只是不关闭面板：先落订阅地址，再确保内核起来。 */
     private void startMihomoNow() {
         CharSequence cs = binding.subUrl.getText();
         String sub = cs == null ? "" : cs.toString().trim();
         if (!sub.isEmpty()) LabConfig.get().setSubUrl(sub);
-        if (!SystemVpnService.isProxyRunning()) SystemVpnService.startProxy(requireContext());
+        // v592：内核真在跑就不再拉取（避免同时起多个内核进程），只保留模式状态刷新
+        if (!SystemVpnService.isCoreRunning()) SystemVpnService.startProxy(requireContext());
     }
 
     // ---------------- v582: TV 焦点链（统一走"行"，手机端不改变行为） ----------------
@@ -377,23 +420,23 @@ public class VpnSettingsDialog extends BaseAlertDialog {
 
     /**
      * v591 TV 订阅区装配：
-     *  · 隐藏「扫码推送」图标与「确定」按钮（TV 两个模式开关即点即生效，确定已无意义）
-     *  · 订阅框右侧放「保存订阅」：落盘 + 丢节点缓存 + 重启内核，无条件重新拉取订阅
-     *  · 底部「取消」改名「关闭」（TV 只剩这一个按钮）
+     *  · 隐藏「扫码推送」图标（订阅框聚焦会自动弹二维码，图标冗余）
+     *  · 订阅框右侧放「保存订阅」：丢订阅缓存 + （没服务就先起服务）重新拉取订阅节点
+     *  · 底部仍是「确定 / 取消」：确定 = 校验模式 → 保存模式状态 → 没服务就拉服务 → 关面板；取消 = 只关面板
      *  · 订阅框获得焦点自动弹出二维码；关掉弹窗后焦点回落不会重弹，焦点离开再回来才再弹
      */
     private void setupTvSubscriptionRow() {
         binding.qrBtn.setVisibility(View.GONE);
-        binding.positive.setVisibility(View.GONE);
         binding.saveSubBtn.setVisibility(View.VISIBLE);
-        binding.negative.setText(R.string.dialog_close);
-        binding.negative.setNextFocusRightId(View.NO_ID);
+        binding.negative.setNextFocusRightId(R.id.positive);
+        binding.positive.setNextFocusLeftId(R.id.negative);
         LabFocus.styleButton(binding.saveSubBtn);
+        // v592：订阅框 ⇄「保存订阅」焦点链（右 = 保存订阅；上 = 回到订阅框；下 = 自启动模式行）
         binding.subUrl.setNextFocusRightId(R.id.saveSubBtn);
         binding.subUrl.setNextFocusDownId(R.id.autoStartRow);
         binding.saveSubBtn.setNextFocusLeftId(R.id.subUrl);
         binding.saveSubBtn.setNextFocusRightId(View.NO_ID);
-        binding.saveSubBtn.setNextFocusUpId(R.id.autoStartRow);
+        binding.saveSubBtn.setNextFocusUpId(R.id.subUrl);
         binding.saveSubBtn.setNextFocusDownId(R.id.autoStartRow);
         binding.subUrl.setOnFocusChangeListener((v, hasFocus) -> {
             if (!hasFocus) {
@@ -407,7 +450,10 @@ public class VpnSettingsDialog extends BaseAlertDialog {
         });
     }
 
-    /** v591 TV「保存订阅」：保存地址 + 丢订阅缓存 + 重启内核 → 强制重新拉取订阅节点。 */
+    /**
+     * v592 TV「保存订阅」：①内核在跑 → 删订阅缓存 → 直接重拉订阅；
+     * ②内核没跑 → 删缓存 → 起内核（顺带拉订阅）→ 节点信息更新到本地。
+     */
     private void onSaveSub(View view) {
         String sub = subUrl.getText() == null ? "" : subUrl.getText().toString().trim();
         if (sub.isEmpty()) {
@@ -439,7 +485,7 @@ public class VpnSettingsDialog extends BaseAlertDialog {
         if (!Util.isLeanback()) return;
         binding.autoStartRow.setOnClickListener(v -> toggleSwitch(binding.autoStartSwitch));
         binding.mihomoRow.setOnClickListener(v -> toggleSwitch(binding.mihomoSwitch));
-        binding.killRow.setOnClickListener(v -> toggleSwitch(binding.killSwitch));
+        binding.killRow.setOnClickListener(v -> onKillClicked());   // v592：整行点击 → 确认弹窗
         binding.vpnRow.setOnClickListener(v -> toggleSwitch(binding.vpnSwitch));
         binding.subUrl.setNextFocusDownId(R.id.autoStartRow);
         binding.qrBtn.setNextFocusDownId(R.id.autoStartRow);
@@ -447,12 +493,13 @@ public class VpnSettingsDialog extends BaseAlertDialog {
         binding.autoStartRow.setNextFocusDownId(R.id.mihomoRow);
         binding.mihomoRow.setNextFocusUpId(R.id.autoStartRow);
         binding.mihomoRow.setNextFocusDownId(R.id.killRow);
-        binding.killRow.setNextFocusUpId(R.id.mihomoRow);
+        binding.killRow.setNextFocusUpId(R.id.mihomoRow);    // v592：杀进程行 = 纯动作行，不参与开关互斥
         binding.killRow.setNextFocusDownId(R.id.nodeRow);
         binding.nodeRow.setNextFocusUpId(R.id.killRow);
-        binding.nodeRow.setNextFocusDownId(R.id.negative);   // v591: TV has no OK button
+        binding.nodeRow.setNextFocusDownId(R.id.negative);   // v592：确定按钮回来了（下行 → 取消/确定）
         binding.negative.setNextFocusUpId(R.id.nodeRow);
-        binding.negative.setNextFocusRightId(View.NO_ID);
+        binding.negative.setNextFocusRightId(R.id.positive);
+        binding.positive.setNextFocusLeftId(R.id.negative);
     }
 
     private void toggleSwitch(android.widget.CompoundButton sw) {
@@ -463,14 +510,22 @@ public class VpnSettingsDialog extends BaseAlertDialog {
             onManualClicked(on);
         } else if (sw == binding.autoStartSwitch) {
             onAutoStartClicked(on);
-        } else if (sw == binding.killSwitch) {
-            onKillClicked();
         }
     }
 
-    /** 「杀死 mihomo 进程」：一次性动作，彻底停内核并复位两个开关，保证显示状态与真实运行一致。 */
+    /** v592：「杀死 mihomo 进程」= 整行点击 → 先弹确认框；确认才干净停内核并复位两个模式开关。 */
     private void onKillClicked() {
         if (syncing) return;
+        new MaterialAlertDialogBuilder(requireActivity(), R.style.ThemeOverlay_WebHTV_FixedLightDialog)
+                .setTitle(R.string.vpn_kill_confirm_title)
+                .setMessage(R.string.vpn_kill_confirm_message)
+                .setPositiveButton(R.string.dialog_positive, (d, w) -> doKillMihomo())
+                .setNegativeButton(R.string.dialog_negative, null)   // 取消：只关掉这个弹窗，不动内核
+                .show();
+    }
+
+    /** 确认后：一次性停干净（TUN + 内核 + 通知），并复位两个模式开关，避免多服务共存。 */
+    private void doKillMihomo() {
         syncing = true;
         try {
             SystemVpnService.stopAll(requireContext());
@@ -483,8 +538,10 @@ public class VpnSettingsDialog extends BaseAlertDialog {
         } finally {
             syncing = false;
         }
-        // v590：两个模式开关都回到"可选中"
+        // 两个模式开关都回到"可选中"
         applyModeMutex();
+        refreshStatus();
+        Notify.show(R.string.vpn_kill_done);
     }
 
     /** 行可用性与开关可用性保持一致（TV） */

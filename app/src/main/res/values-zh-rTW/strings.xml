@@ -2792,4 +2792,8 @@
     <string name="following_filter_failed">檢查失敗</string>
     <string name="setting_following">追更更新</string>
     <string name="following_next_season">追新季 S%1$d</string>
+    <string name="vpn_mode_required">請先開啟「自啟動模式」或「手動模式」</string>
+    <string name="vpn_kill_confirm_title">殺死 mihomo 進程</string>
+    <string name="vpn_kill_confirm_message">確定要殺死 mihomo 內核進程嗎？將停止本機代理。</string>
+    <string name="vpn_kill_done">mihomo 內核已停止</string>
 </resources>

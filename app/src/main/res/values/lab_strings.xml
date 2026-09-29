@@ -62,8 +62,8 @@
 <string name="setting_lab_summary">运行环境 · 工具 · 网络</string>
 <string name="lab_global_proxy_title">全局代理</string>
 <string name="lab_system_vpn_title">系统级VPN</string>
-<string name="lab_mihomo_title">mihomo代理</string>
-<string name="lab_mihomo_hint">开启后 mihomo 内核运行，127.0.0.1:7890 可用</string>
+<string name="lab_mihomo_title">手动模式</string>
+<string name="lab_mihomo_hint">手动开启 mihomo 内核（本机 127.0.0.1:7890）；壳子重启后默认关闭，需手动开启</string>
 <string name="lab_sub_url_hint">订阅地址（可选，没有 config.yaml 时自动生成）</string>
 <string name="lab_system_vpn_hint">开启后整机流量经 mihomo 代理（需先开启 mihomo代理）</string>
 <string name="lab_global_proxy_hint">默认代理（优先级：脚本自带配置 &gt; 命令变量 &gt; 此开关）；命令变量填 direct 可单独直连；关闭则清空环境变量直连</string>
@@ -73,7 +73,7 @@
 <string name="lab_nav_entry_title">底部导航入口</string>
 <string name="lab_nav_entry_hint">开：底部导航显示实验室 关：仅从增强设置进入</string>
 
-    <string name="lab_mihomo_autostart_title">mihomo 自启动</string>
-    <string name="lab_mihomo_autostart_hint">开启后壳子启动即自动拉起 mihomo 内核（与手动开关互斥）</string>
+    <string name="lab_mihomo_autostart_title">自启动模式</string>
+    <string name="lab_mihomo_autostart_hint">壳子/TV 启动即自动拉起 mihomo 内核；与手动模式互斥，只能开一个</string>
 </resources>
 
