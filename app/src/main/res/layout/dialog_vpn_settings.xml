@@ -153,6 +153,44 @@
                 android:nextFocusDown="@id/vpnSwitch"
                 android:nextFocusUp="@id/autoStartSwitch" />
         </LinearLayout>
+<LinearLayout
+            android:id="@+id/killRow"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical">
+
+                <TextView
+                    android:id="@+id/killTitle"
+                    style="@style/Widget.WebHTV.LightDialog.Label"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="杀死 mihomo 进程" />
+
+                <TextView
+                    android:id="@+id/killHint"
+                    style="@style/Widget.WebHTV.LightDialog.Helper"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="2dp"
+                    android:text="彻底结束内核进程，并复位上方两个开关" />
+            </LinearLayout>
+
+            <com.google.android.material.materialswitch.MaterialSwitch
+                android:id="@+id/killSwitch"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:focusable="true"
+                android:nextFocusDown="@id/nodeRow"
+                android:nextFocusUp="@id/mihomoRow" />
+        </LinearLayout>
 
 <LinearLayout
             android:id="@+id/vpnRow"

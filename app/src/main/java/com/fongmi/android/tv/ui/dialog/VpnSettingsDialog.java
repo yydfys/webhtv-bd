@@ -260,20 +260,15 @@ public class VpnSettingsDialog extends BaseAlertDialog {
             boolean auto = LabConfig.get().getMihomoAutoStart();
             syncing = true;
             try {
+                // 两个开关一律保持可选中：自启动=开机拉起策略，代理=内核运行态，互不置灰
+                binding.autoStartSwitch.setEnabled(true);
+                binding.mihomoSwitch.setEnabled(true);
                 binding.autoStartSwitch.setChecked(auto);
-                if (auto) {
-                    binding.mihomoSwitch.setEnabled(false);
-                    syncRowState();
-                    binding.mihomoSwitch.setChecked(running);
-                } else {
-                    binding.mihomoSwitch.setEnabled(true);
-                    syncRowState();
-                    binding.autoStartSwitch.setEnabled(!(running && binding.mihomoSwitch.isChecked()));
-                    syncRowState();
-                }
+                binding.mihomoSwitch.setChecked(running);
             } finally {
                 syncing = false;
             }
+            syncRowState();
             // 遥控器焦点链：订阅地址 → 自启动 → 代理 → 节点管理 → 按钮
             binding.subUrl.setNextFocusDownId(R.id.autoStartSwitch);
             binding.qrBtn.setNextFocusDownId(R.id.autoStartSwitch);
@@ -284,6 +279,7 @@ public class VpnSettingsDialog extends BaseAlertDialog {
             binding.nodeRow.setNextFocusUpId(R.id.mihomoSwitch);
         } else {
             binding.autoStartRow.setVisibility(View.GONE);
+            binding.killRow.setVisibility(View.GONE); // 杀内核开关仅 TV 版提供，手机端不受影响
             binding.subUrl.setNextFocusDownId(R.id.vpnSwitch);
             binding.qrBtn.setNextFocusDownId(R.id.vpnSwitch);
         }
@@ -299,7 +295,7 @@ public class VpnSettingsDialog extends BaseAlertDialog {
             LabConfig.get().setMihomoAutoStart(on);
             LabConfig.get().setMihomo(false);
             if (on) {
-                binding.mihomoSwitch.setEnabled(false);
+                binding.mihomoSwitch.setEnabled(true);
                 syncRowState();
                 startMihomoNow();
                 binding.mihomoSwitch.setChecked(SystemVpnService.isProxyRunning());
@@ -316,7 +312,7 @@ public class VpnSettingsDialog extends BaseAlertDialog {
         }
     }
 
-    /** 手动模式：开启 = 记开关 + 立刻点亮 + 自启动置灰；关闭 = 停代理，自启动恢复可点。 */
+    /** 手动模式：开启 = 记开关 + 立刻点亮 + 自启动互斥回落关闭；关闭 = 停代理。 */
     private void onManualClicked(boolean on) {
         if (syncing || !Util.isLeanback()) return;
         syncing = true;
@@ -324,7 +320,7 @@ public class VpnSettingsDialog extends BaseAlertDialog {
             LabConfig.get().setMihomo(on);
             LabConfig.get().setMihomoAutoStart(false);
             binding.autoStartSwitch.setChecked(false);
-            binding.autoStartSwitch.setEnabled(!on);
+            binding.autoStartSwitch.setEnabled(true);
             syncRowState();
             if (on) startMihomoNow();
             else SystemVpnService.stopAll(requireContext());   // 两个开关都关 = 停代理，避免"开关全灭内核还在跑"
@@ -349,25 +345,59 @@ public class VpnSettingsDialog extends BaseAlertDialog {
         LabFocus.rowRing(binding.mihomoRow, binding.mihomoSwitch);
         LabFocus.rowRing(binding.vpnRow, binding.vpnSwitch);
         LabFocus.rowRing(binding.nodeRow);
+        LabFocus.rowRing(binding.killRow, binding.killSwitch);
         LabFocus.inputStroke(binding.subUrlLayout, 0xFF2F6FED);
         if (!Util.isLeanback()) return;
         binding.autoStartRow.setOnClickListener(v -> toggleSwitch(binding.autoStartSwitch));
         binding.mihomoRow.setOnClickListener(v -> toggleSwitch(binding.mihomoSwitch));
+        binding.killRow.setOnClickListener(v -> toggleSwitch(binding.killSwitch));
         binding.vpnRow.setOnClickListener(v -> toggleSwitch(binding.vpnSwitch));
         binding.subUrl.setNextFocusDownId(R.id.autoStartRow);
         binding.qrBtn.setNextFocusDownId(R.id.autoStartRow);
         binding.autoStartRow.setNextFocusUpId(R.id.subUrl);
         binding.autoStartRow.setNextFocusDownId(R.id.mihomoRow);
         binding.mihomoRow.setNextFocusUpId(R.id.autoStartRow);
-        binding.mihomoRow.setNextFocusDownId(R.id.nodeRow);
-        binding.nodeRow.setNextFocusUpId(R.id.mihomoRow);
+        binding.mihomoRow.setNextFocusDownId(R.id.killRow);
+        binding.killRow.setNextFocusUpId(R.id.mihomoRow);
+        binding.killRow.setNextFocusDownId(R.id.nodeRow);
+        binding.nodeRow.setNextFocusUpId(R.id.killRow);
         binding.nodeRow.setNextFocusDownId(R.id.positive);
         binding.negative.setNextFocusUpId(R.id.nodeRow);
         binding.positive.setNextFocusUpId(R.id.nodeRow);
     }
 
     private void toggleSwitch(android.widget.CompoundButton sw) {
-        if (sw != null && sw.isEnabled()) sw.toggle();
+        if (sw == null || !sw.isEnabled()) return;
+        boolean on = !sw.isChecked();
+        sw.setChecked(on);
+        if (sw == binding.mihomoSwitch) {
+            onManualClicked(on);
+        } else if (sw == binding.autoStartSwitch) {
+            onAutoStartClicked(on);
+        } else if (sw == binding.killSwitch) {
+            onKillClicked();
+        }
+    }
+
+    /** 「杀死 mihomo 进程」：一次性动作，彻底停内核并复位两个开关，保证显示状态与真实运行一致。 */
+    private void onKillClicked() {
+        if (syncing) return;
+        syncing = true;
+        try {
+            SystemVpnService.stopAll(requireContext());
+            LabConfig.get().setMihomo(false);
+            LabConfig.get().setMihomoAutoStart(false);
+            binding.mihomoSwitch.setChecked(false);
+            binding.autoStartSwitch.setChecked(false);
+            binding.autoStartSwitch.setEnabled(true);
+            binding.mihomoSwitch.setEnabled(true);
+            binding.killSwitch.setChecked(false);
+            binding.killSwitch.setEnabled(true);
+            syncRowState();
+            refreshStatus();
+        } finally {
+            syncing = false;
+        }
     }
 
     /** 行可用性与开关可用性保持一致（TV） */
@@ -375,9 +405,10 @@ public class VpnSettingsDialog extends BaseAlertDialog {
         LabFocus.rowEnable(binding.mihomoRow, binding.mihomoSwitch.isEnabled());
         LabFocus.rowEnable(binding.autoStartRow, binding.autoStartSwitch.isEnabled());
         LabFocus.rowEnable(binding.vpnRow, binding.vpnSwitch.isEnabled());
+        LabFocus.rowEnable(binding.killRow, binding.killSwitch.isEnabled());
     }
 
-    /** 默认焦点：落在第一个可用行，避免投到会变灰的开关/输入框 */
+    /** 默认焦点：落在第一个可用行，避免投到不可选的控件 */
     private void requestInitialFocus() {
         int target = R.id.autoStartRow;
         if (!binding.autoStartRow.isFocusable()) {
