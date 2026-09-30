@@ -256,6 +256,8 @@ import java.util.Locale;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicBoolean;
+import android.graphics.drawable.ColorDrawable;
+import com.fongmi.android.tv.utils.WebHomeThemeColor;
 
 public class VideoActivity extends PlaybackActivity implements Clock.Callback, CustomKeyDown.Listener, TrackDialog.Listener, ControlDialog.Listener, DanmakuDialog.Host, FlagAdapter.OnClickListener, EpisodeAdapter.OnClickListener, EpisodeGroupAdapter.OnClickListener, QualityAdapter.OnClickListener, QuickAdapter.OnClickListener, ParseAdapter.OnClickListener, CastDialog.Listener, InfoDialog.Listener, SubtitlePlaybackSession.Host, com.fongmi.android.tv.ui.novel.NovelReaderHost {
     private static final long LYRICS_OFFSET_MIN_MS = -5000L;
@@ -574,24 +576,41 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
 
     @Override
     protected boolean customWall() {
-        // 影视原生模式：不铺壁纸，背景交给下层主题页
-        return !shouldUseTransparentDetailWindow();
+        // 影视原生模式：不铺壁纸/海报墙，背景改由 applyThemeColorSurface() 铺主题色实色底
+        return !shouldUseThemeColorSurface();
     }
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
-        if (!shouldUseTransparentDetailWindow()) setTheme(R.style.Theme_App);
         super.onCreate(savedInstanceState);
+        applyThemeColorSurface();
     }
 
     /**
-     * 影视原生模式（设置-TMDB-详情页模式-影视原生）：
-     * 窗口整体透明（Theme.App.Transparent），详情页/播放页不铺任何不透明底色，
-     * 直接透出下层 HTML 主题页（主题色系充当背景）。
+     * 手机版「影视原生」模式（设置-TMDB-详情页模式-影视原生）：
+     * 详情页/播放页背景改为「当前 HTML 主题页的主题色实色底」，不再透出主题页本身。
+     * 其它详情页模式与 TV 版恒为 false —— 原有渲染零改动。
      */
-    private boolean shouldUseTransparentDetailWindow() {
+    private boolean shouldUseThemeColorSurface() {
         if (!Util.isMobile()) return false;
         return getIntent().getIntExtra(EXTRA_DETAIL_RUNTIME_MODE, Setting.getDetailOpenMode()) == Setting.DETAIL_OPEN_DIRECT;
+    }
+
+    /**
+     * 铺一层主题色实色底（窗口背景 + android.R.id.content 背景）。
+     * 非影视原生模式、或探针还没采到色 → 什么都不做，完全保持原样。
+     */
+    private void applyThemeColorSurface() {
+        if (!shouldUseThemeColorSurface()) return;
+        WebHomeThemeColor.init(this);
+        Integer color = WebHomeThemeColor.getColor();
+        if (color == null) return;
+        try {
+            getWindow().setBackgroundDrawable(new ColorDrawable(color));
+            View content = findViewById(android.R.id.content);
+            if (content != null) content.setBackgroundColor(color);
+        } catch (Throwable ignored) {
+        }
     }
 
     @Override
@@ -5700,7 +5719,7 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
     }
 
     private void setContextWall(String url, boolean skipLock) {
-        if (shouldUseTransparentDetailWindow()) { mContextWallUrl = ""; hideContextWall(); return; }
+        if (shouldUseThemeColorSurface()) { mContextWallUrl = ""; hideContextWall(); return; }
         if (!Setting.isPlaybackArtworkWall() && !isRuntimeFusionMode() && !shouldUseTmdbBackdropSurface()) {
             mContextWallUrl = "";
             hideContextWall();
@@ -5751,7 +5770,7 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
     }
 
     private void restoreContextWall() {
-        if (shouldUseTransparentDetailWindow()) { mContextWallUrl = ""; hideContextWall(); return; }
+        if (shouldUseThemeColorSurface()) { mContextWallUrl = ""; hideContextWall(); return; }
         if (!Setting.isPlaybackArtworkWall() && !isRuntimeFusionMode() && !shouldUseTmdbBackdropSurface()) return;
         String wall = getContextWall();
         if (TextUtils.isEmpty(wall)) {

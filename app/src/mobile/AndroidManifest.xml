@@ -161,8 +161,7 @@
             android:launchMode="singleTop"
             android:parentActivityName=".ui.activity.HomeActivity"
             android:screenOrientation="fullUser"
-            android:supportsPictureInPicture="true"
-            android:theme="@style/Theme.App.Transparent" />
+            android:supportsPictureInPicture="true" />
 
         <activity
             android:name=".ui.activity.TmdbDetailActivity"

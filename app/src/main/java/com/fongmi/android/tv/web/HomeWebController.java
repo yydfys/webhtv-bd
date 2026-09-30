@@ -61,6 +61,7 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import com.fongmi.android.tv.utils.WebHomeThemeColor;
 
 public class HomeWebController {
 
@@ -906,6 +907,33 @@ public class HomeWebController {
         return "";
     }
 
+    /**
+     * 主题色探针：HTML 主题页换色不一定重新导航，故按固定间隔持续采样，
+     * 采到的主题色写入 WebHomeThemeColor 供影视原生模式详情页/播放页铺实色底。
+     */
+    private final Runnable themeColorProbe = new Runnable() {
+        @Override
+        public void run() {
+            if (destroyed || webView == null) return;
+            try {
+                evaluate(WebHomeThemeColor.PROBE_JS, WebHomeThemeColor::update);
+            } catch (Throwable ignored) {
+            }
+            webView.postDelayed(this, 3000);
+        }
+    };
+
+    void startThemeColorProbe() {
+        if (webView == null) return;
+        webView.removeCallbacks(themeColorProbe);
+        webView.post(themeColorProbe);
+    }
+
+    void stopThemeColorProbe() {
+        if (webView == null) return;
+        webView.removeCallbacks(themeColorProbe);
+    }
+
     public void evaluate(String script, ValueCallback<String> callback) {
         webView.post(() -> webView.evaluateJavascript(script, callback));
     }
@@ -1287,6 +1315,7 @@ public class HomeWebController {
             pending.cancel();
             webView.removeCallbacks(pending);
         }
+        stopThemeColorProbe();
         pendingNativePlaybacks.clear();
     }
 
@@ -1645,6 +1674,7 @@ public class HomeWebController {
                 loadTimeoutRecoveries = 0;
                 lastPageUrl = url;
                 injectSdk();
+                startThemeColorProbe();
                 focusWebView("page-finished");
                 listener.onWebReady();
             }
