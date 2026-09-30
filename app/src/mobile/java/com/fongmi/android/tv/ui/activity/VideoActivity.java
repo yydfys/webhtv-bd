@@ -202,6 +202,7 @@ import com.fongmi.android.tv.utils.TmdbDetailCache;
 import com.fongmi.android.tv.utils.Traffic;
 import com.fongmi.android.tv.utils.Util;
 import com.fongmi.android.tv.utils.VodDetailCache;
+import com.fongmi.android.tv.utils.WebThemeAppearance;
 import com.github.catvod.crawler.SpiderDebug;
 import com.google.android.material.bottomsheet.BottomSheetDialogFragment;
 import com.google.android.material.button.MaterialButton;
@@ -2428,6 +2429,8 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
             if (mBinding.videoShadow != null) mBinding.videoShadow.setVisibility(View.VISIBLE);
             android.util.Log.d("VideoActivity", "setDetail - 调用 showContent()");
             mBinding.progressLayout.showContent();
+            // 手机版：影视原生(纯原生)详情页背景跟随 WebUI 主题基色
+            applyWebThemeDetailSurface();
         }
 
         // 源站详情一旦可用就先显示当前集数页；TMDB 头部在富集完成后增量出现。
@@ -8501,7 +8504,13 @@ private void checkOrientation() {
     }
 
     private void applyFusionNativeTextColors() {
-        if ((!isRuntimeFusionMode() && !mTmdbFallbackToNative) || mBinding.nativeContentContainer == null) return;
+        if (mBinding.nativeContentContainer == null) return;
+        // 手机版：已采集到 WebUI 主题基色时，原生文字按主题深浅着色，避免浅底白字看不见
+        if (WebThemeAppearance.isActive()) {
+            tintFusionNativeTextTree(mBinding.nativeContentContainer, !WebThemeAppearance.isDark());
+            return;
+        }
+        if (!isRuntimeFusionMode() && !mTmdbFallbackToNative) return;
         tintFusionNativeTextTree(mBinding.nativeContentContainer, !mTmdbFallbackToNative && isFusionLightTheme());
     }
 
@@ -8637,7 +8646,30 @@ private void checkOrientation() {
         hideProgress();
     }
 
+    /**
+     * 手机版：详情页背景跟随 WebUI（HTML 主题）基色。
+     * 只在手机版且已采集到主题色（{@link WebThemeAppearance#isActive()}）时生效；
+     * TV 版、以及未采集到主题色的场景一律维持原样，零影响。
+     */
+    private void applyWebThemeDetailSurface() {
+        if (mBinding == null || !WebThemeAppearance.isActive()) return;
+        boolean light = !WebThemeAppearance.isDark();
+        mBinding.getRoot().setBackgroundColor(WebThemeAppearance.getColor());
+        mBinding.scroll.setBackgroundColor(Color.TRANSPARENT);
+        mBinding.swipeLayout.setBackgroundColor(Color.TRANSPARENT);
+        mBinding.progressLayout.setBackgroundColor(Color.TRANSPARENT);
+        if (mBinding.nativeContentContainer != null) mBinding.nativeContentContainer.setBackgroundColor(Color.TRANSPARENT);
+        // 全屏 60% 黑遮罩会重新把页面盖黑，主题生效时收起
+        if (mBinding.videoContextScrim != null) mBinding.videoContextScrim.setVisibility(View.GONE);
+        if (mBinding.nativeContentContainer != null) tintFusionNativeTextTree(mBinding.nativeContentContainer, light);
+    }
+
     private void applyNativeFallbackWallpaperSurface() {
+        // 手机版已采集到 WebUI 主题基色时，直接用主题色铺底，不再走"透明露壁纸"（webhome 无壁纸 -> 纯黑）
+        if (WebThemeAppearance.isActive()) {
+            applyWebThemeDetailSurface();
+            return;
+        }
         mBinding.getRoot().setBackgroundColor(Color.TRANSPARENT);
         mBinding.scroll.setBackgroundColor(Color.TRANSPARENT);
         mBinding.swipeLayout.setBackgroundColor(Color.TRANSPARENT);
