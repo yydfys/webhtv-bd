@@ -609,6 +609,12 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
             getWindow().setBackgroundDrawable(new ColorDrawable(color));
             View content = findViewById(android.R.id.content);
             if (content != null) content.setBackgroundColor(color);
+            // v599：播放页背景同样铺主题实色底 —— 视频容器黑边/底色、起播底衬都改主题色（不再黑）
+            mBinding.getRoot().setBackgroundColor(color);
+            mBinding.videoContextScrim.setVisibility(View.GONE);
+            mBinding.video.setBackgroundColor(color);
+            mBinding.exo.setBackgroundColor(color);
+            mBinding.exo.setShutterBackgroundColor(Color.TRANSPARENT);
         } catch (Throwable ignored) {
         }
     }
