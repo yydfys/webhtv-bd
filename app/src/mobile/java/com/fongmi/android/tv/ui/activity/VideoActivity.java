@@ -574,7 +574,24 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
 
     @Override
     protected boolean customWall() {
-        return true;
+        // 影视原生模式：不铺壁纸，背景交给下层主题页
+        return !shouldUseTransparentDetailWindow();
+    }
+
+    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+        if (!shouldUseTransparentDetailWindow()) setTheme(R.style.Theme_App);
+        super.onCreate(savedInstanceState);
+    }
+
+    /**
+     * 影视原生模式（设置-TMDB-详情页模式-影视原生）：
+     * 窗口整体透明（Theme.App.Transparent），详情页/播放页不铺任何不透明底色，
+     * 直接透出下层 HTML 主题页（主题色系充当背景）。
+     */
+    private boolean shouldUseTransparentDetailWindow() {
+        if (!Util.isMobile()) return false;
+        return getIntent().getIntExtra(EXTRA_DETAIL_RUNTIME_MODE, Setting.getDetailOpenMode()) == Setting.DETAIL_OPEN_DIRECT;
     }
 
     @Override
@@ -5683,6 +5700,7 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
     }
 
     private void setContextWall(String url, boolean skipLock) {
+        if (shouldUseTransparentDetailWindow()) { mContextWallUrl = ""; hideContextWall(); return; }
         if (!Setting.isPlaybackArtworkWall() && !isRuntimeFusionMode() && !shouldUseTmdbBackdropSurface()) {
             mContextWallUrl = "";
             hideContextWall();
@@ -5733,6 +5751,7 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
     }
 
     private void restoreContextWall() {
+        if (shouldUseTransparentDetailWindow()) { mContextWallUrl = ""; hideContextWall(); return; }
         if (!Setting.isPlaybackArtworkWall() && !isRuntimeFusionMode() && !shouldUseTmdbBackdropSurface()) return;
         String wall = getContextWall();
         if (TextUtils.isEmpty(wall)) {
