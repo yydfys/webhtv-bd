@@ -33,7 +33,7 @@ final class WebThemeCallRouter {
             case "navigation.openDetail", "navigation.openNativeDetail", "external.open",
                     "app.search", "app.openVod", "app.openSite", "app.openSetting",
                     "navigation.back", "navigation.reload" -> Api.NAVIGATION;
-            case "image.preview", "image.save", "ui.getViewport" -> Api.UI;
+            case "image.preview", "image.save", "ui.getViewport", "ui.setThemeColor" -> Api.UI;
             default -> throw new SecurityException("PERMISSION_DENIED");
         };
     }

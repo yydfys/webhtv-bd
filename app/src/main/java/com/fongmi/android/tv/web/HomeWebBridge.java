@@ -29,6 +29,7 @@ import com.fongmi.android.tv.utils.Task;
 import com.fongmi.android.tv.utils.Util;
 import com.fongmi.android.tv.web.ext.WebHomeExtensionRegistry;
 import com.github.catvod.crawler.SpiderDebug;
+import com.fongmi.android.tv.utils.WebThemeAppearance;
 import com.github.catvod.utils.Json;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
@@ -141,6 +142,7 @@ public class HomeWebBridge {
             throw new IllegalStateException("SOURCE_CHANGED");
         }
         return switch (method) {
+                case "ui.setThemeColor" -> setThemeColor(payload);
                 case "net.request" -> WebCall.request(payload, controller);
                 case "net.resourceUrl" -> quote(resourceUrl(Json.safeString(payload, "url"), payload.toString()));
                 case "vod.home" -> vodHome(payload);
@@ -642,4 +644,10 @@ public class HomeWebBridge {
     private static String quote(String text) {
         return App.gson().toJson(text == null ? "" : text);
     }
+
+    private String setThemeColor(JsonObject payload) {
+        WebThemeAppearance.applyPayload(payload);
+        return "{}";
+    }
+
 }

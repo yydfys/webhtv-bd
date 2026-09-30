@@ -16,6 +16,7 @@ import com.fongmi.android.tv.event.RefreshEvent;
 import com.fongmi.android.tv.setting.TmdbSitePolicy;
 import com.fongmi.android.tv.ui.base.BaseActivity;
 import com.fongmi.android.tv.ui.helper.TmdbUIAdapter;
+import com.fongmi.android.tv.utils.WebThemeAppearance;
 import com.fongmi.android.tv.web.HomeWebController;
 import com.fongmi.android.tv.web.WebThemeDetailMetadata;
 import com.fongmi.android.tv.web.WebThemePage;
@@ -78,9 +79,25 @@ public class WebThemeDetailActivity extends BaseActivity implements HomeWebContr
         return mBinding = ActivityWebThemeDetailBinding.inflate(getLayoutInflater());
     }
 
+    /**
+     * 主题详情页原生衬底。
+     * 主题的 DETAIL 页（HTML）背景是透明的，设计上就是要让"原生衬底"主导；
+     * 但 Activity 根布局默认是近黑色 #070B18，透明区域就变成一片纯黑。
+     * 这里用首页 HTML 上报的主题基色把根容器 / 加载遮罩刷上，让详情页跟随所选主题色系。
+     * 未采集到主题色（非手机版 / 非 WebHome 主题）时保持布局原样，零影响。
+     */
+    private void applyWebThemeBackdrop() {
+        if (!WebThemeAppearance.isActive()) return;
+        int color = WebThemeAppearance.getColor();
+        if (color == 0) return;
+        mBinding.getRoot().setBackgroundColor(color);
+        mBinding.loading.setBackgroundColor(color);
+    }
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        applyWebThemeBackdrop();
         String manifestUrl = value(getIntent().getStringExtra(EXTRA_MANIFEST));
         String siteKey = value(getIntent().getStringExtra(EXTRA_SITE_KEY));
         vodId = value(getIntent().getStringExtra(EXTRA_VOD_ID));

@@ -15,6 +15,7 @@ public final class WebThemeCapabilityRegistry {
     private static final List<Capability> CAPABILITIES = List.of(
             builtin("theme.info", false, WebThemePage.HOME, WebThemePage.DETAIL),
             builtin("ui.getViewport", true, WebThemePage.HOME, WebThemePage.DETAIL),
+            builtin("ui.setThemeColor", true, WebThemePage.HOME, WebThemePage.DETAIL),
             builtin("navigation.back", true, WebThemePage.HOME, WebThemePage.DETAIL),
             builtin("navigation.reload", true, WebThemePage.HOME, WebThemePage.DETAIL),
             builtin("navigation.openNativeDetail", false, WebThemePage.DETAIL),

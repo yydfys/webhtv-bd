@@ -63,6 +63,71 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
 public class HomeWebController {
+    /**
+     * 主题基色探针：页面加载后读取主题实际生效的背景色/文字色并上报宿主，
+     * 供「影视原生模式」详情页背景跟随 HTML 主题（见 WebThemeAppearance）。
+     */
+    private static final String THEME_COLOR_PROBE = """
+            ;(function(){
+              if (window.__fmThemeColorProbe) return;
+              window.__fmThemeColorProbe = true;
+              var VARS = ['--body-bg','--bg','--background','--color-bg','--page-bg','--theme-color','--accent-color'];
+              var SELECTORS = ['body','#app','#root','.app','.wrapper','.container','main'];
+              function isOpaque(v){
+                if (!v) return false;
+                v = ('' + v).toLowerCase().trim();
+                if (v === '' || v === 'transparent' || v === 'none') return false;
+                if (v.indexOf('rgba(') === 0) {
+                  var parts = v.substring(5, v.length - 1).split(',');
+                  if (parts.length >= 4 && parseFloat(parts[3]) <= 0.02) return false;
+                }
+                return true;
+              }
+              function firstBackground(){
+                for (var i = 0; i < SELECTORS.length; i++) {
+                  var el = document.querySelector(SELECTORS[i]);
+                  if (!el) continue;
+                  var bg = getComputedStyle(el).backgroundColor;
+                  if (isOpaque(bg)) return bg;
+                }
+                return '';
+              }
+              function collect(){
+                var out = {};
+                try {
+                  var root = document.documentElement;
+                  if (root) {
+                    var rs = getComputedStyle(root);
+                    for (var i = 0; i < VARS.length; i++) out['var:' + VARS[i]] = (rs.getPropertyValue(VARS[i]) || '').trim();
+                  }
+                  var bg = firstBackground();
+                  if (bg) out.color = bg;
+                  var textEl = document.body || root;
+                  if (textEl) out.text = getComputedStyle(textEl).color || '';
+                } catch (e) {}
+                return out;
+              }
+              function report(){
+                try {
+                  if (!window.fongmi || !window.fongmi.ui || !window.fongmi.ui.setThemeColor) return;
+                  window.fongmi.ui.setThemeColor(collect());
+                } catch (e) {}
+              }
+              function run(){ report(); setTimeout(report, 900); setTimeout(report, 3000); }
+              if (document.readyState === 'complete') run(); else window.addEventListener('load', run);
+              try {
+                var mo = new MutationObserver(function(){ setTimeout(report, 60); });
+                var watch = function(){
+                  try {
+                    if (document.documentElement) mo.observe(document.documentElement, {attributes: true, attributeFilter: ['class','style','data-theme']});
+                    if (document.body) mo.observe(document.body, {attributes: true, attributeFilter: ['class','style','data-theme']});
+                  } catch (e) {}
+                };
+                if (document.body) watch(); else window.addEventListener('DOMContentLoaded', watch);
+              } catch (e) {}
+            })();
+            """;
+
 
     private static final String BRIDGE = "fongmiBridge";
     private static final int SLOW_KEY_MS = 24;
@@ -1781,7 +1846,7 @@ public class HomeWebController {
         int generation = runtime.session().generation();
         if (destroyed || current == null || currentTarget == null) return;
         injectViewport();
-        String sdk = currentTarget.isRemoteGlobal() ? getRemoteSdk() : getSdk();
+        String sdk = (currentTarget.isRemoteGlobal() ? getRemoteSdk() : getSdk()) + THEME_COLOR_PROBE;
         bridgeReady = true;
         current.evaluateJavascript(sdk, value -> {
             if (destroyed || current != webView || !isThemeRuntimeCurrent(currentTarget, generation)) return;
@@ -1853,7 +1918,7 @@ public class HomeWebController {
                     episode:{info:function(episodeRef){return invoke('episode.info',{episodeRef:episodeRef});}},
                     app:{search:function(keyword,options){return invoke('app.search',Object.assign({},options||{},{keyword:keyword}));},openVod:function(){return invoke('app.openVod',{});},openSite:function(){return invoke('app.openSite',{});},openSetting:function(){return invoke('app.openSetting',{});}},
                     player:{playVod:function(siteKey,vodId,title,pic,options){return invoke('player.playVod',Object.assign({},options||{},{siteKey:siteKey,vodId:vodId,title:title,pic:pic}));}},
-                    ui:{getViewport:function(){return invoke('ui.getViewport',{});}},
+                    ui:{getViewport:function(){return invoke('ui.getViewport',{});},setThemeColor:function(payload){return invoke('ui.setThemeColor',payload||{});}},
                     navigation:{back:function(){return invoke('navigation.back',{});},reload:function(){return invoke('navigation.reload',{});},openDetail:function(options){return invoke('navigation.openDetail',options||{});},openNativeDetail:function(options){return invoke('navigation.openNativeDetail',options||{});}}
                   };
                   window.fm={vodHome:window.fongmi.vod.home,vodCategory:window.fongmi.vod.category,vodDetail:window.fongmi.vod.detail,vod:window.fongmi.player.playVod,themeInfo:window.fongmi.theme.info,openDetail:window.fongmi.navigation.openDetail,openNativeDetail:window.fongmi.navigation.openNativeDetail,favoriteStatus:window.fongmi.favorite.status,favoriteSet:window.fongmi.favorite.set,detailHistory:window.fongmi.history.item,person:window.fongmi.person,image:window.fongmi.image,recommendation:window.fongmi.recommendation,external:window.fongmi.external,episode:window.fongmi.episode,back:window.fongmi.navigation.back,reload:window.fongmi.navigation.reload,search:window.fongmi.app.search,openVod:window.fongmi.app.openVod,openSite:window.fongmi.app.openSite,openSetting:window.fongmi.app.openSetting};
@@ -2068,7 +2133,8 @@ public class HomeWebController {
                     setToolbar:(visible)=>invoke('ui.setToolbar',{visible:visible!==false}),
                     setChrome:(options)=>invoke('ui.setChrome',options||{}),
                     restoreChrome:()=>invoke('ui.restoreChrome',{}),
-                    getViewport:()=>invoke('ui.getViewport',{})
+                    getViewport:()=>invoke('ui.getViewport',{}),
+                    setThemeColor:(payload)=>invoke('ui.setThemeColor',payload||{})
                   };
                   window.fongmi={invoke,player,net,vod,cache,
                     theme:{info:()=>invoke('theme.info',{})},
