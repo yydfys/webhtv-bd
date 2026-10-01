@@ -257,7 +257,7 @@ import java.util.concurrent.CancellationException;
 import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicBoolean;
 import android.graphics.drawable.ColorDrawable;
-import com.fongmi.android.tv.utils.WebHomeThemeColor;
+import com.fongmi.android.tv.utils.ExpUiTheme;
 
 public class VideoActivity extends PlaybackActivity implements Clock.Callback, CustomKeyDown.Listener, TrackDialog.Listener, ControlDialog.Listener, DanmakuDialog.Host, FlagAdapter.OnClickListener, EpisodeAdapter.OnClickListener, EpisodeGroupAdapter.OnClickListener, QualityAdapter.OnClickListener, QuickAdapter.OnClickListener, ParseAdapter.OnClickListener, CastDialog.Listener, InfoDialog.Listener, SubtitlePlaybackSession.Host, com.fongmi.android.tv.ui.novel.NovelReaderHost {
     private static final long LYRICS_OFFSET_MIN_MS = -5000L;
@@ -593,7 +593,7 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
      */
     private boolean shouldUseThemeColorSurface() {
         if (!Util.isMobile()) return false;
-        return getIntent().getIntExtra(EXTRA_DETAIL_RUNTIME_MODE, Setting.getDetailOpenMode()) == Setting.DETAIL_OPEN_DIRECT;
+        return ExpUiTheme.isSite(getIntent().getStringExtra("key"));
     }
 
     /**
@@ -602,15 +602,15 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
      */
     private void applyThemeColorSurface() {
         if (!shouldUseThemeColorSurface()) return;
-        WebHomeThemeColor.init(this);
-        Integer color = WebHomeThemeColor.getColor();
-        if (color == null) return;
+        Drawable surface = ExpUiTheme.background(this);
+        if (surface == null) return;
+        int color = ExpUiTheme.baseColor(this);
         try {
+            // v601【主题色系】窗口 / 内容层 = pro.jar 写下的「主题色系」背景（实色底 + 光晕）
+            //   内部层（全屏根 / 视频容器 / 播放器 exo）全透 → 露出这层铺色；全屏 60% 黑遮罩收起
             getWindow().setBackgroundDrawable(new ColorDrawable(color));
             View content = findViewById(android.R.id.content);
-            if (content != null) content.setBackgroundColor(color);
-            // v600：播放页内部各层一律置透明 —— 由窗口/content 那层主题色(主题色系)直接充当整页背景
-            //   根布局 / 视频容器黑边 / 播放器底色 / 起播底衬 全透明；全屏 60% 黑遮罩收起
+            if (content != null) content.setBackground(surface);
             mBinding.getRoot().setBackgroundColor(Color.TRANSPARENT);
             mBinding.videoContextScrim.setVisibility(View.GONE);
             mBinding.video.setBackgroundColor(Color.TRANSPARENT);
