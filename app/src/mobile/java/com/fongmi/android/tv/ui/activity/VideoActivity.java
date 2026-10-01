@@ -257,7 +257,6 @@ import java.util.concurrent.CancellationException;
 import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicBoolean;
 import android.graphics.drawable.ColorDrawable;
-import com.fongmi.android.tv.utils.ExpUiTheme;
 
 public class VideoActivity extends PlaybackActivity implements Clock.Callback, CustomKeyDown.Listener, TrackDialog.Listener, ControlDialog.Listener, DanmakuDialog.Host, FlagAdapter.OnClickListener, EpisodeAdapter.OnClickListener, EpisodeGroupAdapter.OnClickListener, QualityAdapter.OnClickListener, QuickAdapter.OnClickListener, ParseAdapter.OnClickListener, CastDialog.Listener, InfoDialog.Listener, SubtitlePlaybackSession.Host, com.fongmi.android.tv.ui.novel.NovelReaderHost {
     private static final long LYRICS_OFFSET_MIN_MS = -5000L;
@@ -576,41 +575,38 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
 
     @Override
     protected boolean customWall() {
-        // 影视原生模式：不铺壁纸/海报墙，背景改由 applyThemeColorSurface() 铺主题色实色底
-        return !shouldUseThemeColorSurface();
+        // 影视原生(exp_ui)模式：不铺壁纸/海报墙，背景交给 pro.jar 自绘的主题色系
+        return !isExpUiSite();
     }
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        applyThemeColorSurface();
+        applyTransparentSurface();
     }
 
     /**
-     * 手机版「影视原生」模式（设置-TMDB-详情页模式-影视原生）：
-     * 详情页/播放页背景改为「当前 HTML 主题页的主题色实色底」，不再透出主题页本身。
-     * 其它详情页模式与 TV 版恒为 false —— 原有渲染零改动。
+     * 手机版「影视原生(exp_ui)」源站点（站点 key = exp_ui）：
+     * 详情页 / 播放页全部透明，露出 pro.jar 自绘在宿主 decor 上的主题色系（不再自绘任何颜色）。
+     * 其它源与 TV 版恒为 false —— 原有渲染零改动。
      */
-    private boolean shouldUseThemeColorSurface() {
+    private boolean isExpUiSite() {
         if (!Util.isMobile()) return false;
-        return ExpUiTheme.isSite(getIntent().getStringExtra("key"));
+        String key = getIntent().getStringExtra("key");
+        return key != null && "exp_ui".equalsIgnoreCase(key.trim());
     }
 
     /**
-     * 铺一层主题色实色底（窗口背景 + android.R.id.content 背景）。
-     * 非影视原生模式、或探针还没采到色 → 什么都不做，完全保持原样。
+     * v602【纯透明】窗口背景 / 内容层背景全部透明，内部层（根 / 视频容器 / 播放器 exo）全透，
+     * 全屏 60% 黑遮罩收起 —— 使 pro.jar 自绘的主题色系原样透出，本类不再构建任何颜色/光晕。
      */
-    private void applyThemeColorSurface() {
-        if (!shouldUseThemeColorSurface()) return;
-        Drawable surface = ExpUiTheme.background(this);
-        if (surface == null) return;
-        int color = ExpUiTheme.baseColor(this);
+    private void applyTransparentSurface() {
+        if (!isExpUiSite()) return;
         try {
-            // v601【主题色系】窗口 / 内容层 = pro.jar 写下的「主题色系」背景（实色底 + 光晕）
-            //   内部层（全屏根 / 视频容器 / 播放器 exo）全透 → 露出这层铺色；全屏 60% 黑遮罩收起
-            getWindow().setBackgroundDrawable(new ColorDrawable(color));
+            getWindow().setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
             View content = findViewById(android.R.id.content);
-            if (content != null) content.setBackground(surface);
+            if (content != null) content.setBackgroundColor(Color.TRANSPARENT);
+            if (mBinding == null) return;
             mBinding.getRoot().setBackgroundColor(Color.TRANSPARENT);
             mBinding.videoContextScrim.setVisibility(View.GONE);
             mBinding.video.setBackgroundColor(Color.TRANSPARENT);
@@ -5726,7 +5722,7 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
     }
 
     private void setContextWall(String url, boolean skipLock) {
-        if (shouldUseThemeColorSurface()) { mContextWallUrl = ""; hideContextWall(); return; }
+        if (isExpUiSite()) { mContextWallUrl = ""; hideContextWall(); return; }
         if (!Setting.isPlaybackArtworkWall() && !isRuntimeFusionMode() && !shouldUseTmdbBackdropSurface()) {
             mContextWallUrl = "";
             hideContextWall();
@@ -5777,7 +5773,7 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
     }
 
     private void restoreContextWall() {
-        if (shouldUseThemeColorSurface()) { mContextWallUrl = ""; hideContextWall(); return; }
+        if (isExpUiSite()) { mContextWallUrl = ""; hideContextWall(); return; }
         if (!Setting.isPlaybackArtworkWall() && !isRuntimeFusionMode() && !shouldUseTmdbBackdropSurface()) return;
         String wall = getContextWall();
         if (TextUtils.isEmpty(wall)) {
