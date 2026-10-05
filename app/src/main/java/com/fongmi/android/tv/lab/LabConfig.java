@@ -41,6 +41,7 @@ public final class LabConfig {
     private static final String KEY_LOCAL_PATH = "local_path";
     /** 上次释放的内置模板 md5：用来判断磁盘上那份是不是用户改过的。 */
     private static final String KEY_TEMPLATE_MD5 = "template_md5";
+    private static final String KEY_PY_YSPLIVE_MD5 = "ysp_live_watcher_md5";
     private static final String KEY_FOREGROUND = "foreground";
     private static final String KEY_BATTERY = "battery";
     private static final String KEY_GLOBAL_PROXY = "global_proxy";
@@ -259,6 +260,7 @@ public final class LabConfig {
     }
 
     public LabModels.LabRoot loadSync() throws IOException {
+        seedPyScripts();
         int source = getSource();
         LabModels.LabRoot root = null;
         if (source == SOURCE_LOCAL) {
@@ -317,6 +319,49 @@ public final class LabConfig {
         File file = configCacheFile();
         if (!file.exists()) return null;
         try (InputStream in = new FileInputStream(file)) {
+            return readAll(in);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /**
+     * 释放内置 py 脚本（ysp_live 检测更新 + 服务）到 WebHTV/py/ysp_live/。
+     * 与 lab.json 同一套 md5 跟踪策略：用户改过就保留，没改过则随版本升级一次。
+     * 手机版 assets 里没有该脚本，读取失败即静默跳过（只影响电视版）。
+     */
+    private void seedPyScripts() {
+        File root = new File(templateRoot(), "py/ysp_live");
+        seedBuiltin("ysp_live_watcher.py", new File(root, "ysp_live_watcher.py"), KEY_PY_YSPLIVE_MD5);
+    }
+
+    private void seedBuiltin(String assetName, File target, String md5Key) {
+        try {
+            String asset = readAsset(assetName);
+            if (asset == null) return;
+            String assetMd5 = md5Of(asset);
+            if (target.getParentFile() != null) target.getParentFile().mkdirs();
+            if (!target.exists()) {
+                writeText(target, asset);
+                sp().edit().putString(md5Key, assetMd5).apply();
+                return;
+            }
+            String localMd5 = md5Of(readAllText(target));
+            if (localMd5.equals(assetMd5)) {
+                sp().edit().putString(md5Key, assetMd5).apply();
+                return;
+            }
+            String last = sp().getString(md5Key, "");
+            if (!TextUtils.isEmpty(last) && !last.equals(localMd5)) return;
+            copyFile(target, new File(target.getParentFile(), target.getName() + ".bak"));
+            writeText(target, asset);
+            sp().edit().putString(md5Key, assetMd5).apply();
+        } catch (Exception ignored) {
+        }
+    }
+
+    private String readAsset(String name) {
+        try (InputStream in = App.get().getAssets().open(name)) {
             return readAll(in);
         } catch (Exception e) {
             return null;

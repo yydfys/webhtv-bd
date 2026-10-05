@@ -93,7 +93,100 @@
                 "uninstall_command": "export DEBIAN_FRONTEND=noninteractive; __p=$(dpkg -l 2>/dev/null | awk '$1 ~ /^i/ || $1==\"rc\" {print $2}' | grep -E '^python3' | tr '\\n' ' '); echo \"[lab] 待卸载 python3 包: ${__p:-（无）}\"; [ -n \"$__p\" ] && apt-get purge -y $__p; apt-get autoremove -y; rm -rf /usr/local/lib/python3* /usr/local/bin/pip /usr/local/bin/pip3* /root/.cache/pip; rm -f '/storage/emulated/0/WebHTV/wwwroot/index.html'; rm -f '{package_dir}/.installed'; if command -v python3 >/dev/null 2>&1; then echo '[lab] python3 仍在 rootfs，卸载未完成'; false; else echo '[lab] python3 已从 rootfs 移除'; true; fi",
                 "reset_command": "export DEBIAN_FRONTEND=noninteractive; __p=$(dpkg -l 2>/dev/null | awk '$1 ~ /^i/ || $1==\"rc\" {print $2}' | grep -E '^python3' | tr '\\n' ' '); [ -n \"$__p\" ] && apt-get purge -y $__p; apt-get autoremove -y >/dev/null 2>&1; rm -f '{package_dir}/.installed'; true"
             },
-            "commands": []
+            "commands": [
+                {
+                    "id": "ysp_live_watcher",
+                    "name": "🔄 ysp-live 检测更新",
+                    "description": "常驻后台，定时检测上游 ysp-live.py 是否有新版；有则自动下载到本地目录（仅走我们自己的 Cloudflare 代理，永久忽略实验室环境代理，不做直连兜底）。代理前缀、下载目录、轮询间隔均可配置。",
+                    "command": "python3 '{watcher_path}' --save-dir '{save_dir}' --proxy '{proxy}' --interval {interval}",
+                    "check_command": "pgrep -f '[y]sp_live_watcher.py'",
+                    "stop_command": "pkill -f '[y]sp_live_watcher.py' 2>/dev/null; exit 0",
+                    "auto_execute": true,
+                    "background": true,
+                    "show_output": true,
+                    "variables": [
+                        {
+                            "key": "watcher_path",
+                            "name": "监控脚本路径",
+                            "type": "file",
+                            "filter": "*.py",
+                            "default": "/storage/emulated/0/WebHTV/py/ysp_live/ysp_live_watcher.py",
+                            "hint": "选择共享存储中的 ysp_live_watcher.py",
+                            "required": true
+                        },
+                        {
+                            "key": "save_dir",
+                            "name": "下载目录",
+                            "type": "directory",
+                            "default": "/storage/emulated/0/WebHTV/py/ysp_live",
+                            "hint": "ysp-live.py 下载保存目录（建议与监控脚本同目录）",
+                            "required": true
+                        },
+                        {
+                            "key": "proxy",
+                            "name": "代理前缀",
+                            "type": "text",
+                            "default": "https://proxy.yydf2.de5.net/?url=",
+                            "hint": "代理地址前缀（唯一通道）；清空将无可用通道，脚本只走此 Cloudflare 代理",
+                            "required": false
+                        },
+                        {
+                            "key": "interval",
+                            "name": "轮询间隔(秒)",
+                            "type": "number",
+                            "default": 1800,
+                            "hint": "多久检测一次，默认 1800 秒 = 30 分钟",
+                            "required": true,
+                            "min": 60,
+                            "max": 86400
+                        }
+                    ]
+                },
+                {
+                    "id": "ysp_live_server",
+                    "name": "📺 ysp-live 央视频直播",
+                    "description": "本地运行 ysp-live.py，提供央视频全频道直播代理服务（主协议 JCE 时移转直播，备用 bkliveinfo）。播放器直连央视 CDN，本机只下发清单，不跑视频流量。",
+                    "command": "python3 '{script_path}' {port}",
+                    "check_command": "pgrep -f '[y]sp-live.py'",
+                    "stop_command": "pkill -f '[y]sp-live.py' 2>/dev/null; fuser -k {port}/tcp 2>/dev/null; exit 0",
+                    "auto_execute": true,
+                    "background": true,
+                    "show_output": true,
+                    "variables": [
+                        {
+                            "key": "script_path",
+                            "name": "脚本路径",
+                            "type": "file",
+                            "filter": "*.py",
+                            "default": "/storage/emulated/0/WebHTV/py/ysp_live/ysp-live.py",
+                            "hint": "选择共享存储中的 ysp-live.py",
+                            "required": true
+                        },
+                        {
+                            "key": "port",
+                            "name": "端口号",
+                            "type": "number",
+                            "default": 8766,
+                            "hint": "服务器监听端口",
+                            "required": true,
+                            "min": 1024,
+                            "max": 65535
+                        }
+                    ],
+                    "clicks": [
+                        {
+                            "title": "打开服务",
+                            "action": "open",
+                            "value": "http://127.0.0.1:8766/"
+                        },
+                        {
+                            "title": "聚合订阅",
+                            "action": "open",
+                            "value": "http://127.0.0.1:8766/all.m3u"
+                        }
+                    ]
+                }
+            ]
         },
         {
             "name": "nodejs",
