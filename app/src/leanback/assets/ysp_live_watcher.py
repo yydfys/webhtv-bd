@@ -5,8 +5,10 @@
 ysp_live_watcher.py —— 上游「ysp-live.py」更新监控下载器（手机 WebHTV 实验室版）
 
 ● 干什么
-  定时检测上游脚本 https://garysclub.../others/ysp-live.py 是否有更新，
+  定时检测上游脚本 ysp-live*.py（作者改文件名也能自动跟上）是否有更新，
   有更新就下载到本地目录（默认＝本脚本所在目录），原子写入 + 旧版备份。
+  默认「自动发现」：抓作者 TG 频道预览页，取版本号最大的那个 ysp-live*.py；
+  也可用 --url / YSP_URL 锁定一个固定地址。
   只走我们自己的 Cloudflare 代理（永久忽略实验室注入的环境代理；不做直连兜底）。
 
 ● 特点
@@ -33,6 +35,7 @@ ysp_live_watcher.py —— 上游「ysp-live.py」更新监控下载器（手机
 
 import argparse
 import errno
+import fnmatch
 import hashlib
 import json
 import os
@@ -52,8 +55,18 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 
 # ==================== 配置（可直接改这里） ====================
 CONFIG = {
-    # 上游脚本地址
-    "url": os.environ.get("YSP_URL", "https://garysclub.sharewithyou.dpdns.org/others/ysp-live.py"),
+    # 上游脚本地址：留空("") = 自动发现最新版 ysp-live*.py（推荐）
+    #   也可用 --url / YSP_URL 锁定一个固定地址
+    "url": os.environ.get("YSP_URL", ""),
+    # 自动发现页：上游作者的 TG 频道预览页（走同一个 Cloudflare 代理抓取）
+    "discover": os.environ.get("YSP_DISCOVER", "https://t.me/s/garysclubchannel"),
+    # 上游文件名匹配（glob，匹配发现页里的 .py 链接）
+    "file_pattern": os.environ.get("YSP_FILE_PATTERN", "ysp-live*.py"),
+    # 自动发现失败时的兜底地址（按顺序尝试；再不行退回 meta 里上次成功的地址）
+    "fallback_urls": [
+        "https://garysclub.sharewithyou.dpdns.org/others/ysp-live-v8.0.py",
+        "https://garysclub.sharewithyou.dpdns.org/others/ysp-live.py",
+    ],
     # 代理前缀：真实地址会被拼到 ?url= 后面。必须填写（唯一通道，不走直连）
     "proxy": os.environ.get("YSP_PROXY", "https://proxy.yydf2.de5.net/?url="),
     # 下载保存目录：留空("") = 本脚本所在目录
@@ -210,17 +223,85 @@ def http_get(url, timeout):
         return e.code, e.read()
 
 
-def build_candidates():
-    """返回 [(标签, 最终URL), ...]：只走我们的 Cloudflare 代理，不做直连兜底"""
-    url = CONFIG["url"]
+def _proxy_wrap(url):
+    """把真实地址套进 Cloudflare 代理前缀；未配置代理返回 "" """
     proxy = CONFIG["proxy"] or ""
-    if not proxy:
-        return []
+    if not proxy or not url:
+        return ""
     enc = urllib.parse.quote(url, safe="")
     if "url=" in proxy:
-        return [("代理", proxy + enc)]
+        return proxy + enc
     sep = "&" if "?" in proxy else "?"
-    return [("代理", proxy + sep + "url=" + enc)]
+    return proxy + sep + "url=" + enc
+
+
+def _ver_key(name):
+    """从文件名里抠出版本号元组（越大越新）；抠不到返回 ()"""
+    m = re.search(r"(\d+(?:[._]\d+)*)", name, re.I)
+    if not m:
+        return ()
+    return tuple(int(x) for x in re.split(r"[._]", m.group(1)))
+
+
+def discover_upstream_url():
+    """抓上游作者的 TG 频道预览页，自动发现最新的 ysp-live*.py 地址。
+
+    返回 (url, 说明)；失败返回 (None, 失败原因)。
+    """
+    page = CONFIG.get("discover") or ""
+    if not page:
+        return None, "未配置发现页"
+    wrapped = _proxy_wrap(page)
+    if not wrapped:
+        return None, "未配置 Cloudflare 代理"
+    try:
+        code, data = http_get(wrapped, CONFIG["timeout"])
+    except Exception as e:
+        return None, "抓取发现页异常: %s" % e
+    if code != 200:
+        return None, "抓取发现页 HTTP %s" % code
+    html = data.decode("utf-8", "ignore")
+    pattern = CONFIG.get("file_pattern") or "ysp-live*.py"
+    found = []
+    for i, raw in enumerate(re.findall(r'https?://[^\s"\'<>\\]+\.py', html)):
+        fname = raw.rsplit("/", 1)[-1]
+        if not fnmatch.fnmatch(fname.lower(), pattern.lower()):
+            continue
+        if "docker" in fname.lower():
+            continue
+        found.append((_ver_key(fname), i, raw, fname))
+    if not found:
+        return None, "发现页未找到匹配 %s 的链接" % pattern
+    # 版本升序；同版本取靠后（更新）的那条
+    found.sort(key=lambda t: (t[0], t[1]))
+    _, _, url, fname = found[-1]
+    return url, "自动发现 %s" % fname
+
+
+def resolve_upstream_url(meta=None):
+    """决定本轮要下载的上游地址。返回 (url, 说明)。
+
+    优先级：--url/YSP_URL 指定 > 自动发现 > 上次成功地址 > 内置兜底
+    """
+    if CONFIG["url"]:
+        return CONFIG["url"], "手动指定"
+    url, why = discover_upstream_url()
+    if url:
+        return url, why
+    log("  ⚠️ 自动发现失败（%s）→ 改用兜底地址" % why)
+    last_ok = (meta or {}).get("resolved_url") or ""
+    if last_ok:
+        return last_ok, "上次成功地址"
+    fb = CONFIG.get("fallback_urls") or []
+    if fb:
+        return fb[0], "内置兜底"
+    return "", "无可用地址"
+
+
+def build_candidates(url):
+    """返回 [(标签, 最终URL), ...]：只走我们的 Cloudflare 代理，不做直连兜底"""
+    wrapped = _proxy_wrap(url)
+    return [("代理", wrapped)] if wrapped else []
 
 
 # ---------------- QQ 推送（纯 urllib，显式禁用一切代理） ----------------
@@ -234,7 +315,7 @@ PUSH = {
 }
 
 
-def push_qq(version, path):
+def push_qq(version, path, upstream_name=""):
     """检测到上游新版本时直推 QQ（推送助手通道）。
 
     纯 urllib 实现：显式 ProxyHandler({})，忽略实验室注入的 http(s)_proxy，
@@ -250,6 +331,8 @@ def push_qq(version, path):
         "📦 新版本：%s\n"
         "📄 保存位置：%s" % (label, version, path)
     )
+    if upstream_name:
+        text += "\n📡 上游文件：%s" % upstream_name
     opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
     try:
         body = json.dumps({"appId": PUSH["app_id"], "clientSecret": PUSH["secret"]}).encode()
@@ -299,11 +382,18 @@ def check_once(force=False, dry_run=False):
     before_sha = old_meta.get("sha256", "")
     before_size = os.path.getsize(target) if before_exists else 0
 
-    log("开始检测上游更新…  →  %s" % CONFIG["url"])
+    upstream_url, how = resolve_upstream_url(old_meta)
+    upstream_meta = {
+        "url": upstream_url,
+        "resolved_url": upstream_url,
+        "upstream_name": os.path.basename(upstream_url) if upstream_url else "",
+        "resolve_how": how,
+    }
+    log("开始检测上游更新…  →  %s（%s）" % (upstream_url or "（无）", how))
     log("本地文件: %s（%s）" % (target, ("存在 %.1fKB" % (before_size / 1024.0)) if before_exists else "不存在"))
 
     last_err = "无可用通道（未配置 Cloudflare 代理）"
-    for label, u in build_candidates():
+    for label, u in build_candidates(upstream_url):
         try:
             code, data = http_get(u, CONFIG["timeout"])
         except Exception as e:
@@ -327,8 +417,9 @@ def check_once(force=False, dry_run=False):
         new_ver = extract_version(text)
 
         if not force and before_exists and before_sha and new_sha == before_sha:
-            log("  ✅ 已是最新（版本 %s，sha256 %s…），无需下载" % (new_ver, new_sha[:12]))
-            save_meta(meta_path, url=CONFIG["url"], sha256=new_sha, size=len(data),
+            log("  ✅ 已是最新（版本 %s，上游 %s，sha256 %s…），无需下载"
+                % (new_ver, upstream_meta["upstream_name"] or "?", new_sha[:12]))
+            save_meta(meta_path, **upstream_meta, sha256=new_sha, size=len(data),
                       version=new_ver, last_check=now_str(), last_result="up-to-date", last_error="")
             return "up-to-date"
 
@@ -357,12 +448,13 @@ def check_once(force=False, dry_run=False):
             log("  ❌ 写入失败: %s" % e)
             return "failed"
 
-        log("  ✅ 已更新到 %s（%d 字节，sha256 %s…）" % (new_ver, len(data), new_sha[:12]))
-        save_meta(meta_path, url=CONFIG["url"], sha256=new_sha, size=len(data),
+        log("  ✅ 已更新到 %s（上游 %s，%d 字节，sha256 %s…）"
+            % (new_ver, upstream_meta["upstream_name"] or "?", len(data), new_sha[:12]))
+        save_meta(meta_path, **upstream_meta, sha256=new_sha, size=len(data),
                   version=new_ver, last_check=now_str(), last_result="updated",
                   updated_at=now_str(), last_error="", via=label)
         notify(new_ver, target)
-        push_qq(new_ver, target)
+        push_qq(new_ver, target, upstream_name=upstream_meta["upstream_name"])
         return "updated"
 
     log("  ❌ 所有通道均失败：%s" % (last_err or "未知错误"))
@@ -428,7 +520,13 @@ def show_status():
     print("=" * 54)
     print(" ysp-live 更新监控 · 状态")
     print("=" * 54)
-    print(" 上游地址 : %s" % CONFIG["url"])
+    if CONFIG["url"]:
+        print(" 上游地址 : %s（手动指定）" % CONFIG["url"])
+    else:
+        print(" 上游地址 : 自动发现 %s（留空 url 即自动）" % (CONFIG.get("file_pattern") or "ysp-live*.py"))
+        print(" 发现页   : %s" % (CONFIG.get("discover") or "（未配置！）"))
+    print(" 解析地址 : %s" % (meta.get("resolved_url") or "—"))
+    print(" 上游文件 : %s" % (meta.get("upstream_name") or "—"))
     print(" 代理前缀 : %s" % (CONFIG["proxy"] or "（未配置！）"))
     print(" 环境代理 : %s" % (env_proxy_info() or "（无）"))
     print(" 代理策略 : 仅走 Cloudflare 代理（永久忽略实验室环境代理，无直连兜底）")
@@ -490,7 +588,9 @@ def parse_args():
     p.add_argument("--status", action="store_true", help="打印当前状态")
     p.add_argument("--force", action="store_true", help="强制重新下载")
     p.add_argument("--dry-run", action="store_true", help="只检测不写文件")
-    p.add_argument("--url", help="覆盖上游地址")
+    p.add_argument("--url", help="覆盖上游地址（指定后不再自动发现）")
+    p.add_argument("--discover", help="覆盖自动发现页（TG 频道预览页）")
+    p.add_argument("--pattern", help="覆盖上游文件名匹配（glob，如 ysp-live*.py）")
     p.add_argument("--proxy", help="覆盖代理前缀（唯一通道，清空则无可用通道）")
     p.add_argument("--save-dir", dest="save_dir", help="覆盖保存目录")
     p.add_argument("--interval", type=int, help="覆盖轮询间隔（秒）")
@@ -502,6 +602,10 @@ def main():
     args = parse_args()
     if args.url:
         CONFIG["url"] = args.url
+    if args.discover:
+        CONFIG["discover"] = args.discover
+    if args.pattern:
+        CONFIG["file_pattern"] = args.pattern
     if args.proxy is not None:
         CONFIG["proxy"] = args.proxy
     if args.save_dir:
