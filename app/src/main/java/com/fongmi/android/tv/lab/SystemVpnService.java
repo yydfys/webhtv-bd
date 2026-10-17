@@ -27,7 +27,12 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.InetAddress;
+import java.net.InetSocketAddress;
+import java.net.Socket;
 import java.nio.charset.StandardCharsets;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * 系统级 VPN + mihomo 代理服务（内嵌 mihomo 内核版，两步启动 2026-09-08）。
@@ -102,6 +107,101 @@ public class SystemVpnService extends VpnService {
 
     private static native int nativeIsTunRunning();
 
+    // ---------------- 🔴 启停串行化（2026-10-17 修复「关闭不彻底」） ----------------
+
+    /**
+     * 启停动作串行队列：会动内核/服务状态的动作（起内核、起 VPN、重启、停 VPN、全停）一律投到这里，
+     * native 调用与运行态写入只可能一条一条排队执行。
+     *
+     * <p>旧实现「停机在主线程同步、启动在子线程异步」→ 两条路径可任意交错：
+     * 关闭之后起飞的启动线程仍会执行 nativeStartProxy 把内核"补刀"复活，而服务已 stopSelf、通知已撤，
+     * 最终就是「UI 说关了 / 通知没了 / 7890 却是死的」这种没有任何出口能看见的残留状态。
+     */
+    private ExecutorService serial;
+
+    /**
+     * 代际号：每个动作在**提交时**自增一次，任务在「动 native 之前」与「写运行态之前」各校验一次。
+     * 代际被更新的动作顶掉 = 该动作已作废：绝不许再启内核，也绝不许再对外宣称"运行中"。
+     */
+    private final AtomicLong epoch = new AtomicLong();
+
+    /** 把动作投进串行队列；队列被 onDestroy 关掉后自动重建，绝不静默丢任务。 */
+    private void submit(Runnable task) {
+        ExecutorService es = serial;
+        if (es == null || es.isShutdown()) {
+            es = Executors.newSingleThreadExecutor(r -> new Thread(r, "system-vpn-serial"));
+            serial = es;
+        }
+        es.execute(task);
+    }
+
+    /** 提交动作时领代际号；调用方必须把它带进任务里逐点校验。 */
+    private long nextEpoch() {
+        return epoch.incrementAndGet();
+    }
+
+    /** 本代际是否仍有效（false = 已被后续动作作废，必须立刻退出，绝不碰 native 与状态）。 */
+    private boolean alive(long myEpoch) {
+        return myEpoch == epoch.get();
+    }
+
+    /**
+     * 启动自检：真去连一次 127.0.0.1:&lt;mixed-port&gt;，确认真有监听才敢对外宣称"运行中"。
+     *
+     * <p>兜住内核侧任何"假成功"（native 返回 0 但监听器没起来）与"半死状态"
+     * （自称在跑、端口却已死）。连不上就返回 false，由调用方决定重启或判失败。
+     * 只允许在后台串行线程调用（内部最多等 3 秒，禁止主线程用）。
+     */
+    private boolean probeProxyPort() {
+        int port = getProxyPort();
+        for (int i = 0; i < 10; i++) {
+            Socket socket = null;
+            try {
+                socket = new Socket();
+                socket.connect(new InetSocketAddress(InetAddress.getByName("127.0.0.1"), port), 400);
+                return true;
+            } catch (Throwable ignored) {
+                try {
+                    Thread.sleep(300);
+                } catch (InterruptedException ie) {
+                    return false;
+                }
+            } finally {
+                if (socket != null) {
+                    try {
+                        socket.close();
+                    } catch (IOException ignored) {
+                    }
+                }
+            }
+        }
+        android.util.Log.e("SystemVpn", "proxy self-check failed: nothing listening on 127.0.0.1:" + port);
+        return false;
+    }
+
+    /**
+     * 确保内核真的在跑：native 自称在跑也要探一次端口 —— 探不通 = 半死状态，先全停再强制拉起。
+     * 拉起后必须自检通过才写 {@code proxyState=true} 并广播 proxy 事件；否则抛错，由上层走完整停机。
+     */
+    private void ensureKernelUp(long myEpoch) throws IOException {
+        if (isProxyRunning() && probeProxyPort()) return;
+        if (isProxyRunning()) {
+            android.util.Log.w("SystemVpn", "kernel reports running but port is dead, forcing restart");
+            nativeStopAll();
+            if (!alive(myEpoch)) return;
+        }
+        int rc = nativeStartProxy(CONFIG_PATH);
+        if (rc != 0) throw new IOException("mihomo 内核启动失败 rc=" + rc);
+        if (!alive(myEpoch)) {
+            // 已被「关闭」顶掉：刚起来的内核必须立刻收掉，不允许留在后台占着 7890
+            nativeStopAll();
+            return;
+        }
+        if (!probeProxyPort()) throw new IOException("内核端口未就绪 127.0.0.1:" + getProxyPort());
+        proxyState = true;
+        VpnStateEvent.proxy();
+    }
+
     /** mihomo 代理开关（仅内核 + 7890，无需系统授权） */
     public static void startProxy(Context context) {
         Intent intent = new Intent(context, SystemVpnService.class).setAction(ACTION_START_PROXY);
@@ -154,8 +254,19 @@ public class SystemVpnService extends VpnService {
         stopAll(context);
     }
 
+    /**
+     * 🔴 2026-10-17 修复「关闭不彻底」：一律以 native 真实内核状态为准（纯 JNI、零 I/O，主线程可调）。
+     *
+     * <p>旧实现只读进程内 {@code proxyState}，而被作废的启动线程会写下假的 {@code true}：
+     * 它同时骗过 UI（显示"系统代理运行中"）和调用方（{@code !proxyRunning} 为假 → 跳过启动），
+     * 于是出现「显示已关闭 → 再开显示运行中 → 127.0.0.1:7890 却连不上」的鬼状态。
+     */
     public static boolean isProxyRunning() {
-        return proxyState;
+        try {
+            return nativeIsProxyRunning() > 0;
+        } catch (Throwable ignored) {
+            return proxyState;
+        }
     }
 
     public static boolean isVpnRunning() {
@@ -185,12 +296,7 @@ public class SystemVpnService extends VpnService {
      * mihomo 开着也会被误降级成直连（2026-09-18 修的老 bug 就是这条）。
      */
     public static boolean isCoreRunning() {
-        if (proxyState) return true;
-        try {
-            return nativeIsProxyRunning() > 0;
-        } catch (Throwable ignored) {
-            return false;
-        }
+        return isProxyRunning();
     }
 
     /**
@@ -228,7 +334,7 @@ public class SystemVpnService extends VpnService {
     public static void reconcileSwitches() {
         try {
             LabConfig config = LabConfig.get();
-            if (!proxyState && config.getMihomo()) config.setMihomo(false);
+            if (!isProxyRunning() && config.getMihomo()) config.setMihomo(false);
             if (!vpnState && config.getSystemVpn()) config.setSystemVpn(false);
         } catch (Throwable ignored) {
         }
@@ -314,30 +420,39 @@ public class SystemVpnService extends VpnService {
         if (action == null) return START_STICKY;
 
         switch (action) {
-            case ACTION_START_PROXY:
+            case ACTION_START_PROXY: {
                 startForeground(NOTIFY_ID, buildNotification("正在启动 mihomo 代理…"));
                 VpnStateEvent.proxyStarting();
-                startProxyInBackground();
+                long myEpoch = nextEpoch();
+                submit(() -> startProxyInBackground(myEpoch));
                 break;
-            case ACTION_START_VPN:
+            }
+            case ACTION_START_VPN: {
                 startForeground(NOTIFY_ID, buildNotification("正在启动系统代理…"));
                 VpnStateEvent.vpnStarting();
-                startVpnInBackground();
+                long myEpoch = nextEpoch();
+                submit(() -> startVpnInBackground(myEpoch));
                 break;
-            case ACTION_STOP_VPN:
-                stopVpnInternal();
+            }
+            case ACTION_STOP_VPN: {
+                long myEpoch = nextEpoch();
+                submit(() -> stopVpnInternal(myEpoch));
                 break;
+            }
             case ACTION_STOP_ALL:
-                stopAllInternal();
+            case ACTION_STOP: {
+                long myEpoch = nextEpoch();
+                submit(() -> stopAllInternal(myEpoch));
                 break;
-            case ACTION_RESTART_PROXY:
+            }
+            case ACTION_RESTART_PROXY: {
                 startForeground(NOTIFY_ID, buildNotification("正在应用新订阅…"));
                 VpnStateEvent.proxyStarting();
-                restartProxyInternal(intent.getBooleanExtra("restore_vpn", false));
+                long myEpoch = nextEpoch();
+                boolean restoreVpn = intent.getBooleanExtra("restore_vpn", false);
+                submit(() -> restartProxyInternal(restoreVpn, myEpoch));
                 break;
-            case ACTION_STOP:
-                stopAllInternal();
-                break;
+            }
             default:
                 break;
         }
@@ -349,96 +464,35 @@ public class SystemVpnService extends VpnService {
     /** 订阅变更重启：native 全停 → 重新 ensureConfigAssets（新订阅会删旧重生成）→ 起 7890。
      *  不写 LabConfig 开关（开关状态由 UI 保持），只重载内核配置。
      *  restoreVpn=true 时顺序恢复 TUN（VpnService 已授权过则 establish 无需再弹窗）。 */
-    private void restartProxyInternal(boolean restoreVpn) {
-        Thread worker = new Thread(() -> {
-            try {
-                vpnState = false;
-                proxyState = false;
-                nativeStopAll();
-                if (tunFd != null) {
-                    try {
-                        tunFd.close();
-                    } catch (IOException ignored) {
-                    }
-                    tunFd = null;
+    private void restartProxyInternal(boolean restoreVpn, long myEpoch) {
+        try {
+            vpnState = false;
+            proxyState = false;
+            if (!alive(myEpoch)) return;
+            nativeStopAll();
+            if (tunFd != null) {
+                try {
+                    tunFd.close();
+                } catch (IOException ignored) {
                 }
-                // 订阅变更时 LabActivity 已调用 deleteAppGeneratedConfig()，
-                // ensureConfigAssets 会用新订阅重新生成 config + app 标记
-                ensureConfigAssets();
-                ensureGeoAssets();
-                int rc = nativeStartProxy(CONFIG_PATH);
-                if (rc != 0) throw new IOException("mihomo 内核重启失败 rc=" + rc);
-                proxyState = true;
-                VpnStateEvent.proxy();
-                updateNotification("mihomo 代理运行中 · 127.0.0.1:7890");
-                if (restoreVpn) {
-                    // VPN 未授权时 establish 抛异常：只回滚 VPN，不连坐杀掉 7890
-                    try {
-                        startVpnInternal();
-                    } catch (Exception vpnErr) {
-                        android.util.Log.e("SystemVpn", "vpn restore failed after resubscribe: " + vpnErr.getMessage());
-                        vpnState = false;
-                        VpnStateEvent.proxy();
-                        if (tunFd != null) {
-                            try {
-                                tunFd.close();
-                            } catch (IOException ignored) {
-                            }
-                            tunFd = null;
-                        }
-                        updateNotification("mihomo 代理运行中 · 127.0.0.1:7890");
-                    }
-                }
-            } catch (Exception e) {
-                android.util.Log.e("SystemVpn", "proxy restart failed", e);
-                proxyState = false;
-                failStop(e.getMessage());
+                tunFd = null;
             }
-        }, "mihomo-proxy-restart");
-        worker.start();
-    }
-
-    private void startProxyInBackground() {
-        Thread worker = new Thread(() -> {
-            try {
-                ensureConfigAssets();
-                ensureGeoAssets();
-                if (!proxyState) {
-                    int rc = nativeStartProxy(CONFIG_PATH);
-                    if (rc != 0) throw new IOException("mihomo 内核启动失败 rc=" + rc);
-                    proxyState = true;
+            // 订阅变更时 LabActivity 已调用 deleteAppGeneratedConfig()，
+            // ensureConfigAssets 会用新订阅重新生成 config + app 标记
+            ensureConfigAssets();
+            ensureGeoAssets();
+            if (!alive(myEpoch)) return;
+            ensureKernelUp(myEpoch);
+            if (!alive(myEpoch)) return;
+            updateNotification("mihomo 代理运行中 · 127.0.0.1:7890");
+            if (restoreVpn) {
+                // VPN 未授权时 establish 抛异常：只回滚 VPN，不连坐杀掉 7890
+                try {
+                    startVpnInternal(myEpoch);
+                } catch (Exception vpnErr) {
+                    android.util.Log.e("SystemVpn", "vpn restore failed after resubscribe: " + vpnErr.getMessage());
+                    vpnState = false;
                     VpnStateEvent.proxy();
-                }
-                updateNotification("mihomo 代理运行中 · 127.0.0.1:7890");
-            } catch (Exception e) {
-                android.util.Log.e("SystemVpn", "proxy start failed", e);
-                proxyState = false;
-                failStop(e.getMessage());
-            }
-        }, "mihomo-proxy-start");
-        worker.start();
-    }
-
-    private void startVpnInBackground() {
-        boolean proxyWasRunning = proxyState;
-        Thread worker = new Thread(() -> {
-            try {
-                ensureConfigAssets();
-                ensureGeoAssets();
-                if (!proxyState) {
-                    int rc = nativeStartProxy(CONFIG_PATH);
-                    if (rc != 0) throw new IOException("mihomo 内核启动失败 rc=" + rc);
-                    proxyState = true;
-                    VpnStateEvent.proxy();
-                }
-                startVpnInternal();
-            } catch (Exception e) {
-                android.util.Log.e("SystemVpn", "vpn start failed", e);
-                vpnState = false;
-                if (proxyWasRunning) {
-                    // 🔴 proxy 原本就在跑：VPN 失败只回滚 VPN，保留 mihomo 7890，
-                    // 不连带杀掉可用代理（2026-09-08 修复：点 VPN 后 7890 也消失）
-                    nativeStopTun();
                     if (tunFd != null) {
                         try {
                             tunFd.close();
@@ -446,18 +500,69 @@ public class SystemVpnService extends VpnService {
                         }
                         tunFd = null;
                     }
-                    VpnStateEvent.proxy();
                     updateNotification("mihomo 代理运行中 · 127.0.0.1:7890");
-                } else {
-                    proxyState = false;
-                    failStop(e.getMessage());
                 }
             }
-        }, "system-vpn-start");
-        worker.start();
+        } catch (Exception e) {
+            android.util.Log.e("SystemVpn", "proxy restart failed", e);
+            if (!alive(myEpoch)) return;
+            proxyState = false;
+            failStop(e.getMessage());
+        }
     }
 
-    private void startVpnInternal() throws IOException {
+    private void startProxyInBackground(long myEpoch) {
+        try {
+            if (!alive(myEpoch)) return;
+            ensureConfigAssets();
+            ensureGeoAssets();
+            if (!alive(myEpoch)) return;
+            ensureKernelUp(myEpoch);
+            if (!alive(myEpoch)) return;
+            updateNotification("mihomo 代理运行中 · 127.0.0.1:7890");
+        } catch (Exception e) {
+            android.util.Log.e("SystemVpn", "proxy start failed", e);
+            if (!alive(myEpoch)) return;
+            proxyState = false;
+            failStop(e.getMessage());
+        }
+    }
+
+    private void startVpnInBackground(long myEpoch) {
+        boolean proxyWasRunning = isProxyRunning();
+        try {
+            if (!alive(myEpoch)) return;
+            ensureConfigAssets();
+            ensureGeoAssets();
+            if (!alive(myEpoch)) return;
+            ensureKernelUp(myEpoch);
+            if (!alive(myEpoch)) return;
+            startVpnInternal(myEpoch);
+        } catch (Exception e) {
+            android.util.Log.e("SystemVpn", "vpn start failed", e);
+            if (!alive(myEpoch)) return;
+            vpnState = false;
+            if (proxyWasRunning) {
+                // 🔴 proxy 原本就在跑：VPN 失败只回滚 VPN，保留 mihomo 7890，
+                // 不连带杀掉可用代理（2026-09-08 修复：点 VPN 后 7890 也消失）
+                nativeStopTun();
+                if (tunFd != null) {
+                    try {
+                        tunFd.close();
+                    } catch (IOException ignored) {
+                    }
+                    tunFd = null;
+                }
+                VpnStateEvent.proxy();
+                updateNotification("mihomo 代理运行中 · 127.0.0.1:7890");
+            } else {
+                proxyState = false;
+                failStop(e.getMessage());
+            }
+        }
+    }
+
+    private void startVpnInternal(long myEpoch) throws IOException {
         if (vpnState) {
             updateNotification("系统级 VPN 运行中 · 全流量已代理");
             return;
@@ -505,15 +610,24 @@ public class SystemVpnService extends VpnService {
         }
         tunFd = null;
 
+        if (!alive(myEpoch)) {
+            // 已被「关闭」顶掉：TUN 已交给内核，立刻收掉 —— 绝不留下"无主 VPN"
+            //（全流量进 TUN 而服务已退 = 整机断网）
+            nativeStopTun();
+            return;
+        }
         vpnState = true;
         VpnStateEvent.vpn();
         updateNotification("系统级 VPN 运行中 · 全流量已代理");
     }
 
-    private void stopVpnInternal() {
+    private void stopVpnInternal(long myEpoch) {
         vpnState = false;
         LabConfig.get().setSystemVpn(false);
-        nativeStopTun();
+        try {
+            nativeStopTun();
+        } catch (Throwable ignored) {
+        }
         if (tunFd != null) {
             try {
                 tunFd.close();
@@ -521,7 +635,8 @@ public class SystemVpnService extends VpnService {
             }
             tunFd = null;
         }
-        if (proxyState) {
+        if (!alive(myEpoch)) return;
+        if (isProxyRunning()) {
             // 只撤 VPN，mihomo 7890 继续服务
             VpnStateEvent.proxy();
             updateNotification("mihomo 代理运行中 · 127.0.0.1:7890");
@@ -532,13 +647,18 @@ public class SystemVpnService extends VpnService {
         }
     }
 
-    private void stopAllInternal() {
+    private void stopAllInternal(long myEpoch) {
+        // 🔴 停机无条件执行到底：停机永远安全、且必须彻底 —— 即便代际已被更新的动作顶掉，
+        //   内核/TUN/持久化开关也要清干净，绝不留"看不见却占着 7890"的残留内核。
         vpnState = false;
         proxyState = false;
         // 🔴 同步持久化开关：通知栏关闭/全停后，App 内 mihomo/VPN 开关跟随关闭
         LabConfig.get().setMihomo(false);
         LabConfig.get().setSystemVpn(false);
-        nativeStopAll();
+        try {
+            nativeStopAll();
+        } catch (Throwable ignored) {
+        }
         if (tunFd != null) {
             try {
                 tunFd.close();
@@ -546,6 +666,11 @@ public class SystemVpnService extends VpnService {
             }
             tunFd = null;
         }
+        try {
+            if (nativeIsProxyRunning() > 0) android.util.Log.e("SystemVpn", "kernel still alive after stopAll!");
+        } catch (Throwable ignored) {
+        }
+        if (!alive(myEpoch)) return;
         VpnStateEvent.off();
         stopForeground(true);
         stopSelf();
@@ -777,6 +902,15 @@ public class SystemVpnService extends VpnService {
 
     @Override
     public void onDestroy() {
+        // 🔴 2026-10-17：服务要没了 —— 先作废所有在飞动作（epoch++）、关掉串行队列，
+        //   任何还在排队的启动任务都不可能再"补刀"复活内核；最后同步兜底一次完整停机。
+        try {
+            epoch.incrementAndGet();
+            ExecutorService es = serial;
+            if (es != null) es.shutdownNow();
+            serial = null;
+        } catch (Throwable ignored) {
+        }
         // 系统杀服务时兜底全停（进程将亡，尽量释放 fd）
         try {
             nativeStopAll();
