@@ -51,6 +51,12 @@ public class NodeManageDialog extends BaseAlertDialog {
 
     private static final String API_BASE = "http://127.0.0.1:9090";
     private static final String SECRET = "WEBHTV_MIHOMO_2026";
+    /* v607（手机版）：内核真实 external-controller / secret 以 config.yaml 为准。
+       历史问题：面板硬编码 secret，用户手动放入的 config.yaml 若 secret 不同 →
+       9090 返回 401 → 面板只显示 "secret mismatch"，一个节点都列不出来。
+       TV 版不会调用 refreshEndpoint()，行为与改动前完全一致。 */
+    private static String apiBase = API_BASE;
+    private static String secret = SECRET;
     private static final int COLOR_ACCENT = 0xFF2F6FED;
     private static final int COLOR_PRIMARY = 0xFF1C1B1F;
     private static final int COLOR_SECONDARY = 0xFF5C5C66;
@@ -128,7 +134,17 @@ public class NodeManageDialog extends BaseAlertDialog {
             String body = null;
             String error = null;
             try {
-                body = httpGet(API_BASE + "/proxies");
+                refreshEndpoint();
+                try {
+                    body = httpGet(apiBase + "/proxies");
+                } catch (Exception e) {
+                    // 手机版兜底：内核 secret 为空时 mihomo 允许免认证访问
+                    if (com.fongmi.android.tv.utils.Util.isMobile() && secret != null && secret.length() > 0) {
+                        body = httpGetNoAuth(apiBase + "/proxies");
+                    } else {
+                        throw e;
+                    }
+                }
             } catch (Exception e) {
                 error = e.getMessage();
             }
@@ -280,13 +296,14 @@ public class NodeManageDialog extends BaseAlertDialog {
     }
 
     private void httpPutSwitch(String group, String node) throws Exception {
-        HttpUrl url = HttpUrl.get(API_BASE + "/proxies").newBuilder().addPathSegment(group).build();
+        refreshEndpoint();
+        HttpUrl url = HttpUrl.get(apiBase + "/proxies").newBuilder().addPathSegment(group).build();
         String json = "{\"name\":" + JSONObject.quote(node) + "}";
         RequestBody body = RequestBody.create(json, MediaType.get("application/json; charset=utf-8"));
         Request request = new Request.Builder()
                 .url(url)
                 .put(body)
-                .header("Authorization", "Bearer " + SECRET)
+                .header("Authorization", "Bearer " + secret)
                 .build();
         OkHttpClient client = new OkHttpClient.Builder()
                 .connectTimeout(5, TimeUnit.SECONDS)
@@ -302,19 +319,123 @@ public class NodeManageDialog extends BaseAlertDialog {
     private String httpGet(String url) throws Exception {
         Request request = new Request.Builder()
                 .url(url)
-                .header("Authorization", "Bearer " + SECRET)
+                .header("Authorization", "Bearer " + secret)
                 .build();
         OkHttpClient client = new OkHttpClient.Builder()
                 .connectTimeout(3, TimeUnit.SECONDS)
                 .readTimeout(8, TimeUnit.SECONDS)
                 .build();
         try (Response response = client.newCall(request).execute()) {
-            if (response.code() == 401) throw new Exception("secret mismatch");
+            if (response.code() == 401) {
+                if (com.fongmi.android.tv.utils.Util.isMobile()) {
+                    throw new Exception("HTTP 401：secret 不匹配（config.yaml 的 secret 与内核不一致）");
+                }
+                throw new Exception("secret mismatch");
+            }
             if (!response.isSuccessful()) throw new Exception("HTTP " + response.code());
             String text = response.body() == null ? "" : response.body().string();
             if (text.length() > 2_000_000) throw new Exception("response too large");
             return text;
         }
+    }
+
+    /** 无认证请求：内核 secret 为空时 mihomo 允许直接访问（手机版 401 兜底） */
+    private String httpGetNoAuth(String url) throws Exception {
+        Request request = new Request.Builder().url(url).build();
+        OkHttpClient client = new OkHttpClient.Builder()
+                .connectTimeout(3, TimeUnit.SECONDS)
+                .readTimeout(8, TimeUnit.SECONDS)
+                .build();
+        try (Response response = client.newCall(request).execute()) {
+            if (!response.isSuccessful()) throw new Exception("HTTP " + response.code());
+            String text = response.body() == null ? "" : response.body().string();
+            if (text.length() > 2_000_000) throw new Exception("response too large");
+            return text;
+        }
+    }
+
+    // ---------------- v607 手机版：按 config.yaml 解析内核地址 / secret ----------------
+
+    /** 手机版：刷新 apiBase / secret；TV 版直接返回，保持原有常量行为 */
+    private static void refreshEndpoint() {
+        if (!com.fongmi.android.tv.utils.Util.isMobile()) return;
+        apiBase = API_BASE;
+        secret = SECRET;
+        try {
+            java.io.File cfg = new java.io.File(SystemVpnService.getConfigPath());
+            if (!cfg.exists() || cfg.length() <= 0) return;
+            String text = readConfigText(cfg);
+            String ctrl = yamlValue(text, "external-controller");
+            if (ctrl != null && ctrl.length() > 0) {
+                String host = ctrl;
+                int port = 9090;
+                int idx = host.lastIndexOf(':');
+                if (idx > 0 && !host.endsWith("]")) {
+                    String p = host.substring(idx + 1).trim();
+                    if (p.length() > 0 && p.length() < 6 && isDigits(p)) {
+                        port = Integer.parseInt(p);
+                        host = host.substring(0, idx);
+                    }
+                }
+                host = host.trim();
+                if (host.startsWith("[")) host = host.substring(1);
+                if (host.endsWith("]")) host = host.substring(0, host.length() - 1);
+                if (host.length() == 0 || host.equals("*") || host.equals("0.0.0.0") || host.equals("::")) {
+                    host = "127.0.0.1";
+                }
+                apiBase = "http://" + host + ":" + port;
+            }
+            String s = yamlValue(text, "secret");
+            if (s != null) secret = s;
+        } catch (Throwable ignored) {
+            apiBase = API_BASE;
+            secret = SECRET;
+        }
+    }
+
+    private static boolean isDigits(String s) {
+        for (int i = 0; i < s.length(); i++) {
+            char c = s.charAt(i);
+            if (c < '0' || c > '9') return false;
+        }
+        return true;
+    }
+
+    /** 取 YAML 中 key 的值（去行尾注释与成对引号）；找不到返回 null */
+    private static String yamlValue(String text, String key) {
+        String[] lines = text.split("\n");
+        String prefix = key + ":";
+        for (String raw : lines) {
+            String line = raw.trim();
+            if (line.length() == 0 || line.startsWith("#")) continue;
+            if (!line.startsWith(prefix)) continue;
+            String v = line.substring(prefix.length()).trim();
+            int hash = v.indexOf(" #");
+            if (hash >= 0) v = v.substring(0, hash).trim();
+            if (v.length() >= 2) {
+                char c0 = v.charAt(0);
+                char c1 = v.charAt(v.length() - 1);
+                if ((c0 == '"' && c1 == '"') || (c0 == '\'' && c1 == '\'')) v = v.substring(1, v.length() - 1);
+            }
+            return v;
+        }
+        return null;
+    }
+
+    private static String readConfigText(java.io.File file) throws Exception {
+        StringBuilder sb = new StringBuilder();
+        java.io.BufferedReader reader = new java.io.BufferedReader(
+                new java.io.InputStreamReader(new java.io.FileInputStream(file), "UTF-8"));
+        try {
+            String line;
+            while ((line = reader.readLine()) != null) {
+                sb.append(line).append('\n');
+                if (sb.length() > 262144) break;
+            }
+        } finally {
+            try { reader.close(); } catch (Exception ignored) { }
+        }
+        return sb.toString();
     }
 
     // ---------------- adapter ----------------
