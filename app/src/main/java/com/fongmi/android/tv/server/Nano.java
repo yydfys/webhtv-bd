@@ -44,6 +44,16 @@ public class Nano extends NanoHTTPD {
         addProcess();
     }
 
+    /**
+     * 指定绑定地址（hostname 为 null 时等价于 IPv4 通配地址）。
+     * 传 {@code "::"} 可以拿到 IPv6 通配地址，Android/Linux 默认
+     * {@code net.ipv6.bindv6only=0}，即所谓「双栈」：同一个端口同时收 IPv4 与 IPv6。
+     */
+    public Nano(String hostname, int port) {
+        super(hostname, port);
+        addProcess();
+    }
+
     private void addProcess() {
         process = new ArrayList<>();
         process.add(new Action());

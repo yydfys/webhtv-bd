@@ -3,9 +3,9 @@ package com.fongmi.android.tv.server.process;
 import com.fongmi.android.tv.api.config.VodConfig;
 import com.fongmi.android.tv.bean.Site;
 import com.fongmi.android.tv.server.impl.Process;
+import com.fongmi.android.tv.utils.NetUtil;
 import com.github.catvod.Proxy;
 import com.github.catvod.crawler.Spider;
-import com.github.catvod.utils.Util;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
@@ -153,7 +153,8 @@ public class SpiderApi implements Process {
 
     private String rewritePlayUrl(String raw) {
         if (raw == null) return "";
-        String ip = Util.getIp();
+        // IPv6 局域网里 Util.getIp()（仅 IPv4）会拿不到地址；NetUtil 会回落 IPv6 并已带方括号
+        String ip = NetUtil.lanHost();
         int port = Proxy.getPort();
         if (ip == null || ip.isEmpty()) return raw;
         return raw.replace("127.0.0.1:" + port, ip + ":" + port).replace("localhost:" + port, ip + ":" + port);

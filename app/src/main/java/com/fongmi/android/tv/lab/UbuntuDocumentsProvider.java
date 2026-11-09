@@ -155,11 +155,33 @@ public class UbuntuDocumentsProvider extends DocumentsProvider {
     public ParcelFileDescriptor openDocument(String documentId, String mode, CancellationSignal signal)
             throws FileNotFoundException {
         File file = resolve(documentId);
-        if (!file.exists()) throw new FileNotFoundException("文件不存在：" + documentId);
         boolean write = mode != null && (mode.contains("w") || mode.contains("a") || mode.contains("t"));
-        int flags = write
-                ? ParcelFileDescriptor.MODE_READ_WRITE | ParcelFileDescriptor.MODE_CREATE
-                : ParcelFileDescriptor.MODE_READ_ONLY;
+        if (!write) {
+            if (!file.exists()) throw new FileNotFoundException("文件不存在：" + documentId);
+            return ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY);
+        }
+        // SAF 契约：以「写」方式打开时必须自己把文件建出来（AOSP 的 ExternalStorageProvider 同样如此），
+        // 不能因为文件还不存在就抛 FileNotFoundException。
+        // MT 管理器「复制到虚拟存储」正是先取 openOutputStream，再由 provider 负责创建：
+        // 旧实现直接抛「文件不存在：root/ubuntu/...」→ 复制全部失败。
+        if (file.isDirectory()) throw new FileNotFoundException("目标是一个目录，无法写入：" + documentId);
+        if (!file.exists()) {
+            File parent = file.getParentFile();
+            if (parent != null && !parent.isDirectory() && !parent.mkdirs() && !parent.isDirectory()) {
+                throw new FileNotFoundException("无法创建父目录：" + documentId);
+            }
+            try {
+                if (!file.createNewFile() && !file.exists()) {
+                    throw new FileNotFoundException("无法创建文件：" + documentId);
+                }
+            } catch (IOException e) {
+                throw new FileNotFoundException("无法创建文件：" + documentId);
+            }
+        }
+        int flags = ParcelFileDescriptor.MODE_READ_WRITE | ParcelFileDescriptor.MODE_CREATE;
+        // "wt"/"w" 都是从头写（截断）；只有纯 "a" 追加才保留原内容
+        boolean append = "a".equals(mode) || "wa".equals(mode);
+        if (!append) flags |= ParcelFileDescriptor.MODE_TRUNCATE;
         return ParcelFileDescriptor.open(file, flags);
     }
 
@@ -168,16 +190,20 @@ public class UbuntuDocumentsProvider extends DocumentsProvider {
             throws FileNotFoundException {
         File parent = resolve(parentDocumentId);
         if (!parent.isDirectory()) throw new FileNotFoundException("父节点不是目录");
-        File target = new File(parent, sanitize(displayName));
-        if (DIR_MIME.equals(mimeType)) {
-            if (!target.isDirectory() && !target.mkdirs()) throw new FileNotFoundException("无法创建目录：" + displayName);
+        boolean directory = DIR_MIME.equals(mimeType);
+        String name = sanitize(displayName);
+        // SAF 契约：同名时生成唯一名字（AOSP 也是这样），不能静默返回已存在的条目 ——
+        // 否则 MT 新建文件夹会提示「文件已存在」，复制粘贴同名文件也会互相覆盖。
+        File target = unique(parent, name, directory);
+        if (directory) {
+            if (!target.mkdirs() && !target.isDirectory()) throw new FileNotFoundException("无法创建目录：" + target.getName());
         } else {
             try {
-                if (!target.exists() && !target.createNewFile()) {
-                    throw new FileNotFoundException("无法创建文件：" + displayName);
+                if (!target.createNewFile() && !target.isFile()) {
+                    throw new FileNotFoundException("无法创建文件：" + target.getName());
                 }
             } catch (IOException e) {
-                throw new FileNotFoundException("无法创建文件：" + displayName);
+                throw new FileNotFoundException("无法创建文件：" + target.getName());
             }
         }
         return documentIdOf(target);
@@ -196,9 +222,11 @@ public class UbuntuDocumentsProvider extends DocumentsProvider {
         File file = resolve(documentId);
         File parent = file.getParentFile();
         if (parent == null) throw new FileNotFoundException("无法定位父目录");
-        File target = new File(parent, sanitize(displayName));
-        if (target.exists()) throw new FileNotFoundException("同名文件已存在");
-        if (!file.renameTo(target)) throw new FileNotFoundException("重命名失败");
+        String name = sanitize(displayName);
+        if (name.equals(file.getName())) return documentId;
+        // SAF 契约：重命名撞名时生成唯一名字（MT 的新建/重命名流程会重试，直接报错会表现为「文件已存在」）
+        File target = unique(parent, name, file.isDirectory());
+        if (!file.renameTo(target)) throw new FileNotFoundException("重命名失败：" + target.getName());
         return documentIdOf(target);
     }
 
@@ -208,9 +236,8 @@ public class UbuntuDocumentsProvider extends DocumentsProvider {
         File source = resolve(sourceDocumentId);
         File targetParent = resolve(targetParentDocumentId);
         if (!targetParent.isDirectory()) throw new FileNotFoundException("目标不是目录");
-        File target = new File(targetParent, source.getName());
-        if (target.exists()) throw new FileNotFoundException("目标已存在同名文件");
-        if (!source.renameTo(target)) throw new FileNotFoundException("移动失败");
+        File target = unique(targetParent, source.getName(), source.isDirectory());
+        if (!source.renameTo(target)) throw new FileNotFoundException("移动失败：" + target.getName());
         return documentIdOf(target);
     }
 
@@ -306,6 +333,27 @@ public class UbuntuDocumentsProvider extends DocumentsProvider {
             if (!TextUtils.isEmpty(type)) return type;
         }
         return "application/octet-stream";
+    }
+
+    /**
+     * 同名时按 AOSP 规则生成唯一名字：{@code name.ext} → {@code name (1).ext}。
+     * 目录不加扩展名后缀。最多试 1000 次，仍撞则退回「带时间戳」的名字。
+     */
+    private static File unique(File parent, String name, boolean directory) {
+        File target = new File(parent, name);
+        if (!target.exists()) return target;
+        String base = name;
+        String extension = "";
+        int dot = name.lastIndexOf('.');
+        if (!directory && dot > 0 && dot < name.length() - 1) {
+            base = name.substring(0, dot);
+            extension = name.substring(dot);
+        }
+        for (int i = 1; i < 1000; i++) {
+            target = new File(parent, base + " (" + i + ")" + extension);
+            if (!target.exists()) return target;
+        }
+        return new File(parent, base + " (" + System.currentTimeMillis() + ")" + extension);
     }
 
     private static String sanitize(String name) {
