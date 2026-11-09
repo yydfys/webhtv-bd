@@ -2,6 +2,7 @@ package com.fongmi.android.tv.lab;
 
 import android.content.Context;
 import android.text.TextUtils;
+import android.util.Log;
 
 import java.io.File;
 import java.io.IOException;
@@ -19,6 +20,10 @@ import java.util.regex.Pattern;
 public final class LabRunner {
 
     public interface OutputListener {
+        /**
+         * 每行输出的投递在 pump 的缓冲锁内调用（其余调用点不在锁内），因此实现必须非阻塞：
+         * 只允许投递（如 {@code App.post}）或空实现。
+         */
         void onOutput(String text);
 
         void onExit(int code);
@@ -26,6 +31,8 @@ public final class LabRunner {
 
     private static final Map<String, Process> RUNNING = new ConcurrentHashMap<>();
     private static final Map<String, StringBuilder> LOGS = new ConcurrentHashMap<>();
+    /** key 最近一次运行用的落盘日志。{@link LabProcManager} 在进程退出/停止后摘掉映射，这里留底，清除仍能找到文件。 */
+    private static final Map<String, File> LOG_FILES = new ConcurrentHashMap<>();
     private static final Map<String, java.io.OutputStream> STDIN = new ConcurrentHashMap<>();
 
     /**
@@ -70,16 +77,32 @@ public final class LabRunner {
         }
     }
 
+    /**
+     * {@code Process#isAlive()} 需要 API 26；低版本用 {@code exitValue()} 探测：
+     * 进程仍在运行时它抛 {@code IllegalThreadStateException}。等价语义，API 1 起可用。
+     */
+    static boolean isAlive(Process process) {
+        if (process == null) return false;
+        try {
+            process.exitValue();
+            return false;
+        } catch (IllegalThreadStateException alive) {
+            return true;
+        } catch (Throwable error) {
+            return false;
+        }
+    }
+
     public static boolean isRunning(String key) {
         Process process = RUNNING.get(key);
-        if (process != null && process.isAlive()) return true;
+        if (isAlive(process)) return true;
         return LabProcManager.recoveredAlive(key);
     }
 
     public static int runningCount() {
         java.util.Set<String> keys = new java.util.LinkedHashSet<>();
         for (Map.Entry<String, Process> entry : RUNNING.entrySet()) {
-            if (entry.getValue() != null && entry.getValue().isAlive()) keys.add(entry.getKey());
+            if (isAlive(entry.getValue())) keys.add(entry.getKey());
         }
         for (String key : LabProcManager.recoveredKeys()) {
             keys.add(key);
@@ -90,7 +113,7 @@ public final class LabRunner {
     public static java.util.List<String> runningKeys() {
         java.util.Set<String> keys = new java.util.LinkedHashSet<>();
         for (Map.Entry<String, Process> entry : RUNNING.entrySet()) {
-            if (entry.getValue() != null && entry.getValue().isAlive()) keys.add(entry.getKey());
+            if (isAlive(entry.getValue())) keys.add(entry.getKey());
         }
         keys.addAll(LabProcManager.recoveredKeys());
         return new java.util.ArrayList<>(keys);
@@ -134,10 +157,23 @@ public final class LabRunner {
         LabProcManager.updateService();
     }
 
+    /**
+     * 读取该 key 的日志：内存缓冲优先，空则回落到落盘文件。
+     *
+     * <p>读缓冲要进 pump 的同一把锁——否则可能读到刚被清除的旧快照，让「清除」在界面上看起来没生效。
+     * 代价是调用方在持锁方执行一次 flush 期间等待：pump 每行写盘一次 flush，{@link #clearLog} 则在该锁内
+     * 做一次 O_TRUNC 打开（可能落在共享存储上）。{@code onCreate} 与「日志」弹窗都在主线程调用，
+     * 慢存储上会有毫秒级等待，属于换取一致性的已知开销，不要为了消除它而取消这里的同步。
+     * 缓冲为空时的文件回落读（{@code Files.readAllBytes}）在锁外，不在此等待窗口内。
+     */
     public static String getLog(String key) {
         StringBuilder sb = LOGS.get(key);
-        if (sb != null && sb.length() > 0) return sb.toString();
-        File file = LabProcManager.logFor(key);
+        if (sb != null) {
+            synchronized (sb) {
+                if (sb.length() > 0) return sb.toString();
+            }
+        }
+        File file = logFileFor(key);
         if (file != null && file.exists()) {
             try {
                 return new String(java.nio.file.Files.readAllBytes(file.toPath()), StandardCharsets.UTF_8);
@@ -147,6 +183,29 @@ public final class LabRunner {
         return "";
     }
 
+    /**
+     * 清空一条命令的日志：内存缓冲原地清零（pump 线程持有同一个 {@code StringBuilder} 引用，
+     * 换新实例会让之后的输出写进没人再读的旧引用），并截断落盘日志文件，重进输出页不再看到历史叠加。
+     *
+     * <p>截断必须与 {@code pump} 的写盘落在同一个 {@code synchronized (log)} 临界区里：否则在「清内存」
+     * 与「截文件」之间的窗口读出的行会写进文件又被截掉（丢一段刚产生的输出），或只进内存不进文件，
+     * 两侧静默分叉。
+     *
+     * <p>进程退出或停止后 {@link LabProcManager#logFor} 会摘掉映射，此时回落到本进程记录的最近一次
+     * 落盘文件：否则「清除」对磁盘静默失效，而 {@code <root>/logs/<pid>_<item>.log} 在配置根指向共享存储
+     * 时仍能被文件管理器看到。重新运行会生成新的 {@code <pid>_} 文件，上一轮的旧文件不在此列。
+     *
+     * <p>限制（无法定位即不清理）：本进程从未 {@code pump} 过该 key、从未读过或清过它（{@code LOG_FILES}
+     * 无条目）、且 {@link LabProcManager} 也没有该 key 的映射时，回落取不到文件，{@link #truncate} 直接
+     * 返回——此时只有内存与界面被清空，磁盘旧文件仍在。由 {@code recover} 接管、仍然存活的进程不属此类：
+     * {@code recover} 自己往 {@link LabProcManager} 写过该 key 的映射，不依赖本进程的 {@code track}。
+     *
+     * <p>内存缓冲在同一把锁内被原地清零（{@code setLength(0)}，不换实例），因此清除后
+     * {@link #getLog} 读到的缓冲为空；若能定位到文件则回落到已截空的文件，返回空串（定位不到时磁盘旧
+     * 文件仍在，见上段）。「日志」入口同样走 {@link #getLog}，也不再看到清除前的历史（{@code LOGS}
+     * 本身不被移除，只是内容被清空）。{@code computeIfAbsent} 的代价是：从未 pump 过的 key 会因此留下
+     * 一个空缓冲，量级受配置里命令 key 的数量约束。
+     */
     /**
      * 清除某条命令的日志：内存缓冲 + 落盘日志文件一起清，
      * 否则窗口重开时会从日志文件回放出刚被清掉的旧日志。

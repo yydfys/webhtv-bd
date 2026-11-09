@@ -21,8 +21,8 @@ import com.fongmi.android.tv.App;
 import com.fongmi.android.tv.R;
 import com.fongmi.android.tv.databinding.ActivityLabDetailBinding;
 import com.fongmi.android.tv.setting.Setting;
+import com.fongmi.android.tv.theme.WebHtvAlertDialogBuilder;
 import com.fongmi.android.tv.utils.Notify;
-import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import com.google.android.material.materialswitch.MaterialSwitch;
 import com.google.android.material.textfield.MaterialAutoCompleteTextView;
 import com.google.android.material.textfield.TextInputLayout;
@@ -161,6 +161,10 @@ public class LabDetailActivity extends AppCompatActivity implements LabCommandAd
         return LabEnv.displayVersion(item);
     }
 
+    /**
+     * 刷新详情页状态。命令列表只能走 {@link LabCommandAdapter#refreshStates()} 的差异刷新：
+     * 这个方法被 2 秒轮询调用，整表 {@code notifyDataSetChanged()} 会把遥控焦点踢回工具栏。
+     */
     /** 上一次刷新按钮/状态条时的状态指纹（见 updateButtons 内的说明）。 */
     private String lastButtonState;
 
@@ -268,7 +272,7 @@ public class LabDetailActivity extends AppCompatActivity implements LabCommandAd
             return;
         }
         if (LabEnv.installed(this, item) && hasNewVersion()) {
-            new MaterialAlertDialogBuilder(this, R.style.Theme_App_Lab_Dialog)
+            new WebHtvAlertDialogBuilder(this, R.style.Theme_App_Lab_Dialog)
                     .setTitle("确认更新")
                     .setMessage("发现新版本 " + displayVersion() + "，是否立即更新？")
                     .setNegativeButton(android.R.string.cancel, null)
@@ -284,7 +288,7 @@ public class LabDetailActivity extends AppCompatActivity implements LabCommandAd
             onContainerUninstall();
             return;
         }
-        new MaterialAlertDialogBuilder(this, R.style.Theme_App_Lab_Dialog)
+        new WebHtvAlertDialogBuilder(this, R.style.Theme_App_Lab_Dialog)
                 .setTitle("确认卸载")
                 .setMessage("确定要卸载 " + item.name + " 吗？这将停止所有运行中的命令。")
                 .setNegativeButton(android.R.string.cancel, null)
@@ -440,7 +444,7 @@ public class LabDetailActivity extends AppCompatActivity implements LabCommandAd
     }
 
     private void onRefreshCommands() {
-        new MaterialAlertDialogBuilder(this, R.style.Theme_App_Lab_Dialog)
+        new WebHtvAlertDialogBuilder(this, R.style.Theme_App_Lab_Dialog)
                 .setTitle("重置命令列表")
                 .setMessage("确定要从远程重新加载命令列表吗？这将覆盖本地修改的命令，并停止所有运行中的进程。")
                 .setNegativeButton(android.R.string.cancel, null)
@@ -594,7 +598,7 @@ public class LabDetailActivity extends AppCompatActivity implements LabCommandAd
         progress.setTextColor(Color.WHITE);
         progress.setTextSize(14);
         progress.setPadding(48, 32, 48, 32);
-        androidx.appcompat.app.AlertDialog dialog = new MaterialAlertDialogBuilder(this, R.style.Theme_App_Lab_Dialog)
+        androidx.appcompat.app.AlertDialog dialog = new WebHtvAlertDialogBuilder(this, R.style.Theme_App_Lab_Dialog)
                 .setTitle("打包导出")
                 .setView(progress)
                 .setCancelable(false)
@@ -627,7 +631,7 @@ public class LabDetailActivity extends AppCompatActivity implements LabCommandAd
             View row = inflateSetting(container, setting, values);
             if (row != null) container.addView(row);
         }
-        new MaterialAlertDialogBuilder(this, R.style.Theme_WebHTV_LightDialog)
+        new WebHtvAlertDialogBuilder(this, R.style.Theme_WebHTV_Dialog)
                 .setTitle(item.name + " 设置")
                 .setView(container)
                 .setNegativeButton(android.R.string.cancel, null)

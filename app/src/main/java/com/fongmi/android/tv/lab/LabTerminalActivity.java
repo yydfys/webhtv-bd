@@ -299,7 +299,7 @@ public class LabTerminalActivity extends AppCompatActivity implements LabTermina
         // PTY 下命令由容器内 readline 回显（带着提示符一起），本地别再打 "$ cmd"，否则一行变两行
         if (!ptyMode) append("$ " + command + "\n");
         try {
-            if (process == null || !process.isAlive()) startShell();
+            if (!LabRunner.isAlive(process)) startShell();
             if (stdin != null) {
                 stdin.write((command + "\n").getBytes(StandardCharsets.UTF_8));
                 stdin.flush();
@@ -319,7 +319,7 @@ public class LabTerminalActivity extends AppCompatActivity implements LabTermina
 
     private void writeRaw(byte[] bytes) {
         try {
-            if (process == null || !process.isAlive()) startShell();
+            if (!LabRunner.isAlive(process)) startShell();
             if (stdin != null) {
                 stdin.write(bytes);
                 stdin.flush();
@@ -372,7 +372,7 @@ public class LabTerminalActivity extends AppCompatActivity implements LabTermina
     }
 
     private void startShell() {
-        if (process != null && process.isAlive()) return;
+        if (LabRunner.isAlive(process)) return;
         try {
             boolean ubuntu = !TextUtils.isEmpty(commandLine);
             ProcessBuilder builder = ubuntu

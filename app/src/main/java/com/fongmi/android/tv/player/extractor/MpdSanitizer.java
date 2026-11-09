@@ -98,9 +98,11 @@ public final class MpdSanitizer {
         }
     }
 
+    // Matcher#appendReplacement/appendTail 的 StringBuilder 重载需要 API 34；
+    // StringBuffer 重载自 API 1 就有，语义一致（仅在单线程局部使用）。
     private static String removeInvalidFrameRates(String xml, int[] removed) {
         Matcher matcher = FRAME_RATE.matcher(xml);
-        StringBuilder output = new StringBuilder(xml.length());
+        StringBuffer output = new StringBuffer(xml.length());
         int last = 0;
         while (matcher.find()) {
             if (isValid(matcher.group(2))) continue;
@@ -115,7 +117,7 @@ public final class MpdSanitizer {
 
     private static String removeInvalidAdaptationSetIds(String xml, int[] removed) {
         Matcher matcher = ADAPTATION_SET_ID.matcher(xml);
-        StringBuilder output = new StringBuilder(xml.length());
+        StringBuffer output = new StringBuffer(xml.length());
         int last = 0;
         while (matcher.find()) {
             if (isValidInteger(matcher.group(3))) continue;
@@ -150,7 +152,7 @@ public final class MpdSanitizer {
 
     private static String removeTvHtml5VideoAdaptationSets(String xml, int[] removed) {
         Matcher matcher = ADAPTATION_SET.matcher(xml);
-        StringBuilder output = new StringBuilder(xml.length());
+        StringBuffer output = new StringBuffer(xml.length());
         int last = 0;
         while (matcher.find()) {
             String set = matcher.group();
@@ -179,14 +181,14 @@ public final class MpdSanitizer {
 
     private static String keepAndroidVrAudioTrack(String xml, int[] removed) {
         Matcher matcher = ADAPTATION_SET.matcher(xml);
-        StringBuilder output = new StringBuilder(xml.length());
+        StringBuffer output = new StringBuffer(xml.length());
         int last = 0;
         while (matcher.find()) {
             String set = matcher.group();
             if (!set.contains("contentType='audio'") && !set.contains("contentType=\"audio\"")) continue;
             if (!containsClient(set, "ANDROID_VR")) continue;
             Matcher urls = BASE_URL.matcher(set);
-            StringBuilder filtered = new StringBuilder(set.length());
+            StringBuffer filtered = new StringBuffer(set.length());
             int urlLast = 0;
             int count = 0;
             while (urls.find()) {
