@@ -166,6 +166,16 @@ public final class LabRunner {
      * 慢存储上会有毫秒级等待，属于换取一致性的已知开销，不要为了消除它而取消这里的同步。
      * 缓冲为空时的文件回落读（{@code Files.readAllBytes}）在锁外，不在此等待窗口内。
      */
+    /** 落盘日志文件：先在 {@link LabProcManager} 的实时映射里找，进程停了再回落到本进程记录过的路径。 */
+    private static File logFileFor(String key) {
+        File file = LabProcManager.logFor(key);
+        if (file != null) {
+            LOG_FILES.put(key, file);
+            return file;
+        }
+        return LOG_FILES.get(key);
+    }
+
     public static String getLog(String key) {
         StringBuilder sb = LOGS.get(key);
         if (sb != null) {
