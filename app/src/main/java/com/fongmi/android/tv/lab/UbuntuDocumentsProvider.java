@@ -101,6 +101,9 @@ public class UbuntuDocumentsProvider extends DocumentsProvider {
         String[] columns = projection == null ? DEFAULT_DOCUMENT_PROJECTION : projection;
         MatrixCursor cursor = new MatrixCursor(columns, 1);
         File file = resolve(documentId);
+        // 不存在的文档必须抛 FileNotFoundException（AOSP 契约）：MT 管理器新建文件/文件夹、
+        // 粘贴前都会用它探测「是否已存在」，旧实现无脑返回一行 → 一律判「此文件已存在」。
+        if (!file.exists()) throw new FileNotFoundException("文件不存在：" + documentId);
         includeFile(cursor, columns, file, documentId);
         return cursor;
     }
@@ -111,6 +114,8 @@ public class UbuntuDocumentsProvider extends DocumentsProvider {
         String[] columns = projection == null ? DEFAULT_DOCUMENT_PROJECTION : projection;
         MatrixCursor cursor = new MatrixCursor(columns, 1);
         File parent = resolve(parentDocumentId);
+        // 对非目录列子项属于调用方错误：按契约抛异常，别返回空列表让上层误判「空文件夹」
+        if (!parent.isDirectory()) throw new FileNotFoundException("不是目录：" + parentDocumentId);
         File[] children = parent.listFiles();
         List<File> files = new ArrayList<>();
         if (children != null) {
@@ -135,6 +140,7 @@ public class UbuntuDocumentsProvider extends DocumentsProvider {
     @Override
     public String getDocumentType(String documentId) throws FileNotFoundException {
         File file = resolve(documentId);
+        if (!file.exists()) throw new FileNotFoundException("文件不存在：" + documentId);
         return file.isDirectory() ? DIR_MIME : mimeOf(file);
     }
 
@@ -143,6 +149,7 @@ public class UbuntuDocumentsProvider extends DocumentsProvider {
         try {
             File parent = resolve(parentDocumentId);
             File child = resolve(documentDocumentId);
+            if (!parent.exists() || !child.exists()) return false;
             String parentPath = parent.getCanonicalPath();
             String childPath = child.getCanonicalPath();
             return childPath.equals(parentPath) || childPath.startsWith(parentPath + File.separator);
@@ -190,7 +197,7 @@ public class UbuntuDocumentsProvider extends DocumentsProvider {
             throws FileNotFoundException {
         File parent = resolve(parentDocumentId);
         if (!parent.isDirectory()) throw new FileNotFoundException("父节点不是目录");
-        boolean directory = DIR_MIME.equals(mimeType);
+        boolean directory = isDirectoryMime(mimeType);
         String name = sanitize(displayName);
         // SAF 契约：同名时生成唯一名字（AOSP 也是这样），不能静默返回已存在的条目 ——
         // 否则 MT 新建文件夹会提示「文件已存在」，复制粘贴同名文件也会互相覆盖。
@@ -333,6 +340,18 @@ public class UbuntuDocumentsProvider extends DocumentsProvider {
             if (!TextUtils.isEmpty(type)) return type;
         }
         return "application/octet-stream";
+    }
+
+    /**
+     * 目录 mime 的多种写法：标准 {@code vnd.android.document/directory}，
+     * 以及 MT 管理器等文件管理器对文件夹会发的 {@code resource/folder} 一类非标准值。
+     * 只认标准值会让「复制整个文件夹」把目录建成同名文件，MT 随后报
+     * 「File '...' exists but is not a directory」。
+     */
+    private static boolean isDirectoryMime(String mimeType) {
+        if (TextUtils.isEmpty(mimeType)) return false;
+        String value = mimeType.toLowerCase(Locale.ROOT);
+        return DIR_MIME.equals(value) || value.contains("directory") || value.contains("folder");
     }
 
     /**
