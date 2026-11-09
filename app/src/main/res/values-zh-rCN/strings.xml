@@ -1871,6 +1871,10 @@
     <string name="manage_page_notification_title">管理页面运行中</string>
     <string name="manage_page_no_browser">未找到可打开网页的应用，请使用局域网地址访问</string>
     <string name="manage_page_url_copied">管理页面地址已复制</string>
+    <string name="manage_page_ipv6_address">IPv6 地址：\n%1$s</string>
+    <string name="manage_page_ipv6_missing">IPv6 地址：未获取到（当前网络没有全局 IPv6，仅 IPv4 可用）</string>
+    <string name="manage_page_copy_ipv6">复制</string>
+    <string name="manage_page_ipv6_copied">IPv6 地址已复制</string>
     <string name="manage_page_battery_title">后台访问权限</string>
     <string name="manage_page_battery_message">当前设备可能会在 App 切到后台后限制网络，导致浏览器管理页无法连接。点击“打开设置”只会尝试当前品牌已知的后台运行/耗电管理入口；如果系统不允许直达，请按下面路径手动设置：\n\n%1$s</string>
     <string name="manage_page_battery_allow">打开设置</string>

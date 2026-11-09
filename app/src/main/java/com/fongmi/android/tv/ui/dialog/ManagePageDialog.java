@@ -43,11 +43,13 @@ public final class ManagePageDialog {
         ManageService.start(activity);
         String localUrl = ManageService.getLocalUrl();
         String lanUrl = ManageService.getLanUrl();
-        SpiderDebug.log("server", "manage page ready url=%s lan=%s", localUrl, lanUrl);
+        String lanIpv6Url = ManageService.getLanIpv6Url();
+        SpiderDebug.log("server", "manage page ready url=%s lan=%s ipv6=%s", localUrl, lanUrl, lanIpv6Url);
 
         DialogManagePageBinding binding = DialogManagePageBinding.inflate(LayoutInflater.from(activity));
         binding.message.setText(activity.getString(R.string.manage_page_dialog_message, lanUrl, localUrl));
-        setScrollHeight(activity, binding.contentScroll, 0.34f, 300);
+        bindIpv6(activity, binding, lanIpv6Url);
+        setScrollHeight(activity, binding.contentScroll, 0.40f, 340);
 
         Dialog dialog = LightDialog.create(activity, null, binding.getRoot(), 0.68f, 0.92f, 640);
         binding.open.setOnClickListener(v -> open(activity, localUrl));
@@ -58,6 +60,30 @@ public final class ManagePageDialog {
         });
         dialog.show();
         binding.open.requestFocus();
+    }
+
+    /**
+     * 把 IPv6 地址单独亮出来，并允许一键复制。
+     *
+     * <p>为什么要单独一行：{@link ManageService#getLanUrl()} 走「IPv4 优先」，手机同时有 IPv4 时
+     * 用户永远看不到 IPv6，会误判成双栈没生效（2026-11-10 就是这么误判的）。
+     *
+     * <p>为什么要现取：SLAAC 地址随运营商前缀变化，写死进书签必然失效。
+     *
+     * <p>没有全局 IPv6（只有 fe80 链路本地或压根没有）时显示原因并禁用复制，避免复制出空串。
+     */
+    private static void bindIpv6(FragmentActivity activity, DialogManagePageBinding binding, String url) {
+        boolean available = url != null && !url.isEmpty();
+        binding.messageV6.setText(available
+                ? activity.getString(R.string.manage_page_ipv6_address, url)
+                : activity.getString(R.string.manage_page_ipv6_missing));
+        View.OnClickListener copyIpv6 = v -> {
+            if (available) copy(activity, url, R.string.manage_page_ipv6_copied);
+        };
+        binding.copyV6.setEnabled(available);
+        binding.copyV6.setAlpha(available ? 1f : 0.45f);
+        binding.copyV6.setOnClickListener(copyIpv6);
+        binding.messageV6.setOnClickListener(copyIpv6);
     }
 
     private static void open(FragmentActivity activity, String url) {
@@ -102,9 +128,13 @@ public final class ManagePageDialog {
     }
 
     private static void copy(FragmentActivity activity, String url) {
+        copy(activity, url, R.string.manage_page_url_copied);
+    }
+
+    private static void copy(FragmentActivity activity, String url, int toastRes) {
         ClipboardManager manager = (ClipboardManager) activity.getSystemService(Context.CLIPBOARD_SERVICE);
         if (manager == null) return;
         manager.setPrimaryClip(ClipData.newPlainText(activity.getString(R.string.setting_manage_page), url));
-        Notify.show(R.string.manage_page_url_copied);
+        Notify.show(toastRes);
     }
 }

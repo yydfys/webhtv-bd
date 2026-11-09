@@ -1930,6 +1930,10 @@
     <string name="manage_page_notification_title">Management page running</string>
     <string name="manage_page_no_browser">No browser app found. Use the LAN URL from another device.</string>
     <string name="manage_page_url_copied">Management page URL copied</string>
+    <string name="manage_page_ipv6_address">IPv6 URL:\n%1$s</string>
+    <string name="manage_page_ipv6_missing">IPv6 URL: not available (this network has no global IPv6, IPv4 only)</string>
+    <string name="manage_page_copy_ipv6">Copy</string>
+    <string name="manage_page_ipv6_copied">IPv6 URL copied</string>
     <string name="manage_page_battery_title">Background access</string>
     <string name="manage_page_battery_message">This device may restrict network access after the app moves to the background, which can make the browser management page unreachable. Open settings only tries known background running or battery management pages for this device brand. If the system does not allow a direct page, use this manual path:\n\n%1$s</string>
     <string name="manage_page_battery_allow">Open settings</string>

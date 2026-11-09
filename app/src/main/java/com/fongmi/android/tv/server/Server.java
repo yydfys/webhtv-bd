@@ -57,6 +57,19 @@ public class Server {
         return NetUtil.httpUrl(local ? "127.0.0.1" : NetUtil.lanHost(), Proxy.getPort(), null);
     }
 
+    /**
+     * 只取 IPv6 的局域网地址形如 {@code http://[240e::1]:9978}。
+     *
+     * <p>{@link #getAddress(boolean)} 是「IPv4 优先」，手机同时有 IPv4 时永远看不到 IPv6，
+     * 用户就会以为 IPv6 没生效。管理页面需要把两条地址同时亮出来，所以单独给一个入口。
+     *
+     * @return 设备没有全局 IPv6 时返回空串
+     */
+    public String getAddressIpv6() {
+        String host = NetUtil.lanIpv6();
+        return host == null || host.isEmpty() ? "" : NetUtil.httpUrl(host, Proxy.getPort(), null);
+    }
+
     public synchronized void startManage() {
         manage = true;
         start();

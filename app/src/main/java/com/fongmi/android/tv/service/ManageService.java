@@ -92,6 +92,19 @@ public class ManageService extends Service {
         return Server.get().getAddress(false) + PATH;
     }
 
+    /**
+     * 局域网 IPv6 管理页地址，形如 {@code http://[240e::1]:9978/m}。
+     *
+     * <p>每次调用现取：SLAAC 地址会随运营商前缀变化而失效（2026-11-10 实测换 /64 后旧地址直接不通），
+     * 写死缓存只会把用户引到死地址上。
+     *
+     * @return 设备当前没有全局 IPv6 时返回空串
+     */
+    public static String getLanIpv6Url() {
+        String base = Server.get().getAddressIpv6();
+        return base.isEmpty() ? "" : base + PATH;
+    }
+
     public static long getLastAccess() {
         return lastAccess;
     }

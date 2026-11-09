@@ -31,14 +31,56 @@
         android:fillViewport="false"
         android:overScrollMode="never">
 
-        <com.google.android.material.textview.MaterialTextView
-            android:id="@+id/message"
+        <androidx.appcompat.widget.LinearLayoutCompat
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:lineSpacingMultiplier="1.12"
-            android:textColor="?attr/colorOnSurfaceVariant"
-            android:textSize="14sp"
-            tools:text="管理页面已启动。&#10;&#10;局域网地址：&#10;http://192.168.1.2:9978&#10;&#10;本机地址：&#10;http://127.0.0.1:9978" />
+            android:orientation="vertical">
+
+            <com.google.android.material.textview.MaterialTextView
+                android:id="@+id/message"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:lineSpacingMultiplier="1.12"
+                android:textColor="?attr/colorOnSurfaceVariant"
+                android:textSize="14sp"
+                tools:text="管理页面已启动。&#10;&#10;局域网地址：&#10;http://192.168.1.2:9978&#10;&#10;本机地址：&#10;http://127.0.0.1:9978" />
+
+            <androidx.appcompat.widget.LinearLayoutCompat
+                android:id="@+id/ipv6Row"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <com.google.android.material.textview.MaterialTextView
+                    android:id="@+id/messageV6"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:lineSpacingMultiplier="1.12"
+                    android:textColor="?attr/colorOnSurfaceVariant"
+                    android:textSize="14sp"
+                    tools:text="IPv6 地址：&#10;http://[240e:398:6792:f8fc:fcd4:7170:5bdb:7222]:9978/m" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/copyV6"
+                    style="@style/Widget.Material3.Button.TextButton"
+                    android:layout_width="wrap_content"
+                    android:layout_height="36dp"
+                    android:layout_marginStart="8dp"
+                    android:minWidth="0dp"
+                    android:minHeight="36dp"
+                    android:paddingStart="8dp"
+                    android:paddingEnd="8dp"
+                    android:singleLine="true"
+                    android:text="@string/manage_page_copy_ipv6"
+                    android:textColor="@color/dialog_text_button"
+                    app:rippleColor="?attr/colorOnSurfaceVariant" />
+
+            </androidx.appcompat.widget.LinearLayoutCompat>
+
+        </androidx.appcompat.widget.LinearLayoutCompat>
 
     </androidx.core.widget.NestedScrollView>
 
