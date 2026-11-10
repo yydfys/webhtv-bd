@@ -13,6 +13,12 @@ import com.fongmi.android.tv.R;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
+import android.app.Dialog;
+import android.graphics.drawable.ColorDrawable;
+import android.view.Gravity;
+import android.view.Window;
+import android.view.WindowManager;
+import com.github.catvod.utils.Prefers;
 
 /**
  * 插件 UI 槽位渲染器：把清单声明的槽位变成真实控件，并把点击路由回插件。
@@ -136,6 +142,9 @@ public final class PluginUiPresenter {
         ViewGroup decor = PluginFloatingDock.decorOf(activity);
         if (decor == null) return;
         LinearLayout toolbar = toolbarContainer(activity);
+        // panel 槽位先收集、循环结束后再统一挂载：它们要合并成一颗入口，
+        // 边遍历边挂就会变成"每个插件各一颗"——正是要修的现象。
+        List<PluginHost.PluginSlot> panels = new ArrayList<>();
         for (PluginHost.PluginSlot entry : slots) {
             Landing landing = landingOf(entry);
             if (landing == Landing.NONE) continue;
@@ -154,12 +163,17 @@ public final class PluginUiPresenter {
                 // panel 单独一路：它的入口必须"够得到"，而 floating 在电视端刻意不可聚焦。
                 // 它也**不**记进 fallbacks——降级记录专门表示"toolbar 想进控制条却没容器"，
                 // panel 进不了控制条是正常的端差异，不是降级，混进去会让诊断数据失真。
-                case PANEL -> addPanelEntry(decor, activity, entry, leanback, toolbar);
+                case PANEL -> panels.add(entry);
                 case FLOATING -> PluginFloatingDock.addFloating(this, decor, activity, entry, leanback);
                 default -> {
                     // NONE 已被上面跳过，这里只是让 switch 穷尽。
                 }
             }
+        }
+        if (panels.size() == 1) {
+            addPanelEntry(decor, activity, panels.get(0), leanback, toolbar);
+        } else if (panels.size() > 1) {
+            addPanelGroup(decor, activity, panels, leanback, toolbar);
         }
     }
 
@@ -260,7 +274,16 @@ public final class PluginUiPresenter {
      * <p><b>无相邻 chip 时不设任何 nextFocus。</b>没有目标可指，设了只会让方向键跳到屏幕任意位置。
      */
     private void addToolbarChip(LinearLayout container, PluginHost.PluginSlot entry) {
-        TextView chip = PluginChipFactory.create(this, container.getContext(), entry, true);
+        attachToolbarChip(container, PluginChipFactory.create(this, container.getContext(), entry, true));
+    }
+
+    /**
+     * 把一颗已建好的 chip 挂进控制条并续上方向键链。
+     *
+     * <p>创建与挂载拆开，是为了让合并入口复用同一套落位/焦点逻辑：它只换文案与点击行为，
+     * 落点规则必须与单插件 chip 完全一致，否则合并之后在电视上会跑到另一个位置。
+     */
+    private void attachToolbarChip(LinearLayout container, TextView chip) {
         // 落点必须在 addView 之前取：挂上去之后"第一个/最后一个子视图"就变成新 chip 自己了。
         boolean prepend = isFusionActionRow(container);
         View anchor = prepend ? firstFocusableChild(container) : lastFocusableChild(container);
@@ -404,6 +427,15 @@ public final class PluginUiPresenter {
         params.setMarginEnd(PluginChipFactory.dp(row.getContext(), 10));
         row.addView(chip, params);
         attached.add(chip);
+        revealPluginRow(activity);
+    }
+
+    /**
+     * 点亮「插件」行：标题与滚动容器一起可见（没有插件时保持 GONE）。
+     *
+     * <p>单插件与合并入口共用这一段：两处各写一份，迟早会在"要不要显示标题"上漂移。
+     */
+    private void revealPluginRow(@Nullable Activity activity) {
         View header = activity == null ? null : activity.findViewById(R.id.pluginHeader);
         View scroll = activity == null ? null : activity.findViewById(R.id.pluginScroll);
         // 记住容器本身而不是行：detach 时行多半已经不在树上，靠它反查会拿不到人。
@@ -479,6 +511,182 @@ public final class PluginUiPresenter {
             if (landingOf(entry) != Landing.NONE) count++;
         }
         return count;
+    }
+
+    /**
+     * 多个 panel 插件合并成一颗入口。
+     *
+     * <p><b>为什么必须合并。</b>每个 panel 插件原本各占一颗 chip：手机端两颗悬浮球默认落点
+     * 相同（右下角、距底 96dp）、完全重叠，点位分不清谁是谁；电视端则在「插件」行与控制条
+     * 各多一颗，多占方向键停靠点。合并后仍是一颗可聚焦入口，点开再选。
+     *
+     * <p><b>只有 1 个插件时不走这里</b>：直接用它自己的名字点开，不该无端多一层选择。
+     */
+    private void addPanelGroup(ViewGroup decor, Activity activity, List<PluginHost.PluginSlot> entries,
+            boolean leanback, @Nullable LinearLayout toolbar) {
+        String label = PluginChipFactory.groupLabel(entries.size());
+        PluginHost.PluginSlot anchor = entries.get(0);
+        if (leanback) {
+            boolean placed = false;
+            ViewGroup row = pluginRow(activity);
+            if (row != null) {
+                addPluginRowGroupChip(row, activity, entries, label);
+                placed = true;
+            }
+            if (toolbar != null) {
+                addToolbarGroupChip(toolbar, activity, entries, label);
+                placed = true;
+            }
+            if (!placed) {
+                // 页面既没有「插件」行也没有控制条：退到可聚焦浮标，否则遥控器够不到入口。
+                PluginFloatingDock.addFocusableGroupFloating(this, decor, activity, anchor, label,
+                        view -> showChooser(activity, view, entries),
+                        view -> {
+                            if (!openLast(activity, view, entries)) showChooser(activity, view, entries);
+                            return true;
+                        });
+            }
+            return;
+        }
+        PluginFloatingDock.addGroupFloating(this, decor, activity, anchor, label,
+                view -> showChooser(activity, view, entries),
+                view -> {
+                    if (!openLast(activity, view, entries)) showChooser(activity, view, entries);
+                    return true;
+                });
+    }
+
+    /** 合并入口挂进详情页「插件」行（电视端主入口之一）。 */
+    private void addPluginRowGroupChip(ViewGroup row, Activity activity, List<PluginHost.PluginSlot> entries,
+            String label) {
+        TextView chip = PluginChipFactory.create(this, activity, entries.get(0), PluginChipFactory.Surface.ROW);
+        chip.setText(label);
+        chip.setOnClickListener(view -> showChooser(activity, view, entries));
+        chip.setOnLongClickListener(view -> {
+            if (!openLast(activity, view, entries)) showChooser(activity, view, entries);
+            return true;
+        });
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        params.setMarginEnd(PluginChipFactory.dp(row.getContext(), 10));
+        row.addView(chip, params);
+        attached.add(chip);
+        revealPluginRow(activity);
+    }
+
+    /** 合并入口挂进播放页控制条（电视端主入口之一，会续上原有方向键链）。 */
+    private void addToolbarGroupChip(LinearLayout container, Activity activity,
+            List<PluginHost.PluginSlot> entries, String label) {
+        TextView chip = PluginChipFactory.create(this, activity, entries.get(0), true);
+        chip.setText(label);
+        chip.setOnClickListener(view -> showChooser(activity, view, entries));
+        chip.setOnLongClickListener(view -> {
+            if (!openLast(activity, view, entries)) showChooser(activity, view, entries);
+            return true;
+        });
+        attachToolbarChip(container, chip);
+    }
+
+    /**
+     * 弹「选哪个插件」。
+     *
+     * <p><b>为什么自绘而不用 {@code AlertDialog.setItems}。</b>leanback 主题下系统列表项没有
+     * 可见焦点态，遥控器按下去看不出选中谁；这里每一行都用详情页插件行同一套焦点环
+     * （{@link PluginChipFactory#choiceRow}），上下键切换时"选中了"一眼可见。
+     *
+     * <p><b>焦点为什么不交给系统。</b>播放页控制条会自动隐藏并抢走焦点，弹窗若只 requestFocus
+     * 一次，可能刚显示就被顶回播放器。这里在显示后补两次（120ms / 420ms），且只在"焦点丢了"
+     * 时才抢回来，不打断用户已经按下的选择。
+     */
+    private void showChooser(Activity activity, @Nullable View anchor, List<PluginHost.PluginSlot> entries) {
+        if (activity == null || entries.isEmpty() || activity.isFinishing()) return;
+        if (android.os.Build.VERSION.SDK_INT >= 17 && activity.isDestroyed()) return;
+
+        final Dialog dialog = new Dialog(activity);
+        LinearLayout box = new LinearLayout(activity);
+        box.setOrientation(LinearLayout.VERTICAL);
+        int pad = PluginChipFactory.dp(activity, 14);
+        box.setPadding(pad, pad, pad, pad);
+        box.setBackground(PluginChipFactory.chooserBackground(activity));
+
+        TextView title = new TextView(activity);
+        title.setText("选择插件");
+        title.setTextSize(13f);
+        title.setTextColor(0xFFB9C0D0);
+        title.setGravity(Gravity.CENTER);
+        box.addView(title, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        List<TextView> rows = new ArrayList<>();
+        for (PluginHost.PluginSlot entry : entries) {
+            String label = entry.slot().label();
+            if (label == null || label.isEmpty()) label = "插件";
+            TextView row = PluginChipFactory.choiceRow(activity, label);
+            row.setId(View.generateViewId());
+            row.setOnClickListener(view -> {
+                Prefers.put(lastChoiceKey(activity), identityOf(entry));
+                dialog.dismiss();
+                dispatch(entry, anchor);
+            });
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            lp.topMargin = PluginChipFactory.dp(activity, 8);
+            box.addView(row, lp);
+            rows.add(row);
+        }
+        // 方向键链：相邻项互指，首尾各自交还系统推断。
+        for (int i = 0; i + 1 < rows.size(); i++) {
+            rows.get(i).setNextFocusDownId(rows.get(i + 1).getId());
+            rows.get(i + 1).setNextFocusUpId(rows.get(i).getId());
+        }
+
+        dialog.setContentView(box);
+        dialog.setCanceledOnTouchOutside(true);
+        Window window = dialog.getWindow();
+        if (window != null) {
+            window.setBackgroundDrawable(new ColorDrawable(0x00000000));
+            window.addFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND);
+            WindowManager.LayoutParams attrs = window.getAttributes();
+            attrs.dimAmount = 0.6f;
+            window.setAttributes(attrs);
+        }
+        dialog.setOnShowListener(ignored -> {
+            final TextView first = rows.get(0);
+            first.post(() -> first.requestFocus());
+            first.postDelayed(() -> {
+                if (!first.isFocused()) first.requestFocus();
+            }, 120);
+            first.postDelayed(() -> {
+                if (!first.isFocused()) first.requestFocus();
+            }, 420);
+        });
+        try {
+            dialog.show();
+        } catch (Throwable ignored) {
+            // 弹窗失败不该影响宿主页面：入口还在，用户再点一次即可。
+        }
+    }
+
+    /**
+     * 长按直达上次用过的那个插件。
+     *
+     * @return 真的打开了（记过、且那个插件这一页还在）返回 {@code true}；否则 {@code false}，
+     *         由调用方退回选择列表——卸载插件后长按不该变成"没反应"。
+     */
+    private boolean openLast(Activity activity, @Nullable View anchor, List<PluginHost.PluginSlot> entries) {
+        String last = Prefers.getString(lastChoiceKey(activity));
+        if (last == null || last.isEmpty()) return false;
+        for (PluginHost.PluginSlot entry : entries) {
+            if (!last.equals(identityOf(entry))) continue;
+            dispatch(entry, anchor);
+            return true;
+        }
+        return false;
+    }
+
+    /** 「上次选了哪个插件」的记忆键，按页面分开：详情页与播放页各自独立。 */
+    private static String lastChoiceKey(@Nullable Activity activity) {
+        return "plugin_group_last:" + PluginSurface.of(activity);
     }
 
     /** 控件 tag 形如 {@code webhtv-plugin-host:<pluginId>:<action>}，供测试与诊断定位。 */

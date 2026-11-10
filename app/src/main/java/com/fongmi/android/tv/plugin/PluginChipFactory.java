@@ -132,6 +132,41 @@ final class PluginChipFactory {
         return drawable;
     }
 
+    /** 合并入口的文案：插件 N（N 由调用方统计当前页可用的面板插件数，至少 2 才会用到）。 */
+    static String groupLabel(int count) {
+        return "插件 " + Math.max(2, count);
+    }
+
+    /**
+     * 选择列表的一行。
+     *
+     * <p>刻意与详情页插件行（{@link Surface#ROW}）同族：同一套方角、1dp 描边，聚焦时换成
+     * 2dp 主题色描边 + 提亮底色。leanback 下系统 {@code AlertDialog} 的默认列表项没有可见
+     * 焦点态，遥控器按下去看不出选中谁——这是自绘列表的唯一原因。
+     */
+    static TextView choiceRow(Context context, CharSequence label) {
+        TextView row = new TextView(context);
+        row.setText(label);
+        row.setTextSize(15f);
+        row.setTextColor(0xFFFFFFFF);
+        row.setGravity(Gravity.CENTER);
+        row.setPadding(dp(context, 18), dp(context, 12), dp(context, 18), dp(context, 12));
+        row.setFocusable(true);
+        row.setFocusableInTouchMode(true);
+        row.setBackground(rowBackground(context, false));
+        row.setOnFocusChangeListener((view, focused) -> view.setBackground(rowBackground(context, focused)));
+        return row;
+    }
+
+    /** 选择列表的容器底：深色圆角面板 + 1dp 细描边。走代码绘制，跨 flavor 可用。 */
+    static GradientDrawable chooserBackground(Context context) {
+        GradientDrawable drawable = new GradientDrawable();
+        drawable.setColor(0xF0181B22);
+        drawable.setCornerRadius(dp(context, 14));
+        drawable.setStroke(dp(context, 1), 0x33FFFFFF);
+        return drawable;
+    }
+
     /** dp → px。放在本类是因为调用方只有 chip 的尺寸、内边距与焦点环描边。 */
     static int dp(Context context, int value) {
         return Math.round(value * context.getResources().getDisplayMetrics().density);

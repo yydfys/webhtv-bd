@@ -103,6 +103,64 @@ final class PluginFloatingDock {
     }
 
     /**
+     * 合并入口的悬浮球（手机端）：外观、拖动、落点记忆与 {@link #addFloating} 一致，
+     * 差别只在点击/长按由调用方给——合并卡既要点开选择列表，也要留一条"长按直达上次"的捷径。
+     *
+     * <p>长按交给 View 自己判定：{@link #onChipTouch} 在按住未移动时返回 {@code false}，
+     * 事件照常进 {@code View.onTouchEvent}，长按计时因此有效；一旦开始拖动就
+     * {@code cancelLongPress()}，不会出现"拖着拖着突然弹窗"。
+     *
+     * <p>落点仍按 anchor（组里第一个插件）记忆：合并卡的位置属于"这一组"，没有更细的归属可用。
+     */
+    static void addGroupFloating(PluginUiPresenter owner, ViewGroup decor, Activity activity,
+            PluginHost.PluginSlot anchor, CharSequence label,
+            View.OnClickListener onClick, View.OnLongClickListener onLongClick) {
+        TextView button = PluginChipFactory.create(owner, activity, anchor, false);
+        button.setText(label);
+        button.setFocusable(true);
+        button.setOnLongClickListener(onLongClick);
+        FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        params.gravity = Gravity.END | Gravity.BOTTOM;
+        params.setMarginEnd(PluginChipFactory.dp(activity, 16));
+        params.bottomMargin = PluginChipFactory.dp(activity, 96);
+        restorePosition(activity, decor, anchor, button, params);
+        DragState drag = new DragState();
+        button.setOnTouchListener((view, event) -> onChipTouch(drag, decor, activity, anchor, view, params, event));
+        button.setOnClickListener(view -> {
+            if (drag.consumeClick()) return;
+            onClick.onClick(view);
+        });
+        decor.addView(button, params);
+        owner.register(button);
+    }
+
+    /**
+     * 电视端没有控制条时的合并浮标：可聚焦 + 焦点环切换，与 {@link #addFocusableFloating} 同款。
+     * 遥控器必须先能选中它，否则"选哪个插件"这件事根本无从开始。
+     */
+    static void addFocusableGroupFloating(PluginUiPresenter owner, ViewGroup decor, Activity activity,
+            PluginHost.PluginSlot anchor, CharSequence label,
+            View.OnClickListener onClick, View.OnLongClickListener onLongClick) {
+        TextView button = PluginChipFactory.create(owner, activity, anchor, false);
+        button.setText(label);
+        button.setFocusable(true);
+        button.setFocusableInTouchMode(true);
+        button.setBackground(PluginChipFactory.ringBackground(activity, false));
+        button.setOnFocusChangeListener((view, focused) -> view.setBackground(
+                PluginChipFactory.ringBackground(activity, focused)));
+        button.setOnClickListener(onClick);
+        button.setOnLongClickListener(onLongClick);
+        FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        params.gravity = Gravity.END | Gravity.BOTTOM;
+        params.setMarginEnd(PluginChipFactory.dp(activity, 16));
+        params.bottomMargin = PluginChipFactory.dp(activity, 96);
+        decor.addView(button, params);
+        owner.register(button);
+    }
+
+    /**
      * 复原上次拖动后的落点。
      *
      * <p>必须在 {@code decor.addView} 之前做完：位置只能通过 LayoutParams 的边距表达，挂上去之后
@@ -209,6 +267,8 @@ final class PluginFloatingDock {
                     if (Math.abs(dx) <= slop && Math.abs(dy) <= slop) return false;
                     drag.moved = true;
                     drag.suppressClick = true;
+                    // 一开始拖就撤掉长按计时：否则"按住 → 拖着走"会在半路弹出选择列表。
+                    view.cancelLongPress();
                     // 拖动期间不让父容器抢事件，否则滑到边缘时手势会被别的控件接走。
                     disallowIntercept(view, true);
                     view.setPressed(false);
