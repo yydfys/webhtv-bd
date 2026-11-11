@@ -26,9 +26,11 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.net.HttpURLConnection;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.Socket;
+import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -81,6 +83,17 @@ public class SystemVpnService extends VpnService {
     private static final String GEO_VERSION_MARKER = HOME_DIR + "/geo.version";
     /** mihomo 混合口默认端口（壳内「规则代理」的本机上游就是 127.0.0.1:<这个>）。 */
     private static final int DEFAULT_PROXY_PORT = 7890;
+
+    /** 诊断日志（App 外部私有区 /WebHTV/mihomo/vpn-diag.log，无需存储权限）：
+     *  启停的每一次关键结论都落盘 —— android.util.Log 抓不到，只有落盘才能事后定位。 */
+    private static final String DIAG_LOG = HOME_DIR + "/vpn-diag.log";
+    private static final long DIAG_LOG_MAX = 256 * 1024L;
+    /** ① 启前清场：端口被占时等它释放的上限与轮询步长。 */
+    private static final long PORT_RELEASE_TIMEOUT_MS = 2000L;
+    private static final long PORT_POLL_STEP_MS = 200L;
+    /** ③ 进程级兜底：同一次故障只自杀一次，10 分钟内不重复（防重启循环）。 */
+    private static final String WATCHDOG_STAMP = HOME_DIR + "/.vpn-watchdog.stamp";
+    private static final long WATCHDOG_MIN_INTERVAL_MS = 10 * 60 * 1000L;
 
     private static volatile boolean proxyState = false;
     private static volatile boolean vpnState = false;
@@ -180,26 +193,251 @@ public class SystemVpnService extends VpnService {
     }
 
     /**
-     * 确保内核真的在跑：native 自称在跑也要探一次端口 —— 探不通 = 半死状态，先全停再强制拉起。
-     * 拉起后必须自检通过才写 {@code proxyState=true} 并广播 proxy 事件；否则抛错，由上层走完整停机。
+     * 确保内核真的在跑。2026-11-11 加固（三道防线 + 诊断落盘）：
+     *
+     * <p>① <b>启前清场</b>：内核自称没跑、端口却有人在听 = 上一次的监听器没释放（僵尸监听）。
+     * 直接 {@code nativeStartProxy} 必 bind 失败，且此后再点多少次开/关都无效，只有杀进程才恢复
+     * （老大实测：用系统管理彻底清理壳子 → 重启 → 再开就好了）。这里先全停并等端口真正释放。
+     *
+     * <p>② <b>启后真身校验</b>：旧自检只验证「7890 有人监听」，僵尸监听同样能连上 →
+     * 界面上报「代理运行中」而流量其实不通。若 config.yaml 声明了 external-controller，
+     * 追加一次控制口探测：能拿到 200/401 才算「这是当前内核」，否则判僵尸并整体重启。
+     *
+     * <p>③ <b>进程级兜底</b>：清场清不掉 / 真身校验不过 → 说明 Go 侧状态卡死在进程内，
+     * Java 层已无手段收回 → 记日志并自动结束本进程（等价于老大手动"清理壳子"），10 分钟内只做一次。
      */
     private void ensureKernelUp(long myEpoch) throws IOException {
-        if (isProxyRunning() && probeProxyPort()) return;
-        if (isProxyRunning()) {
-            android.util.Log.w("SystemVpn", "kernel reports running but port is dead, forcing restart");
+        int port = getProxyPort();
+
+        // 已在跑：先确认端口真的在听，再确认真身
+        if (isProxyRunning() && probeProxyPort()) {
+            if (verifyKernelIdentity(port)) {
+                diag("kernel already up: port=" + port + " identity=" + identityState());
+                proxyState = true;
+                return;
+            }
+            diag("zombie suspect: " + port + " is listening but controller is silent -> full stop");
             nativeStopAll();
             if (!alive(myEpoch)) return;
+            awaitPortReleased(port, PORT_RELEASE_TIMEOUT_MS);
+        } else if (isProxyRunning()) {
+            android.util.Log.w("SystemVpn", "kernel reports running but port is dead, forcing restart");
+            diag("kernel claims running but " + port + " is dead -> full stop");
+            nativeStopAll();
+            if (!alive(myEpoch)) return;
+            awaitPortReleased(port, PORT_RELEASE_TIMEOUT_MS);
         }
+
+        // ① 启前清场：此刻内核已停/未跑，端口却还有人在听 = 残留监听
+        if (isPortListening(port)) {
+            diag("residual listener on 127.0.0.1:" + port + " before start -> stopAll + wait release");
+            nativeStopAll();
+            if (!alive(myEpoch)) return;
+            if (!awaitPortReleased(port, PORT_RELEASE_TIMEOUT_MS)) {
+                diag("residual listener NOT released within " + PORT_RELEASE_TIMEOUT_MS + "ms");
+                scheduleWatchdog("port " + port + " still held after nativeStopAll");
+                throw new IOException("内核残留：127.0.0.1:" + port + " 被占且无法释放");
+            }
+            diag("residual listener released, port " + port + " is free now");
+        }
+
         int rc = nativeStartProxy(CONFIG_PATH);
-        if (rc != 0) throw new IOException("mihomo 内核启动失败 rc=" + rc);
+        if (rc != 0) {
+            diag("nativeStartProxy rc=" + rc);
+            throw new IOException("mihomo 内核启动失败 rc=" + rc);
+        }
         if (!alive(myEpoch)) {
             // 已被「关闭」顶掉：刚起来的内核必须立刻收掉，不允许留在后台占着 7890
             nativeStopAll();
             return;
         }
-        if (!probeProxyPort()) throw new IOException("内核端口未就绪 127.0.0.1:" + getProxyPort());
+        if (!probeProxyPort()) {
+            diag("post-start probe failed: nothing listening on " + port);
+            // 探不通但端口却被占 → 又是僵尸监听，交给进程兜底
+            if (isPortListening(port)) scheduleWatchdog("post-start probe failed but " + port + " is held");
+            throw new IOException("内核端口未就绪 127.0.0.1:" + port);
+        }
+        if (!verifyKernelIdentity(port)) {
+            diag("post-start identity check FAILED: " + port + " listening, controller silent");
+            scheduleWatchdog("identity check failed after start (port " + port + " held)");
+            throw new IOException("内核身份校验失败：监听存在但控制口无响应");
+        }
+        diag("kernel up: port=" + port + " identity=" + identityState());
         proxyState = true;
         VpnStateEvent.proxy();
+    }
+
+    // ---------------- 🔴 2026-11-11 新增：清场 / 真身 / 兜底 / 诊断 ----------------
+
+    /** 探一次 127.0.0.1:port 是否有人在听（不做协议交互，纯 TCP connect）。 */
+    private boolean isPortListening(int port) {
+        Socket socket = null;
+        try {
+            socket = new Socket();
+            socket.connect(new InetSocketAddress(InetAddress.getByName("127.0.0.1"), port), 250);
+            return true;
+        } catch (Throwable ignored) {
+            return false;
+        } finally {
+            if (socket != null) {
+                try {
+                    socket.close();
+                } catch (IOException ignored) {
+                }
+            }
+        }
+    }
+
+    /** 每 {@link #PORT_POLL_STEP_MS} 探一次，直到端口不再监听或超时。返回 true = 已释放。 */
+    private boolean awaitPortReleased(int port, long timeoutMs) {
+        long deadline = System.currentTimeMillis() + timeoutMs;
+        while (System.currentTimeMillis() < deadline) {
+            if (!isPortListening(port)) return true;
+            try {
+                Thread.sleep(PORT_POLL_STEP_MS);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return false;
+            }
+        }
+        return !isPortListening(port);
+    }
+
+    /** config.yaml 里是否声明了 external-controller；有才能做真身校验。返回 {host, port, secret}。 */
+    private String[] controllerEndpoint() {
+        String text = readText(new File(CONFIG_PATH));
+        if (TextUtils.isEmpty(text)) return null;
+        String host = null, ctlPort = null, secret = "";
+        for (String raw : text.split("\r?\n")) {
+            String line = raw.trim();
+            if (line.startsWith("#")) continue;
+            if (line.startsWith("external-controller:")) {
+                String v = stripQuotes(line.substring("external-controller:".length()).trim());
+                if (!TextUtils.isEmpty(v)) {
+                    int idx = v.lastIndexOf(':');
+                    if (idx > 0 && idx < v.length() - 1) {
+                        host = v.substring(0, idx).replace("0.0.0.0", "127.0.0.1").replace("[::]", "127.0.0.1").replace("*", "127.0.0.1");
+                        ctlPort = v.substring(idx + 1).trim();
+                    }
+                }
+            } else if (line.startsWith("secret:")) {
+                secret = stripQuotes(line.substring("secret:".length()).trim());
+            }
+        }
+        if (TextUtils.isEmpty(host) || TextUtils.isEmpty(ctlPort)) return null;
+        if (TextUtils.isEmpty(host) || "::".equals(host)) host = "127.0.0.1";
+        return new String[]{host, ctlPort, secret == null ? "" : secret};
+    }
+
+    private String stripQuotes(String v) {
+        if (v == null) return "";
+        if (v.length() >= 2 && ((v.startsWith("\"") && v.endsWith("\"")) || (v.startsWith("'") && v.endsWith("'")))) {
+            return v.substring(1, v.length() - 1);
+        }
+        return v;
+    }
+
+    /**
+     * 真身校验：只有「当前这个内核」才会让 external-controller 应答（200 有 version / 401 要鉴权）。
+     * 连续探 3 次（每次隔 300ms）—— 内核刚起来时控制口可能比 7890 慢半拍，避免误判成僵尸。
+     */
+    private boolean verifyKernelIdentity(int proxyPort) {
+        String[] ep = controllerEndpoint();
+        if (ep == null) {
+            // 用户配置没开控制口 → 无法校验，按原样放行（不改变既有行为）
+            return true;
+        }
+        for (int attempt = 1; attempt <= 3; attempt++) {
+            Integer code = probeController(ep);
+            if (code != null && (code == 200 || code == 401 || code == 403)) {
+                diag("identity probe " + ep[0] + ":" + ep[1] + " -> " + code + " (mihomo, attempt " + attempt + ")");
+                return true;
+            }
+            diag("identity probe " + ep[0] + ":" + ep[1] + " -> " + (code == null ? "no-response" : String.valueOf(code))
+                    + " (attempt " + attempt + "/3)");
+            if (attempt < 3) {
+                try {
+                    Thread.sleep(300);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    return false;
+                }
+            }
+        }
+        return false;
+    }
+
+    /** 打一次控制口，返回 HTTP 码；连不上返回 null。 */
+    private Integer probeController(String[] ep) {
+        HttpURLConnection conn = null;
+        try {
+            URL url = new URL("http://" + ep[0] + ":" + ep[1] + "/version");
+            conn = (HttpURLConnection) url.openConnection();
+            conn.setConnectTimeout(700);
+            conn.setReadTimeout(1200);
+            conn.setRequestMethod("GET");
+            if (!TextUtils.isEmpty(ep[2])) conn.setRequestProperty("Authorization", "Bearer " + ep[2]);
+            return conn.getResponseCode();
+        } catch (Throwable t) {
+            diag("controller connect failed: " + t.getClass().getSimpleName());
+            return null;
+        } finally {
+            if (conn != null) conn.disconnect();
+        }
+    }
+
+    private String identityState() {
+        return controllerEndpoint() == null ? "unverified(no controller in config)" : "verified";
+    }
+
+    /** ③ 进程级兜底：Go 侧状态卡死在进程内，Java 已无法收回 → 结束本进程（等于手动"清理壳子"）。 */
+    private void scheduleWatchdog(String reason) {
+        long now = System.currentTimeMillis();
+        long last = 0;
+        try {
+            String s = readText(new File(WATCHDOG_STAMP));
+            if (!TextUtils.isEmpty(s)) last = Long.parseLong(s.trim());
+        } catch (Throwable ignored) {
+        }
+        if (now - last < WATCHDOG_MIN_INTERVAL_MS) {
+            diag("watchdog skipped: last self-restart " + ((now - last) / 1000) + "s ago");
+            return;
+        }
+        try {
+            writeText(new File(WATCHDOG_STAMP), String.valueOf(now));
+        } catch (Throwable t) {
+            diag("watchdog arm failed: " + t);
+            return;
+        }
+        diag("watchdog armed: " + reason + " -> will restart app process");
+        new Thread(() -> {
+            try {
+                Thread.sleep(600);
+            } catch (InterruptedException ignored) {
+            }
+            diag("watchdog firing: killProcess(" + android.os.Process.myPid() + ")");
+            android.os.Process.killProcess(android.os.Process.myPid());
+        }, "vpn-watchdog").start();
+    }
+
+    /** 诊断落盘：/WebHTV/mihomo/vpn-diag.log（超过 256KB 自动滚一份 .1）。 */
+    private void diag(String msg) {
+        android.util.Log.i("SystemVpn", "[diag] " + msg);
+        try {
+            File f = new File(DIAG_LOG);
+            if (f.exists() && f.length() > DIAG_LOG_MAX) {
+                File bak = new File(DIAG_LOG + ".1");
+                if (bak.exists()) bak.delete();
+                f.renameTo(bak);
+            }
+            String ts = new java.text.SimpleDateFormat("MM-dd HH:mm:ss.SSS", java.util.Locale.US)
+                    .format(new java.util.Date());
+            String line = ts + " " + msg + "\n";
+            try (OutputStream out = new FileOutputStream(DIAG_LOG, true)) {
+                out.write(line.getBytes(StandardCharsets.UTF_8));
+            }
+        } catch (Throwable ignored) {
+        }
     }
 
     /** mihomo 代理开关（仅内核 + 7890，无需系统授权） */
