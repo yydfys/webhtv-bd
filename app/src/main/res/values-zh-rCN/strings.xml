@@ -904,6 +904,10 @@
     <string name="vpn_sub_empty">请先填写订阅地址</string>
     <string name="vpn_sub_pulling">正在重新拉取订阅节点…</string>
     <string name="vpn_sub_manual_config">检测到手动 config.yaml，订阅地址已被忽略</string>
+    <string name="vpn_sub_save_apply">保存并拉取</string>
+    <string name="vpn_sub_saved_ok">订阅已更新：%1$d 个节点</string>
+    <string name="vpn_sub_saved_fail">拉取失败（%1$s），已保留原节点</string>
+    <string name="vpn_sub_need_save">还没有订阅节点，请先点「保存并拉取」</string>
     <string name="vpn_dialog_hint">配置 mihomo 代理与系统级 VPN</string>
     <string name="vpn_scan_title">扫码推送订阅地址</string>
     <string name="vpn_scan_hint">手机连接同一局域网扫码打开页面，粘贴 mihomo 订阅地址后提交，会自动填入订阅输入框。

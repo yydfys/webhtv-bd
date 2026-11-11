@@ -858,6 +858,10 @@
     <string name="vpn_sub_empty">請先填寫訂閱網址</string>
     <string name="vpn_sub_pulling">正在重新拉取訂閱節點…</string>
     <string name="vpn_sub_manual_config">偵測到手動 config.yaml，訂閱網址已被忽略</string>
+    <string name="vpn_sub_save_apply">儲存並拉取</string>
+    <string name="vpn_sub_saved_ok">訂閱已更新：%1$d 個節點</string>
+    <string name="vpn_sub_saved_fail">拉取失敗（%1$s），已保留原節點</string>
+    <string name="vpn_sub_need_save">還沒有訂閱節點，請先點「儲存並拉取」</string>
     <string name="vpn_dialog_hint">設定 mihomo 代理與系統級 VPN</string>
     <string name="vpn_scan_title">掃碼推送訂閱位址</string>
     <string name="vpn_scan_hint">手機連接同一區域網路掃碼開啟頁面，貼上 mihomo 訂閱位址後送出，會自動填入訂閱輸入框。

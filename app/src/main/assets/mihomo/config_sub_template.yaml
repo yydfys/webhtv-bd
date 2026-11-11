@@ -76,12 +76,16 @@ dns:
       - 240.0.0.0/4
 
 # 订阅（用户填写的订阅地址由 App 写入下方 url）
+# 🔴 2026-11-11 改：type http → file
+#  原因：http 型 provider 会被内核按 interval 自己联网重拉、覆盖 providers/sub.yaml，
+#        导致「节点什么时候变的、为什么是旧的」无法掌控；
+#  现在：内核只读本地 ./providers/sub.yaml，永不联网拉订阅。
+#        只有用户在「订阅地址」框点「保存并拉取」时，App 才下载并写入该文件
+#        （见 SubscriptionStore），真正实现「点保存才更新、开开关只启动」。
 proxy-providers:
   sub:
-    type: http
-    url: "__SUB_URL__"
+    type: file
     path: ./providers/sub.yaml
-    interval: 3600
     health-check:
       enable: true
       url: https://www.gstatic.com/generate_204

@@ -28,6 +28,7 @@ import com.fongmi.android.tv.lab.LabConfig;
 import com.fongmi.android.tv.lab.LabFocus;
 import com.fongmi.android.tv.lab.LabVpnActivity;
 import com.fongmi.android.tv.lab.SystemVpnService;
+import com.fongmi.android.tv.lab.SubscriptionStore;
 import com.fongmi.android.tv.server.Server;
 import com.fongmi.android.tv.utils.Notify;
 import com.fongmi.android.tv.utils.QRCode;
@@ -54,6 +55,7 @@ public class VpnSettingsDialog extends BaseAlertDialog {
     private int vpnStartingType = 0;
     private AlertDialog qrDialog;
     private boolean qrAutoSuppressed;   // v591 TV only: suppress auto QR right after it closes
+    private boolean subRefreshing;      // 2026-11-11：防重复点「保存并拉取」
 
     public static void show(Fragment fragment) {
         new VpnSettingsDialog().show(fragment.getChildFragmentManager(), null);
@@ -98,7 +100,7 @@ public class VpnSettingsDialog extends BaseAlertDialog {
         binding.positive.setOnClickListener(this::onPositive);
         binding.negative.setOnClickListener(this::onNegative);
         binding.qrBtn.setOnClickListener(this::onQr);
-        binding.saveSubBtn.setOnClickListener(this::onSaveSub);   // v591 TV only (gone on mobile)
+        binding.saveSubBtn.setOnClickListener(this::onSaveSub);   // 2026-11-11 手机 + 电视共用
         binding.nodeRow.setOnClickListener(this::onNode);
         mihomo.setOnCheckedChangeListener((buttonView, isChecked) -> {
             // v590：TV 两个模式开关互斥（手机端仍是老逻辑：mihomo 关 → VPN 置灰并关闭）
@@ -229,25 +231,15 @@ public class VpnSettingsDialog extends BaseAlertDialog {
         LabConfig.get().setMihomo(mihomoOn);
         LabConfig.get().setSystemVpn(vpnOn);
         String sub = subUrl.getText() == null ? "" : subUrl.getText().toString().trim();
-        String prevSub = LabConfig.get().getSubUrl();
         LabConfig.get().setSubUrl(sub);
         // 🔴 BUG 修复：mihomo 开 + VPN 关 + VPN 实际在跑 → 及时停 TUN 保留 7890 代理
         if (mihomoOn) {
             boolean cfgExists = SystemVpnService.isConfigExists();
             boolean cfgApp = SystemVpnService.isAppGeneratedConfig();
-            boolean subChanged = !sub.isEmpty() && !sub.equals(prevSub);
+            // 2026-11-11：App 生成的 config 已改「本地文件型 provider」（不自己联网拉订阅），
+            // 所以订阅地址变化只做记录，<b>不再删 config 触发重生成</b>；
+            // 节点更新统一由订阅框右侧「保存并拉取」完成（避免这里把节点洗成空）。
             boolean needRestart = false;
-            if (subChanged && cfgExists) {
-                if (cfgApp) {
-                    SystemVpnService.deleteAppGeneratedConfig();
-                    needRestart = true;
-                } else {
-                    Notify.show("检测到手动 config.yaml，订阅地址已被忽略");
-                }
-            }
-            if (!cfgExists && !sub.isEmpty() && !SystemVpnService.isAppGeneratedConfig()) {
-                needRestart = true;
-            }
             if (!cfgExists && sub.isEmpty() && !cfgApp) {
                 LabConfig.get().setMihomo(false);
                 LabConfig.get().setSystemVpn(false);
@@ -366,8 +358,13 @@ public class VpnSettingsDialog extends BaseAlertDialog {
         } else {
             binding.autoStartRow.setVisibility(View.GONE);
             binding.killRow.setVisibility(View.GONE); // 杀内核开关仅 TV 版提供，手机端不受影响
+            // 2026-11-11：手机端也要「保存并拉取」按钮（订阅只在点它时才下载落盘）
+            binding.saveSubBtn.setVisibility(View.VISIBLE);
             binding.subUrl.setNextFocusDownId(R.id.vpnSwitch);
+            binding.subUrl.setNextFocusRightId(R.id.saveSubBtn);
             binding.qrBtn.setNextFocusDownId(R.id.vpnSwitch);
+            binding.qrBtn.setNextFocusRightId(R.id.saveSubBtn);
+            binding.saveSubBtn.setNextFocusLeftId(R.id.subUrl);
         }
         binding.autoStartSwitch.setOnClickListener(v -> onAutoStartClicked(binding.autoStartSwitch.isChecked()));
         binding.mihomoSwitch.setOnClickListener(v -> onManualClicked(binding.mihomoSwitch.isChecked()));
@@ -451,8 +448,11 @@ public class VpnSettingsDialog extends BaseAlertDialog {
     }
 
     /**
-     * v592 TV「保存订阅」：①内核在跑 → 删订阅缓存 → 直接重拉订阅；
-     * ②内核没跑 → 删缓存 → 起内核（顺带拉订阅）→ 节点信息更新到本地。
+     * 2026-11-11「保存并拉取」（手机 + 电视共用）：
+     *  · App 自己下载订阅 → 规范化成节点列表 → 原子写入 providers/sub.yaml
+     *  · <b>绝不改 config.yaml</b>（用户的配置由用户自己管）
+     *  · 下载/解析失败 → 保留旧 sub.yaml，绝不用空文件覆盖可用节点
+     *  · 内核在跑 → 重启内核立即生效；没在跑 → 只落盘，开开关时读本地文件
      */
     private void onSaveSub(View view) {
         String sub = subUrl.getText() == null ? "" : subUrl.getText().toString().trim();
@@ -461,17 +461,34 @@ public class VpnSettingsDialog extends BaseAlertDialog {
             return;
         }
         LabConfig.get().setSubUrl(sub);
-        if (SystemVpnService.isConfigExists() && !SystemVpnService.isAppGeneratedConfig()) {
-            // 手动放置的 config.yaml 优先级最高：只提示，不删用户自己的配置
-            Notify.show(R.string.vpn_sub_manual_config);
-            return;
-        }
-        if (SystemVpnService.isAppGeneratedConfig()) SystemVpnService.deleteAppGeneratedConfig();
-        SystemVpnService.deleteSubCache();
+        if (subRefreshing) return;
+        subRefreshing = true;
+        binding.saveSubBtn.setEnabled(false);
+        binding.saveSubBtn.setText(R.string.vpn_sub_pulling);
         Notify.show(R.string.vpn_sub_pulling);
-        boolean restoreVpn = SystemVpnService.isVpnRunning();
-        if (SystemVpnService.isCoreRunning()) SystemVpnService.restartProxy(requireContext(), restoreVpn);
-        else SystemVpnService.startProxy(requireContext());
+        new Thread(() -> {
+            SubscriptionStore.Result r = SubscriptionStore.refresh(sub);
+            if (!isAdded()) {
+                subRefreshing = false;
+                return;
+            }
+            requireActivity().runOnUiThread(() -> onSubRefreshed(r));
+        }, "sub-refresh").start();
+    }
+
+    /** 拉取完成回调（主线程）：成功 → 提示节点数 + 内核在跑就重启生效；失败 → 说明原因、保留旧节点 */
+    private void onSubRefreshed(SubscriptionStore.Result r) {
+        subRefreshing = false;
+        if (binding == null || !isAdded()) return;
+        binding.saveSubBtn.setEnabled(true);
+        binding.saveSubBtn.setText(R.string.vpn_sub_save_apply);
+        if (r.ok) {
+            Notify.show(getString(R.string.vpn_sub_saved_ok, r.count));
+            boolean restoreVpn = SystemVpnService.isVpnRunning();
+            if (SystemVpnService.isCoreRunning()) SystemVpnService.restartProxy(requireContext(), restoreVpn);
+        } else {
+            Notify.show(getString(R.string.vpn_sub_saved_fail, r.message));
+        }
     }
 
     /** 行级选中 + 焦点链：整行走 ring，行内开关不抢焦点 */

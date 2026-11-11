@@ -73,7 +73,7 @@
                 android:src="@drawable/ic_remote_qr"
                 android:tint="@color/lab_panel_accent" />
 
-            <!-- v591 TV only: Save subscription (mobile keeps it gone) -->
+            <!-- 保存并拉取订阅（手机 + 电视共用；点它才联网写 providers/sub.yaml） -->
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/saveSubBtn"
                 style="@style/Widget.WebHTV.LightDialog.Button.Tonal"
@@ -84,7 +84,7 @@
                 android:minHeight="40dp"
                 android:paddingStart="12dp"
                 android:paddingEnd="12dp"
-                android:text="@string/vpn_save_sub"
+                android:text="@string/vpn_sub_save_apply"
                 android:textSize="13sp"
                 android:visibility="gone" />
         </LinearLayout>

@@ -609,6 +609,50 @@ public class SystemVpnService extends VpnService {
         return CONFIG_PATH;
     }
 
+    // ---------------- 订阅节点（type: file provider）----------------
+
+    /** 本地节点列表文件（由「保存并拉取」写入，内核只读） */
+    public static String getProviderPath() {
+        return HOME_DIR + "/providers/sub.yaml";
+    }
+
+    /** 本地是否已有可用订阅节点（读文件，轻量；勿在主线程频繁调用） */
+    public static boolean hasSubscribedNodes() {
+        return SubscriptionStore.hasLocalNodes();
+    }
+
+    /**
+     * 订阅型配置（模板里的 {@code type: file}）但本地没有节点 → 启动必然空转。
+     * 只在这种精确场景下拦截，避免误伤「手动 config 自带 proxies」的用户。
+     */
+    private boolean missingSubscriptionNodes() {
+        try {
+            // ① 还没有 config.yaml：启动就会用新模板生成（file 型 provider）→ 同样必须先有本地节点
+            if (!isConfigExists()) return !SubscriptionStore.hasLocalNodes();
+            // ② 有 config 但不是 App 生成的（用户手动放的）→ 一律不拦，交给用户自己的配置
+            if (!isAppGeneratedConfig()) return false;
+            File cfg = new File(CONFIG_PATH);
+            String text = readText(cfg);
+            if (text == null) return false;
+            // ③ 旧版 App 模板（http 型）启动时会被自动迁成 file 型 → 同样必须先有本地节点，
+            //    否则迁移完内核照样空转（这就是"显示运行中却不通"的来源）
+            boolean willMigrate = text.contains("type: http") && text.contains("providers/sub.yaml");
+            if (!text.contains("type: file") && !willMigrate) return false;
+            return !SubscriptionStore.hasLocalNodes();
+        } catch (Throwable e) {
+            android.util.Log.w("SystemVpn", "missingSubscriptionNodes check failed: " + e);
+            return false;
+        }
+    }
+
+    private void toast(int resId) {
+        try {
+            new android.os.Handler(android.os.Looper.getMainLooper()).post(() ->
+                    android.widget.Toast.makeText(getApplicationContext(), resId, android.widget.Toast.LENGTH_LONG).show());
+        } catch (Throwable ignored) {
+        }
+    }
+
     // ---------------- config 来源判断（供 LabActivity 保存订阅时使用） ----------------
 
     /** config.yaml 是否已存在 */
@@ -639,6 +683,8 @@ public class SystemVpnService extends VpnService {
         File[] files = dir.listFiles();
         if (files != null) {
             for (File f : files) {
+                // 2026-11-11：sub.yaml 是「保存并拉取」写下的唯一天然数据源，缓存清理绝不能删它
+                if ("sub.yaml".equals(f.getName())) continue;
                 if (f.isFile() && !f.delete()) android.util.Log.w("SystemVpn", "provider cache delete failed: " + f.getName());
             }
         }
@@ -752,6 +798,15 @@ public class SystemVpnService extends VpnService {
     private void startProxyInBackground(long myEpoch) {
         try {
             if (!alive(myEpoch)) return;
+            // 订阅型配置 + 本地无节点 → 起了也是空转（不许出现假"运行中"）
+            if (missingSubscriptionNodes()) {
+                android.util.Log.w("SystemVpn", "start aborted: no subscription nodes");
+                proxyState = false;
+                vpnState = false;
+                toast(R.string.vpn_sub_need_save);
+                VpnStateEvent.proxy();
+                return;
+            }
             ensureConfigAssets();
             ensureGeoAssets();
             if (!alive(myEpoch)) return;
@@ -770,6 +825,14 @@ public class SystemVpnService extends VpnService {
         boolean proxyWasRunning = isProxyRunning();
         try {
             if (!alive(myEpoch)) return;
+            if (missingSubscriptionNodes()) {
+                android.util.Log.w("SystemVpn", "vpn start aborted: no subscription nodes");
+                proxyState = false;
+                vpnState = false;
+                toast(R.string.vpn_sub_need_save);
+                VpnStateEvent.proxy();
+                return;
+            }
             ensureConfigAssets();
             ensureGeoAssets();
             if (!alive(myEpoch)) return;
@@ -1021,7 +1084,17 @@ public class SystemVpnService extends VpnService {
             // 手动 config（无 app 标记）永不覆盖。
             if (isAppGeneratedConfig()) {
                 String content = readText(cfg);
-                if (content == null || !content.contains("external-controller")) {
+                boolean legacyNoController = content == null || !content.contains("external-controller");
+                // 2026-11-11：App 生成的旧模板是 http 型 provider（内核会自己联网拉订阅、覆盖本地节点）
+                // → 迁到 file 型（只读本地 providers/sub.yaml）。手动 config（无 app 标记）永不触碰。
+                boolean legacyHttpProvider = content != null && content.contains("type: http")
+                        && content.contains("providers/sub.yaml");
+                if (legacyNoController || legacyHttpProvider) {
+                    if (legacyHttpProvider && !legacyNoController
+                            && TextUtils.isEmpty(LabConfig.get().getSubUrl())) {
+                        android.util.Log.w("SystemVpn", "legacy http provider kept: no subscription url");
+                        return;
+                    }
                     android.util.Log.i("SystemVpn", "app config is legacy template, deleting for regenerate");
                     cfg.delete();
                 } else {

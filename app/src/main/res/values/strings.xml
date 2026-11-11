@@ -910,6 +910,10 @@
     <string name="vpn_sub_empty">Enter a subscription URL first</string>
     <string name="vpn_sub_pulling">Re-fetching subscription nodes…</string>
     <string name="vpn_sub_manual_config">Manual config.yaml detected; subscription address is ignored</string>
+    <string name="vpn_sub_save_apply">Save &amp; fetch</string>
+    <string name="vpn_sub_saved_ok">Subscription updated: %1$d nodes</string>
+    <string name="vpn_sub_saved_fail">Fetch failed (%1$s); previous nodes kept</string>
+    <string name="vpn_sub_need_save">No subscription nodes yet — tap \"Save &amp; fetch\" first</string>
     <string name="vpn_dialog_hint">Set up mihomo proxy and system-level VPN</string>
     <string name="vpn_scan_title">Scan to push subscription</string>
     <string name="vpn_scan_hint">Scan with phone on LAN, open the page, paste your mihomo subscription URL into the box and submit. It will be filled into the subscription field automatically.</string>
