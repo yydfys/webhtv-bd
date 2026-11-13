@@ -523,8 +523,18 @@ public class HomeActivity extends BaseActivity implements NavigationBarView.OnIt
         } else if (mManager.isVisible(1)) {
             change(0);
         } else if (mManager.canBack(0)) {
-            if (PlaybackService.isRunning()) Util.moveToBackground(this);
-            else super.onBackInvoked();
+            if (!PlaybackService.isRunning()) {
+                super.onBackInvoked();
+            } else if (PlaybackService.isAudioContentPlaying()) {
+                // 音频型内容（听歌/听书）：保留后台续播，只把壳子退到后台。
+                Util.moveToBackground(this);
+            } else {
+                // 视频：退出壳子就连同播放器一起退——停播、撤掉前台通知里的卡片，再退后台。
+                // 旧实现只要服务在跑就只 moveToBackground()，于是"退出壳子"后通知栏卡片常驻、
+                // 声音还在放，用户看到的就是"播放器赖着不走"。进程该不该保活是另一回事，播放器不该活。
+                PlaybackService.shutdown(this);
+                Util.moveToBackground(this);
+            }
         }
     }
 

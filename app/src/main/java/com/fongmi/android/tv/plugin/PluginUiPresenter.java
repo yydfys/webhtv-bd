@@ -134,6 +134,11 @@ public final class PluginUiPresenter {
     public void attach(@Nullable Activity activity, @Nullable List<PluginHost.PluginSlot> slots, boolean leanback) {
         detach();
         if (activity == null || slots == null || slots.isEmpty()) return;
+        // 画中画小窗里一个入口都不挂：PiP 只有几百 dpi 宽，chip 一定压在画面上挡剧。
+        // 上面 detach() 已经把上一形态的控件摘干净；退出 PiP 时页面会再走一次
+        // refreshRender()（VideoActivity.onPictureInPictureModeChanged → notifyPluginFullscreen），
+        // 到那时这里判 false，入口自然回来。判据见 PluginSurface.isPip()。
+        if (PluginSurface.isPip(activity)) return;
         // 生效范围按集合算：全屏时集合里只有 fullscreen，声明了 detail/playback 的入口自然落选。
         // 这里**不再**提前 return——那会让"声明了 fullscreen 的插件"也一起消失。
         // 用 leanback 调纯函数：电视端详情与播放同在一页，只算单页会让 surfaces:["detail"] 永远没有入口。

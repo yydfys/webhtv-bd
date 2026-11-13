@@ -38,6 +38,7 @@ import com.fongmi.android.tv.player.PlaybackOwnershipKeys;
 import com.fongmi.android.tv.player.PlayerManager;
 import com.fongmi.android.tv.player.engine.PlaySpec;
 import com.fongmi.android.tv.player.lyrics.DesktopLyricsWindow;
+import com.fongmi.android.tv.player.lyrics.LyricsController;
 import com.fongmi.android.tv.player.lyrics.LyricsLine;
 import com.fongmi.android.tv.player.lyrics.LyricsResult;
 import com.fongmi.android.tv.server.Server;
@@ -96,6 +97,27 @@ private AudioHistory.Record audioHistoryRecord;
         PlaybackService service = Server.get().getService();
         PlayerManager manager = service == null ? null : service.player;
         return PlaybackExitPolicy.canContinueInBackground(running, manager != null && !manager.isReleased(), manager != null && !manager.isEmpty());
+    }
+
+    /**
+     * 当前播放的是否「音频型内容」（纯音频 / 音乐 / 有声书，没有视频轨）。
+     *
+     * <p>这是「退出壳子仍可继续后台播」的<b>唯一</b>例外：视频一律随壳子退出而停播并撤掉通知栏卡片，
+     * 音频型内容按用户的后台播放设置继续。判定复用 {@link LyricsController#isAudioContent(PlayerManager)}，
+     * 与本 App 各处「这是不是音频内容」的口径保持同一处实现，避免出现"歌词页当它是音乐、
+     * 退出逻辑当它是视频"这种自相矛盾。
+     *
+     * <p>服务没跑、引擎已释放、队列为空一律返回 {@code false}：没有东西在播时不存在例外。
+     */
+    public static boolean isAudioContentPlaying() {
+        PlaybackService service = Server.get().getService();
+        PlayerManager manager = service == null ? null : service.player;
+        if (!running || manager == null || manager.isReleased() || manager.isEmpty()) return false;
+        try {
+            return LyricsController.isAudioContent(manager);
+        } catch (Throwable ignored) {
+            return false;
+        }
     }
 
     public static void shutdown(Context context) {
@@ -228,7 +250,15 @@ private AudioHistory.Record audioHistoryRecord;
     @Override
     public void onTaskRemoved(Intent rootIntent) {
         if (SpiderDebug.isEnabled()) SpiderDebug.log("playback-lifecycle", "service taskRemoved root=%s %s", rootIntent, serviceState());
-        tryShutdown();
+        // 最近任务被划掉＝用户退出壳子：
+        //   音频型内容 → 例外保留（听歌/听书场景，用户就是要在后台听）；
+        //   其余（视频为主）→ 强制关停，不停就不撤前台通知，通知栏会一直挂着"还在播"。
+        // 这条路径不看 keepAlive 与导航回调：任务都没了，那两者只可能是指向已销毁页面的残影。
+        if (isAudioContentPlaying()) {
+            if (SpiderDebug.isEnabled()) SpiderDebug.log("playback-lifecycle", "service taskRemoved keepAudio %s", serviceState());
+            return;
+        }
+        shutdown();
     }
 
     @Override

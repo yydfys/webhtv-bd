@@ -93,6 +93,27 @@ public final class PluginSurface {
     }
 
     /**
+     * 当前页面是否处于画中画（PiP）小窗形态。
+     *
+     * <p><b>为什么 PiP 要单独判、且直接问平台。</b>PiP 与 {@link #immersive} 是两回事：小窗里
+     * 既不算全屏，入口也不该照常显示——小窗只有几百 dpi 宽，任何 chip 都会压在画面上挡住内容。
+     * 这里只问平台实时形态（{@link Activity#isInPictureInPictureMode()}），问的时机是"渲染那一刻"，
+     * 不进 {@link ImmersiveAware} 的自报口径：全屏事件与入口隐藏是两条语义，混在一起会让
+     * 「PiP 期间事件报全屏、入口却还在」这类脱钩重新出现（既有单测也锁定了 isImmersive() 不许读平台）。
+     *
+     * <p>判不出来一律按「不是 PiP」处理：渲染是可选增强，判错只该导致多挂一个入口，
+     * 不该因为一次异常让插件在所有页面上静默消失。
+     */
+    public static boolean isPip(@Nullable Activity activity) {
+        if (activity == null) return false;
+        try {
+            return activity.isInPictureInPictureMode();
+        } catch (Throwable ignored) {
+            return false;
+        }
+    }
+
+    /**
      * 页面自报沉浸态的能力。
      *
      * <p>由宿主页面（{@code TmdbDetailActivity} 等）实现，而不是由插件层反射页面字段：
