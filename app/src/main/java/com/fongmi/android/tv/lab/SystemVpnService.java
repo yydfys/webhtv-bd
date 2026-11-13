@@ -470,6 +470,138 @@ public class SystemVpnService extends VpnService {
         context.startService(new Intent(context, SystemVpnService.class).setAction(ACTION_STOP_ALL));
     }
 
+    /** 端口此刻是否空着（静态版：供面板「强制杀死 mihomo 进程」判断到底清干净没有）。 */    public static boolean isProxyPortFree(int port) {
+        Socket socket = null;
+        try {
+            socket = new Socket();
+            socket.connect(new InetSocketAddress(InetAddress.getByName("127.0.0.1"), port), 250);
+            return false;   // 连得上 = 还有人监听 = 没释放
+        } catch (Throwable ignored) {
+            return true;    // 连不上 = 端口空了
+        } finally {
+            if (socket != null) try { socket.close(); } catch (IOException ignored) { }
+        }
+    }
+
+    /** 默认 mixed-port（配置读不到时的兜底；面板探测端口用它，免得把 7890 写死在 UI 层）。 */
+    public static int defaultProxyPort() {
+        return DEFAULT_PROXY_PORT;
+    }
+
+    /**
+     * 强制清理 mihomo 内核（VPN 面板「强制杀死 mihomo 进程」按钮入口）。
+     *
+     * <p><b>为什么需要它。</b>内核是 {@code libmihomo.so} 里的 Go 运行时，监听器一旦卡死，
+     * Java 侧 {@code nativeStopAll} 未必收得回来。老大实测的场景：壳子更新安装、彻底退出再启动，
+     * 7890 就起不来——端口被上一次的监听器（或 lab 里手工拉起的独立 mihomo 进程）占着，
+     * {@code nativeStartProxy} 必 bind 失败，而且之后点多少次开/关都无效。
+     *
+     * <p><b>这条路做三件事</b>：① 先走一遍优雅全停（TUN + 内核 + 通知），让 Go 侧有机会自己关；
+     * ② 扫 {@code /proc} 把同一个 uid 下所有名字/cmdline 含 mihomo 的进程 SIGKILL
+     * （只动同 uid，别的 App 的进程杀不动也不该动）；③ 每轮都重探 7890，端口真空出来就收手。
+     *
+     * <p><b>杀不掉的最后一种情况</b>：卡死的是本进程里的监听（没有独立进程可杀）。这时端口仍在，
+     * 调用方据此提示并重启壳子——这也是唯一能真正释放它的手段。
+     *
+     * @return 被 SIGKILL 的残留进程数（0 表示没有独立残留进程，端口问题出在本进程内）
+     */
+    public static int forceKillMihomo(Context context) {
+        try {
+            stopAll(context);
+        } catch (Throwable ignored) {
+            // 服务没在跑也无所谓：下面照样扫进程、照样探端口
+        }
+        sleepQuiet(350);   // 串行队列里的停机动作给点时间，先让它优雅关一次
+        int killed = 0;
+        for (int round = 0; round < 3; round++) {
+            killed += killMihomoProcesses();
+            if (isProxyPortFree(DEFAULT_PROXY_PORT)) break;
+            sleepQuiet(300);
+        }
+        return killed;
+    }
+
+    /** 扫 /proc，杀掉本 App uid 下所有 mihomo 进程，返回杀掉的个数。 */
+    private static int killMihomoProcesses() {
+        int myPid = android.os.Process.myPid();
+        int myUid = android.os.Process.myUid();
+        File[] entries = new File("/proc").listFiles();
+        if (entries == null) return 0;
+        int killed = 0;
+        for (File entry : entries) {
+            String name = entry.getName();
+            if (name.isEmpty() || !Character.isDigit(name.charAt(0))) continue;
+            int pid;
+            try {
+                pid = Integer.parseInt(name);
+            } catch (NumberFormatException e) {
+                continue;
+            }
+            if (pid <= 1 || pid == myPid) continue;          // 自己不动（要留着跑 UI）
+            if (!looksLikeMihomo(pid)) continue;
+            if (!sameUid(pid, myUid)) continue;              // 只清自家进程
+            try {
+                android.os.Process.sendSignal(pid, 9);
+                killed++;
+            } catch (Throwable ignored) {
+                try {
+                    Runtime.getRuntime().exec(new String[]{"kill", "-9", String.valueOf(pid)}).waitFor();
+                    killed++;
+                } catch (Throwable ignored2) {
+                    // 杀不动就算了，交给端口探测决定最终结论
+                }
+            }
+        }
+        return killed;
+    }
+
+    private static boolean looksLikeMihomo(int pid) {
+        String comm = readProcText("/proc/" + pid + "/comm");
+        if (comm != null && comm.toLowerCase(java.util.Locale.ROOT).contains("mihomo")) return true;
+        String cmdline = readProcText("/proc/" + pid + "/cmdline");
+        return cmdline != null && cmdline.toLowerCase(java.util.Locale.ROOT).contains("mihomo");
+    }
+
+    private static boolean sameUid(int pid, int myUid) {
+        String status = readProcText("/proc/" + pid + "/status");
+        if (status == null) return false;
+        for (String line : status.split("\n")) {
+            if (!line.startsWith("Uid:")) continue;
+            String[] parts = line.trim().split("\\s+");
+            if (parts.length < 2) return false;
+            try {
+                return Integer.parseInt(parts[1]) == myUid;
+            } catch (NumberFormatException e) {
+                return false;
+            }
+        }
+        return false;
+    }
+
+    /** 读 /proc 下的小文本（cmdline 里的 0 字节换成空格，便于 contains 判断）。 */
+    private static String readProcText(String path) {
+        FileInputStream in = null;
+        try {
+            in = new FileInputStream(path);
+            byte[] buf = new byte[4096];
+            int n = in.read(buf);
+            if (n <= 0) return "";
+            return new String(buf, 0, n, StandardCharsets.UTF_8).replace('\0', ' ');
+        } catch (Throwable ignored) {
+            return null;
+        } finally {
+            if (in != null) try { in.close(); } catch (IOException ignored) { }
+        }
+    }
+
+    private static void sleepQuiet(long ms) {
+        try {
+            Thread.sleep(ms);
+        } catch (InterruptedException ignored) {
+            Thread.currentThread().interrupt();
+        }
+    }
+
     /** 订阅变更后重启内核：不碰持久化开关，仅 native 全停再拉起 7890。
      *  restoreVpn=true 时在同一 worker 内顺序恢复 TUN（proxy 就绪 → 挂 TUN）。 */
     public static void restartProxy(Context context, boolean restoreVpn) {

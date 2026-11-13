@@ -6,6 +6,8 @@ import android.content.ClipboardManager;
 import android.content.Context;
 import android.graphics.Bitmap;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.text.TextUtils;
 import android.view.View;
 import android.widget.EditText;
@@ -357,7 +359,12 @@ public class VpnSettingsDialog extends BaseAlertDialog {
             //（订阅框 → 保存订阅 → 自启动模式 → 手动模式 → 杀进程 → 节点管理 → 取消/确定）
         } else {
             binding.autoStartRow.setVisibility(View.GONE);
-            binding.killRow.setVisibility(View.GONE); // 杀内核开关仅 TV 版提供，手机端不受影响
+            // 手机端也要「强制杀死 mihomo 进程」：壳子更新安装 / 彻底退出后再进来，7890 常被上一次的
+            // 监听器或残留 mihomo 进程占着，起不来也关不掉，只有这条路能把旧进程清干净。
+            //（TV 版走 setupTvRows() 的整行点击 → onKillClicked()，语义一致）
+            binding.killRow.setVisibility(View.VISIBLE);
+            binding.killSwitch.setVisibility(View.GONE);
+            binding.killRow.setOnClickListener(v -> onKillClicked());
             // 2026-11-11：手机端也要「保存并拉取」按钮（订阅只在点它时才下载落盘）
             binding.saveSubBtn.setVisibility(View.VISIBLE);
             binding.subUrl.setNextFocusDownId(R.id.vpnSwitch);
@@ -541,11 +548,12 @@ public class VpnSettingsDialog extends BaseAlertDialog {
                 .show();
     }
 
-    /** 确认后：一次性停干净（TUN + 内核 + 通知），并复位两个模式开关，避免多服务共存。 */
+    /** 确认后：一次性停干净（TUN + 内核 + 通知），再扫 /proc 把残留的 mihomo 进程 SIGKILL 掉，复位两个模式开关。 */
     private void doKillMihomo() {
+        int killed = 0;
         syncing = true;
         try {
-            SystemVpnService.stopAll(requireContext());
+            killed = SystemVpnService.forceKillMihomo(requireContext());
             LabConfig.get().setMihomo(false);
             LabConfig.get().setMihomoAutoStart(false);
             binding.mihomoSwitch.setChecked(false);
@@ -558,7 +566,14 @@ public class VpnSettingsDialog extends BaseAlertDialog {
         // 两个模式开关都回到"可选中"
         applyModeMutex();
         refreshStatus();
-        Notify.show(R.string.vpn_kill_done);
+        if (SystemVpnService.isProxyPortFree(SystemVpnService.defaultProxyPort())) {
+            Notify.show(getString(R.string.vpn_force_kill_done, killed));
+        } else {
+            // 端口仍被占 = 卡住的是本进程内的监听，没有独立进程可杀；只有重启壳子能真正释放它。
+            Notify.show(R.string.vpn_force_kill_restart);
+            new Handler(Looper.getMainLooper()).postDelayed(
+                    () -> android.os.Process.killProcess(android.os.Process.myPid()), 900);
+        }
     }
 
     /** 行可用性与开关可用性保持一致（TV） */

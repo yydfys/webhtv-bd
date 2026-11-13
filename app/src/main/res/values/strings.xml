@@ -3153,6 +3153,8 @@
     <string name="plugin_panel_title">Plugin panel</string>
     <string name="vpn_mode_required">Turn on Auto mode or Manual mode first</string>
     <string name="vpn_kill_confirm_title">Kill mihomo process</string>
-    <string name="vpn_kill_confirm_message">Kill the mihomo core process? The local proxy will stop.</string>
+    <string name="vpn_kill_confirm_message">Force-clear the mihomo core? The local proxy stops and leftover mihomo processes are killed (for example one still holding port 7890 after an update).</string>
     <string name="vpn_kill_done">mihomo core stopped</string>
+    <string name="vpn_force_kill_done">mihomo cleared (killed %1$d leftover processes)</string>
+    <string name="vpn_force_kill_restart">Port 7890 is still held by the in-app core; restarting the app to release it…</string>
 </resources>

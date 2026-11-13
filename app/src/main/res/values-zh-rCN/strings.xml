@@ -3133,6 +3133,8 @@
     <string name="plugin_panel_title">插件面板</string>
     <string name="vpn_mode_required">请先开启「自启动模式」或「手动模式」</string>
     <string name="vpn_kill_confirm_title">杀死 mihomo 进程</string>
-    <string name="vpn_kill_confirm_message">确定要杀死 mihomo 内核进程吗？将停止本机代理。</string>
+    <string name="vpn_kill_confirm_message">确定要强制清理 mihomo 内核吗？将停掉本机代理，并杀掉残留的 mihomo 进程（例如更新安装后仍占着 7890 的旧进程）。</string>
     <string name="vpn_kill_done">mihomo 内核已停止</string>
+    <string name="vpn_force_kill_done">已强制清理 mihomo（杀掉残留进程 %1$d 个）</string>
+    <string name="vpn_force_kill_restart">7890 仍被壳内内核占用，正在重启壳子释放…</string>
 </resources>

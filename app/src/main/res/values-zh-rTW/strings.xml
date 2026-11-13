@@ -3035,6 +3035,8 @@
     <string name="plugin_panel_title">外掛面板</string>
     <string name="vpn_mode_required">請先開啟「自啟動模式」或「手動模式」</string>
     <string name="vpn_kill_confirm_title">殺死 mihomo 進程</string>
-    <string name="vpn_kill_confirm_message">確定要殺死 mihomo 內核進程嗎？將停止本機代理。</string>
+    <string name="vpn_kill_confirm_message">確定要強制清理 mihomo 內核嗎？將停掉本機代理，並終止殘留的 mihomo 進程（例如更新安裝後仍占著 7890 的舊進程）。</string>
     <string name="vpn_kill_done">mihomo 內核已停止</string>
+    <string name="vpn_force_kill_done">已強制清理 mihomo（終止殘留進程 %1$d 個）</string>
+    <string name="vpn_force_kill_restart">7890 仍被殼內內核占用，正在重啟殼子釋放…</string>
 </resources>
