@@ -516,12 +516,14 @@ public class VpnSettingsDialog extends BaseAlertDialog {
         binding.autoStartRow.setNextFocusUpId(R.id.subUrl);
         binding.autoStartRow.setNextFocusDownId(R.id.mihomoRow);
         binding.mihomoRow.setNextFocusUpId(R.id.autoStartRow);
-        binding.mihomoRow.setNextFocusDownId(R.id.killRow);
-        binding.killRow.setNextFocusUpId(R.id.mihomoRow);    // v592：杀进程行 = 纯动作行，不参与开关互斥
-        binding.killRow.setNextFocusDownId(R.id.nodeRow);
-        binding.nodeRow.setNextFocusUpId(R.id.killRow);
-        binding.nodeRow.setNextFocusDownId(R.id.negative);   // v592：确定按钮回来了（下行 → 取消/确定）
-        binding.negative.setNextFocusUpId(R.id.nodeRow);
+        binding.mihomoRow.setNextFocusDownId(R.id.nodeRow);
+        // v614：杀进程行挪到「节点管理」下方（面板最底部），焦点链跟着换位：
+        // 手动模式 → 节点管理 → 杀进程 → 取消/确定
+        binding.nodeRow.setNextFocusUpId(R.id.mihomoRow);
+        binding.nodeRow.setNextFocusDownId(R.id.killRow);
+        binding.killRow.setNextFocusUpId(R.id.nodeRow);      // 纯动作行，不参与开关互斥
+        binding.killRow.setNextFocusDownId(R.id.negative);
+        binding.negative.setNextFocusUpId(R.id.killRow);
         binding.negative.setNextFocusRightId(R.id.positive);
         binding.positive.setNextFocusLeftId(R.id.negative);
     }
