@@ -164,4 +164,10 @@
         <item name="android:textColor">@color/tv_dialog_text</item>
     </style>
 
+    <!-- 标题同样必须用「字面色」：弹窗内容是用 Activity 的 inflater 提前 inflate 的，
+         样式里的 ?attr/colorOnSurface 解析的是活动主题，改弹窗主题对它无效（这就是标题不黑的原因） -->
+    <style name="Widget.WebHTV.LightDialog.Label" parent="Widget.WebHTV.Label">
+        <item name="android:textColor">@color/tv_dialog_text</item>
+    </style>
+
 </resources>

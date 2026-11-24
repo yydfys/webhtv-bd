@@ -449,6 +449,7 @@ public class VpnSettingsDialog extends BaseAlertDialog {
                 qrAutoSuppressed = false;   // 焦点离开订阅框 → 重新武装
                 return;
             }
+            if (subRefreshing) return;
             if (qrAutoSuppressed) return;
             if (qrDialog != null && qrDialog.isShowing()) return;
             qrAutoSuppressed = true;
@@ -472,7 +473,9 @@ public class VpnSettingsDialog extends BaseAlertDialog {
         LabConfig.get().setSubUrl(sub);
         if (subRefreshing) return;
         subRefreshing = true;
-        binding.saveSubBtn.setEnabled(false);
+        // v618：不要 setEnabled(false) —— 焦点正停在保存按钮上，一禁用就丢焦点，
+        // 系统会把焦点塞回最近的订阅框 → 触发「焦点移入订阅框弹二维码」。改成仅换文案 + 标志位去重。
+        qrAutoSuppressed = true;   // 期间即使焦点回到订阅框，也不再弹码
         binding.saveSubBtn.setText(R.string.vpn_sub_pulling);
         Notify.show(R.string.vpn_sub_pulling);
         new Thread(() -> {
@@ -489,8 +492,8 @@ public class VpnSettingsDialog extends BaseAlertDialog {
     private void onSubRefreshed(SubscriptionStore.Result r) {
         subRefreshing = false;
         if (binding == null || !isAdded()) return;
-        binding.saveSubBtn.setEnabled(true);
         binding.saveSubBtn.setText(R.string.vpn_sub_save_apply);
+        if (!subUrl.hasFocus()) qrAutoSuppressed = false;   // 焦点不在订阅框时解除抑制，下次主动移入仍会弹码
         if (r.ok) {
             Notify.show(getString(R.string.vpn_sub_saved_ok, r.count));
             boolean restoreVpn = SystemVpnService.isVpnRunning();
