@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    电视版扫码弹窗（只覆盖 leanback 源集，手机版仍用 main 里的原布局）。
+
+    改这里的原因：电视上 Material 的 backgroundInset 上下各 80dp，加上 240dp 的码面
+    与标题/按钮，整块内容超出可视高度 → 二维码下半截被裁掉。现在：
+      · 外面套 ScrollView，内容再高也能滚，不再被裁；
+      · 码面给到 300dp（位图在 Java 侧按 360px 生成，等比不糊）；
+      · 文字统一近黑（白底面板），一眼能看清。
+-->
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:fillViewport="false"
+    android:scrollbars="none">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center_horizontal"
+        android:orientation="vertical"
+        android:paddingStart="20dp"
+        android:paddingTop="8dp"
+        android:paddingEnd="20dp"
+        android:paddingBottom="8dp">
+
+        <ImageView
+            android:id="@+id/qrImage"
+            android:layout_width="300dp"
+            android:layout_height="300dp"
+            android:background="@drawable/shape_qr_panel"
+            android:contentDescription="扫码推送二维码"
+            android:padding="16dp"
+            android:scaleType="fitCenter" />
+
+        <com.google.android.material.textview.MaterialTextView
+            android:id="@+id/value"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="14dp"
+            android:ellipsize="middle"
+            android:gravity="center"
+            android:maxLines="3"
+            android:textColor="@color/tv_dialog_text"
+            android:textSize="15sp" />
+
+        <com.google.android.material.textview.MaterialTextView
+            android:id="@+id/content"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:gravity="center"
+            android:textColor="@color/tv_dialog_text_secondary"
+            android:textSize="14sp"
+            android:visibility="gone" />
+    </LinearLayout>
+</ScrollView>

@@ -1,0 +1,161 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <!--
+        ============================================================
+        电视版弹窗统一「纯白底 + 近黑字」（只作用于 leanback 源集）
+        ============================================================
+
+        为什么要这层覆盖：
+          1. Widget.WebHTV.Dialog 的 backgroundTint 取 ?attr/colorSurfaceContainerHigh，
+             在 TV 的两张色表里都是灰（浅色 #E7E8EF / 深色更暗），所以面板整体发灰，
+             与文字（onSurfaceVariant 等次级灰）几乎叠在一起，看电视时分辨不出来。
+          2. Material 的 backgroundInset* 在屏高 ≥480dp 时会给到 80dp，二维码面板
+             因此被上下裁掉一部分（二维码显示不完整）。
+          3. 编辑框内的文字走 ?attr/colorOnSurface，深色表下是浅色，落在白/灰面板上更糊。
+
+        做法：把容器色钉成纯白、文字钉成近黑、inset 归零，并保留 tv* 焦点语义属性
+        （否则 ?attr/tvFocusRing 会静默退化成黑色，遥控选中环又看不见了）。
+    -->
+
+    <style name="ThemeOverlay.WebHTV.TvWhiteDialog" parent="ThemeOverlay.Material3.MaterialAlertDialog">
+        <!-- 容器与文字 -->
+        <item name="android:colorBackground">@color/tv_dialog_bg</item>
+        <item name="android:textColorPrimary">@color/tv_dialog_text</item>
+        <item name="android:textColorSecondary">@color/tv_dialog_text_secondary</item>
+        <item name="android:textColorHint">@color/tv_dialog_text_hint</item>
+        <item name="android:textColor">@color/tv_dialog_text</item>
+        <item name="colorSurface">@color/tv_dialog_bg</item>
+        <item name="colorSurfaceContainerLowest">@color/tv_dialog_bg</item>
+        <item name="colorSurfaceContainerLow">@color/tv_dialog_bg</item>
+        <item name="colorSurfaceContainer">@color/tv_dialog_bg</item>
+        <item name="colorSurfaceContainerHigh">@color/tv_dialog_bg</item>
+        <item name="colorSurfaceContainerHighest">@color/tv_dialog_bg</item>
+        <item name="colorSurfaceVariant">@color/tv_dialog_bg_alt</item>
+        <item name="colorOnSurface">@color/tv_dialog_text</item>
+        <item name="colorOnSurfaceVariant">@color/tv_dialog_text_secondary</item>
+        <item name="colorOnBackground">@color/tv_dialog_text</item>
+        <!-- 强调色（按钮、开关、描边） -->
+        <item name="colorPrimary">@color/lab_panel_accent</item>
+        <item name="colorOnPrimary">@color/tv_dialog_bg</item>
+        <item name="colorSecondaryContainer">@color/tv_dialog_tint</item>
+        <item name="colorOnSecondaryContainer">@color/tv_dialog_on_tint</item>
+        <item name="colorOutline">@color/tv_dialog_outline</item>
+        <item name="colorOutlineVariant">@color/tv_dialog_outline</item>
+        <item name="colorControlNormal">@color/tv_dialog_text_secondary</item>
+        <item name="colorControlActivated">@color/lab_panel_accent</item>
+        <item name="colorError">#FFB3261E</item>
+        <item name="colorOnError">@color/tv_dialog_bg</item>
+        <item name="colorErrorContainer">#FFF9DEDC</item>
+        <item name="colorOnErrorContainer">#FF410E0B</item>
+        <item name="isLightTheme">true</item>
+        <item name="android:textColorHighlight">@color/tv_dialog_tint</item>
+        <item name="android:textCursorDrawable">@drawable/shape_cursor_dialog</item>
+        <!-- 白底 + inset 归零（修二维码被裁） -->
+        <item name="alertDialogStyle">@style/MaterialAlertDialog.WebHTV.TvWhite</item>
+        <!-- 遥控焦点语义色：必须显式绑定，否则 ?attr/tvFocusRing 退化为黑色 -->
+        <item name="tvFocusRing">@color/tv_item_focus_ring</item>
+        <item name="tvCurrentRing">@color/tv_item_current_ring</item>
+        <item name="tvNormalStroke">@color/tv_item_normal_stroke</item>
+        <item name="tvPlayerRing">@color/tv_player_focus_ring</item>
+        <item name="tvPlayerCurrentRing">@color/tv_player_current_ring</item>
+    </style>
+
+    <style name="MaterialAlertDialog.WebHTV.TvWhite" parent="MaterialAlertDialog.Material3">
+        <item name="backgroundTint">@color/tv_dialog_bg</item>
+        <item name="shapeAppearance">@style/ShapeAppearance.WebHTV.ExtraLarge</item>
+        <item name="shapeAppearanceOverlay">@style/ShapeAppearance.WebHTV.ExtraLarge</item>
+        <item name="backgroundInsetStart">0dp</item>
+        <item name="backgroundInsetTop">0dp</item>
+        <item name="backgroundInsetEnd">0dp</item>
+        <item name="backgroundInsetBottom">0dp</item>
+    </style>
+
+    <!-- 全站默认弹窗外壳：Theme.Base 的 materialAlertDialogTheme 就指到这个名字 -->
+    <style name="ThemeOverlay.WebHTV.Dialog" parent="ThemeOverlay.WebHTV.TvWhiteDialog" />
+
+    <!-- VPN 代理面板 / 节点管理面板使用的固定浅底覆盖层 -->
+    <style name="ThemeOverlay.WebHTV.FixedLightDialog" parent="ThemeOverlay.WebHTV.TvWhiteDialog" />
+
+    <!-- 老路径：直接用 Widget.WebHTV.Dialog 当 alertDialogStyle 的弹窗 -->
+    <style name="Widget.WebHTV.Dialog" parent="MaterialAlertDialog.Material3">
+        <item name="backgroundTint">@color/tv_dialog_bg</item>
+        <item name="shapeAppearance">@style/ShapeAppearance.WebHTV.ExtraLarge</item>
+        <item name="shapeAppearanceOverlay">@style/ShapeAppearance.WebHTV.ExtraLarge</item>
+    </style>
+
+    <!-- 扫码推送等显式传 R.style.Theme_WebHTV_LightDialog 的弹窗 -->
+    <style name="Theme.WebHTV.Dialog" parent="Theme.Material3.Light.Dialog.Alert">
+        <item name="android:windowNoTitle">true</item>
+        <item name="alertDialogStyle">@style/MaterialAlertDialog.WebHTV.TvWhite</item>
+        <item name="android:windowBackground">@color/tv_dialog_bg</item>
+        <item name="android:colorBackground">@color/tv_dialog_bg</item>
+        <item name="android:textColorPrimary">@color/tv_dialog_text</item>
+        <item name="android:textColorSecondary">@color/tv_dialog_text_secondary</item>
+        <item name="android:textColorHint">@color/tv_dialog_text_hint</item>
+        <item name="colorSurface">@color/tv_dialog_bg</item>
+        <item name="colorOnSurface">@color/tv_dialog_text</item>
+        <item name="colorOnSurfaceVariant">@color/tv_dialog_text_secondary</item>
+        <item name="colorSurfaceContainer">@color/tv_dialog_bg</item>
+        <item name="colorSurfaceContainerHigh">@color/tv_dialog_bg</item>
+        <item name="colorSurfaceContainerHighest">@color/tv_dialog_bg</item>
+        <item name="colorSurfaceVariant">@color/tv_dialog_bg_alt</item>
+        <item name="colorOutline">@color/tv_dialog_outline</item>
+        <item name="colorOutlineVariant">@color/tv_dialog_outline</item>
+        <item name="colorPrimary">@color/lab_panel_accent</item>
+        <item name="colorOnPrimary">@color/tv_dialog_bg</item>
+        <item name="colorSecondaryContainer">@color/tv_dialog_tint</item>
+        <item name="colorOnSecondaryContainer">@color/tv_dialog_on_tint</item>
+        <item name="colorControlNormal">@color/tv_dialog_text_secondary</item>
+        <item name="colorControlActivated">@color/lab_panel_accent</item>
+        <item name="colorError">#FFB3261E</item>
+        <item name="colorOnError">@color/tv_dialog_bg</item>
+        <item name="isLightTheme">true</item>
+        <item name="tvFocusRing">@color/tv_item_focus_ring</item>
+        <item name="tvCurrentRing">@color/tv_item_current_ring</item>
+        <item name="tvNormalStroke">@color/tv_item_normal_stroke</item>
+        <item name="tvPlayerRing">@color/tv_player_focus_ring</item>
+        <item name="tvPlayerCurrentRing">@color/tv_player_current_ring</item>
+    </style>
+
+    <!-- 实验室设置面板（显式用 Theme.App.Lab.Dialog / ...DayNight.Dialog）：同样白底黑字 -->
+    <style name="Theme.App.Lab.Dialog" parent="Theme.Material3.Light.Dialog.Alert">
+        <item name="android:windowBackground">@drawable/shape_tv_dialog_bg</item>
+        <item name="android:colorBackground">@color/tv_dialog_bg</item>
+        <item name="android:colorBackgroundFloating">@color/tv_dialog_bg</item>
+        <item name="android:textColorPrimary">@color/tv_dialog_text</item>
+        <item name="android:textColorSecondary">@color/tv_dialog_text_secondary</item>
+        <item name="android:textColorHint">@color/tv_dialog_text_hint</item>
+        <item name="colorSurface">@color/tv_dialog_bg</item>
+        <item name="colorSurfaceContainerHigh">@color/tv_dialog_bg</item>
+        <item name="colorOnSurface">@color/tv_dialog_text</item>
+        <item name="colorOnSurfaceVariant">@color/tv_dialog_text_secondary</item>
+        <item name="colorOutline">@color/tv_dialog_outline</item>
+        <item name="colorOutlineVariant">@color/tv_dialog_outline</item>
+        <item name="colorPrimary">@color/lab_panel_accent</item>
+        <item name="colorOnPrimary">@color/tv_dialog_bg</item>
+        <item name="colorControlNormal">@color/tv_dialog_text_secondary</item>
+        <item name="colorControlActivated">@color/lab_panel_accent</item>
+        <item name="isLightTheme">true</item>
+    </style>
+
+    <style name="Theme.App.Lab.DayNight.Dialog" parent="Theme.Material3.Light.Dialog.Alert">
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:windowBackground">@drawable/shape_tv_dialog_bg</item>
+        <item name="colorSurface">@color/tv_dialog_bg</item>
+        <item name="colorSurfaceContainerHigh">@color/tv_dialog_bg</item>
+        <item name="colorOnSurface">@color/tv_dialog_text</item>
+        <item name="colorOnSurfaceVariant">@color/tv_dialog_text_secondary</item>
+        <item name="android:textColorPrimary">@color/tv_dialog_text</item>
+        <item name="android:textColorSecondary">@color/tv_dialog_text_secondary</item>
+        <item name="android:textColorHint">@color/tv_dialog_text_hint</item>
+        <item name="colorPrimary">@color/lab_panel_accent</item>
+        <item name="colorOnPrimary">@color/tv_dialog_bg</item>
+        <item name="colorControlNormal">@color/tv_dialog_text_secondary</item>
+        <item name="colorControlActivated">@color/lab_panel_accent</item>
+        <item name="colorOutline">@color/tv_dialog_outline</item>
+        <item name="colorOutlineVariant">@color/tv_dialog_outline</item>
+        <item name="isLightTheme">true</item>
+    </style>
+
+</resources>

@@ -1,0 +1,327 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:focusable="false"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:paddingStart="24dp"
+        android:paddingEnd="24dp"
+        android:paddingTop="8dp"
+        android:paddingBottom="8dp">
+
+        <!-- 状态说明 -->
+        <com.google.android.material.textview.MaterialTextView
+            android:id="@+id/status"
+            style="@style/Widget.WebHTV.LightDialog.Helper"
+            android:textSize="14sp"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="8dp"
+            android:text="@string/vpn_state_off" />
+
+        <!-- 订阅地址 + 扫码推送（TV 版：地址独占一行，按钮另起一行，杜绝挤压/重叠） -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <com.google.android.material.textfield.TextInputLayout
+                android:id="@+id/subUrlLayout"
+                style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:hint="@string/lab_sub_url_hint">
+
+                <com.google.android.material.textfield.TextInputEditText
+                    android:id="@+id/subUrl"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:focusableInTouchMode="true"
+                    android:inputType="textUri"
+                    android:maxLines="1"
+                    android:minHeight="52dp"
+                    android:textColor="@color/tv_dialog_text"
+                    android:textColorHint="@color/tv_dialog_text_hint"
+                    android:textSize="16sp" />
+            </com.google.android.material.textfield.TextInputLayout>
+
+            <androidx.appcompat.widget.AppCompatImageView
+                android:id="@+id/qrBtn"
+                android:layout_width="52dp"
+                android:layout_height="52dp"
+                android:layout_gravity="center_vertical"
+                android:layout_marginStart="12dp"
+                android:background="@drawable/sel_focus_round"
+                android:clickable="true"
+                android:contentDescription="扫码推送订阅"
+                android:focusable="true"
+                android:padding="8dp"
+                android:src="@drawable/ic_remote_qr"
+                android:tint="@color/lab_panel_accent" />
+
+        </LinearLayout>
+
+        <!-- TV：保存并拉取独占一行，满宽，遥控更好选 -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:orientation="horizontal">
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/saveSubBtn"
+                style="@style/Widget.WebHTV.LightDialog.Button.Tonal"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:minHeight="52dp"
+                android:text="@string/vpn_sub_save_apply"
+                android:textSize="16sp"
+                android:visibility="gone" />
+        </LinearLayout>
+
+<!-- mihomo 自启动开关（仅 TV 显示，与手动代理开关互斥） -->
+        <LinearLayout
+            android:id="@+id/autoStartRow"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:visibility="gone">
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical">
+
+                <TextView
+                    android:id="@+id/autoStartTitle"
+                    style="@style/Widget.WebHTV.LightDialog.Label"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/lab_mihomo_autostart_title" />
+
+                <TextView
+                    android:id="@+id/autoStartHint"
+                    style="@style/Widget.WebHTV.LightDialog.Helper"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="2dp"
+                    android:text="@string/lab_mihomo_autostart_hint" />
+            </LinearLayout>
+
+            <com.google.android.material.materialswitch.MaterialSwitch
+                android:id="@+id/autoStartSwitch"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:focusable="true"
+                android:nextFocusDown="@id/mihomoSwitch"
+                android:nextFocusUp="@id/subUrl" />
+        </LinearLayout>
+
+<LinearLayout
+            android:id="@+id/mihomoRow"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical">
+
+                <TextView
+                    android:id="@+id/mihomoTitle"
+                    style="@style/Widget.WebHTV.LightDialog.Label"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/lab_mihomo_title" />
+
+                <TextView
+                    android:id="@+id/mihomoHint"
+                    style="@style/Widget.WebHTV.LightDialog.Helper"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="2dp"
+                    android:text="@string/lab_mihomo_hint" />
+            </LinearLayout>
+
+            <com.google.android.material.materialswitch.MaterialSwitch
+                android:id="@+id/mihomoSwitch"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:focusable="true"
+                android:nextFocusDown="@id/vpnSwitch"
+                android:nextFocusUp="@id/autoStartSwitch" />
+        </LinearLayout>
+<LinearLayout
+            android:id="@+id/vpnRow"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical">
+
+                <TextView
+                    android:id="@+id/vpnTitle"
+                    style="@style/Widget.WebHTV.LightDialog.Label"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/lab_system_vpn_title" />
+
+                <TextView
+                    android:id="@+id/vpnHint"
+                    style="@style/Widget.WebHTV.LightDialog.Helper"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="2dp"
+                    android:text="@string/lab_system_vpn_hint" />
+            </LinearLayout>
+
+            <com.google.android.material.materialswitch.MaterialSwitch
+                android:id="@+id/vpnSwitch"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:focusable="true"
+                android:nextFocusDown="@id/nodeRow"
+                android:nextFocusUp="@id/mihomoSwitch" />
+        </LinearLayout>
+
+<LinearLayout
+            android:id="@+id/nodeRow"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:background="?android:attr/selectableItemBackground"
+            android:clickable="true"
+            android:focusable="true"
+            android:gravity="center_vertical"
+            android:nextFocusDown="@id/killRow"
+            android:nextFocusUp="@id/mihomoSwitch"
+            android:orientation="horizontal"
+            android:paddingTop="4dp"
+            android:paddingBottom="4dp">
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical">
+
+                <TextView
+                    android:id="@+id/nodeTitle"
+                    style="@style/Widget.WebHTV.LightDialog.Label"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/node_manage_title" />
+
+                <TextView
+                    android:id="@+id/nodeHint"
+                    style="@style/Widget.WebHTV.LightDialog.Helper"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="2dp"
+                    android:text="@string/node_manage_hint" />
+            </LinearLayout>
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text=">"
+                android:textColor="@color/lab_panel_text_secondary"
+                android:textSize="18sp" />
+        </LinearLayout>
+
+<LinearLayout
+            android:id="@+id/killRow"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical">
+
+                <TextView
+                    android:id="@+id/killTitle"
+                    style="@style/Widget.WebHTV.LightDialog.Label"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="杀死 mihomo 进程" />
+
+                <TextView
+                    android:id="@+id/killHint"
+                    style="@style/Widget.WebHTV.LightDialog.Helper"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="2dp"
+                    android:text="彻底结束内核进程，并复位面板上的两个模式开关" />
+            </LinearLayout>
+
+            <com.google.android.material.materialswitch.MaterialSwitch
+                android:id="@+id/killSwitch"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:focusable="true"
+                android:nextFocusDown="@id/negative"
+                android:nextFocusUp="@id/nodeRow" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:gravity="center"
+            android:orientation="horizontal">
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/negative"
+                style="@style/Widget.WebHTV.LightDialog.Button.Outlined"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginEnd="12dp"
+                android:layout_weight="1"
+                android:minHeight="40dp"
+                android:nextFocusRight="@id/positive"
+                android:nextFocusUp="@id/nodeRow"
+                android:text="@string/dialog_negative"
+                android:textSize="14sp" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/positive"
+                style="@style/Widget.WebHTV.LightDialog.Button.Tonal"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:minHeight="40dp"
+                android:nextFocusLeft="@id/negative"
+                android:nextFocusUp="@id/nodeRow"
+                android:text="@string/dialog_positive"
+                android:textSize="14sp" />
+        </LinearLayout>
+    </LinearLayout>
+</ScrollView>

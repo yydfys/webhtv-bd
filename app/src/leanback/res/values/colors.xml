@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+        电视版弹窗统一配色（只在 leanback 源集，手机版完全不受影响）。
+        目标：面板纯白，面板文字 / 编辑框内文字近黑，一眼分辨。
+    -->
+    <color name="tv_dialog_bg">#FFFFFFFF</color>
+    <color name="tv_dialog_bg_alt">#FFF3F5F9</color>
+    <color name="tv_dialog_text">#FF14161A</color>
+    <color name="tv_dialog_text_secondary">#FF3C4048</color>
+    <color name="tv_dialog_text_hint">#FF5C6270</color>
+    <color name="tv_dialog_outline">#FFC7CBD3</color>
+    <color name="tv_dialog_tint">#FFD8E4FF</color>
+    <color name="tv_dialog_on_tint">#FF0F3D91</color>
+</resources>

@@ -13,6 +13,7 @@ import com.fongmi.android.tv.event.ServerEvent;
 import com.fongmi.android.tv.lab.LabFocus;
 import com.fongmi.android.tv.server.Server;
 import com.fongmi.android.tv.utils.QRCode;
+import com.fongmi.android.tv.utils.Util;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 
 import org.greenrobot.eventbus.EventBus;
@@ -81,7 +82,7 @@ public final class QrPush {
             ImageView image = root.findViewById(R.id.qrImage);
             TextView content = root.findViewById(R.id.content);
             TextView address = root.findViewById(R.id.value);
-            if (image != null) image.setImageBitmap(QRCode.getPanelBitmap(value, 212, 2));
+            if (image != null) image.setImageBitmap(QRCode.getPanelBitmap(value, Util.isLeanback() ? 360 : 212, 2));
             if (content != null) content.setText(hint == null ? "" : hint);
             if (address != null) address.setText(value);
             dialog = new MaterialAlertDialogBuilder(activity, R.style.Theme_WebHTV_LightDialog)

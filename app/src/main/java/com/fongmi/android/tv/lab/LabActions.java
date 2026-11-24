@@ -31,6 +31,7 @@ import com.fongmi.android.tv.theme.WebHtvAlertDialogBuilder;
 import com.fongmi.android.tv.utils.Notify;
 import com.fongmi.android.tv.utils.PermissionUtil;
 import com.fongmi.android.tv.utils.QRCode;
+import com.fongmi.android.tv.utils.Util;
 
 import java.util.ArrayList;
 import java.util.Locale;
@@ -615,7 +616,7 @@ public final class LabActions {
 
     private static void showQrCode(Activity activity, LabModels.Click click, String value) {
         if (value == null || value.isEmpty()) return;
-        Bitmap bitmap = QRCode.getPanelBitmap(value, 212, 2);
+        Bitmap bitmap = QRCode.getPanelBitmap(value, Util.isLeanback() ? 360 : 212, 2);
         if (bitmap == null) {
             Toast.makeText(activity, "二维码生成失败", Toast.LENGTH_SHORT).show();
             return;
