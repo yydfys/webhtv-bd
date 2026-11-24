@@ -56,7 +56,7 @@ public class VpnSettingsDialog extends BaseAlertDialog {
     private EditText subUrl;
     private int vpnStartingType = 0;
     private AlertDialog qrDialog;
-    private boolean qrAutoSuppressed;   // v591 TV only: suppress auto QR right after it closes
+    private boolean qrAutoSuppressed;   // v617 TV only: 焦点移入订阅框弹码，弹过一次后不重复弹
     private boolean subRefreshing;      // 2026-11-11：防重复点「保存并拉取」
 
     public static void show(Fragment fragment) {
@@ -427,7 +427,7 @@ public class VpnSettingsDialog extends BaseAlertDialog {
      *  · 隐藏「扫码推送」图标（订阅框聚焦会自动弹二维码，图标冗余）
      *  · 订阅框右侧放「保存订阅」：丢订阅缓存 + （没服务就先起服务）重新拉取订阅节点
      *  · 底部仍是「确定 / 取消」：确定 = 校验模式 → 保存模式状态 → 没服务就拉服务 → 关面板；取消 = 只关面板
-     *  · 订阅框获得焦点自动弹出二维码；关掉弹窗后焦点回落不会重弹，焦点离开再回来才再弹
+     *  · 订阅框与「保存并拉取」同一行；二维码图标隐藏 —— 只有光标移入订阅框时才弹码，其他动作都不弹
      */
     private void setupTvSubscriptionRow() {
         binding.qrBtn.setVisibility(View.GONE);
@@ -435,13 +435,15 @@ public class VpnSettingsDialog extends BaseAlertDialog {
         binding.negative.setNextFocusRightId(R.id.positive);
         binding.positive.setNextFocusLeftId(R.id.negative);
         LabFocus.styleButton(binding.saveSubBtn);
-        // v592：订阅框 ⇄「保存订阅」焦点链（右 = 保存订阅；上 = 回到订阅框；下 = 自启动模式行）
+        // v617：订阅框 ⇄「保存并拉取」同行互跳（右 = 保存；左/上 = 回订阅框；下 = 自启动模式行）
         binding.subUrl.setNextFocusRightId(R.id.saveSubBtn);
         binding.subUrl.setNextFocusDownId(R.id.autoStartRow);
         binding.saveSubBtn.setNextFocusLeftId(R.id.subUrl);
         binding.saveSubBtn.setNextFocusRightId(View.NO_ID);
         binding.saveSubBtn.setNextFocusUpId(R.id.subUrl);
         binding.saveSubBtn.setNextFocusDownId(R.id.autoStartRow);
+        // v617：只有「光标移入订阅框」才弹二维码；点保存/取消/开关一律不弹。
+        // 关掉弹窗后焦点回落不会重弹，焦点离开再回来才再弹。
         binding.subUrl.setOnFocusChangeListener((v, hasFocus) -> {
             if (!hasFocus) {
                 qrAutoSuppressed = false;   // 焦点离开订阅框 → 重新武装
@@ -512,7 +514,6 @@ public class VpnSettingsDialog extends BaseAlertDialog {
         binding.killRow.setOnClickListener(v -> onKillClicked());   // v592：整行点击 → 确认弹窗
         binding.vpnRow.setOnClickListener(v -> toggleSwitch(binding.vpnSwitch));
         binding.subUrl.setNextFocusDownId(R.id.autoStartRow);
-        binding.qrBtn.setNextFocusDownId(R.id.autoStartRow);
         binding.autoStartRow.setNextFocusUpId(R.id.subUrl);
         binding.autoStartRow.setNextFocusDownId(R.id.mihomoRow);
         binding.mihomoRow.setNextFocusUpId(R.id.autoStartRow);

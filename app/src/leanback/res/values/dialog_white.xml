@@ -22,8 +22,8 @@
         <!-- 容器与文字 -->
         <item name="android:colorBackground">@color/tv_dialog_bg</item>
         <item name="android:textColorPrimary">@color/tv_dialog_text</item>
-        <item name="android:textColorSecondary">@color/tv_dialog_text_secondary</item>
-        <item name="android:textColorHint">@color/tv_dialog_text_hint</item>
+        <item name="android:textColorSecondary">@color/tv_dialog_text</item>
+        <item name="android:textColorHint">@color/tv_dialog_text</item>
         <item name="android:textColor">@color/tv_dialog_text</item>
         <item name="colorSurface">@color/tv_dialog_bg</item>
         <item name="colorSurfaceContainerLowest">@color/tv_dialog_bg</item>
@@ -33,7 +33,7 @@
         <item name="colorSurfaceContainerHighest">@color/tv_dialog_bg</item>
         <item name="colorSurfaceVariant">@color/tv_dialog_bg_alt</item>
         <item name="colorOnSurface">@color/tv_dialog_text</item>
-        <item name="colorOnSurfaceVariant">@color/tv_dialog_text_secondary</item>
+        <item name="colorOnSurfaceVariant">@color/tv_dialog_text</item>
         <item name="colorOnBackground">@color/tv_dialog_text</item>
         <!-- 强调色（按钮、开关、描边） -->
         <item name="colorPrimary">@color/lab_panel_accent</item>
@@ -91,11 +91,11 @@
         <item name="android:windowBackground">@color/tv_dialog_bg</item>
         <item name="android:colorBackground">@color/tv_dialog_bg</item>
         <item name="android:textColorPrimary">@color/tv_dialog_text</item>
-        <item name="android:textColorSecondary">@color/tv_dialog_text_secondary</item>
-        <item name="android:textColorHint">@color/tv_dialog_text_hint</item>
+        <item name="android:textColorSecondary">@color/tv_dialog_text</item>
+        <item name="android:textColorHint">@color/tv_dialog_text</item>
         <item name="colorSurface">@color/tv_dialog_bg</item>
         <item name="colorOnSurface">@color/tv_dialog_text</item>
-        <item name="colorOnSurfaceVariant">@color/tv_dialog_text_secondary</item>
+        <item name="colorOnSurfaceVariant">@color/tv_dialog_text</item>
         <item name="colorSurfaceContainer">@color/tv_dialog_bg</item>
         <item name="colorSurfaceContainerHigh">@color/tv_dialog_bg</item>
         <item name="colorSurfaceContainerHighest">@color/tv_dialog_bg</item>
@@ -124,12 +124,12 @@
         <item name="android:colorBackground">@color/tv_dialog_bg</item>
         <item name="android:colorBackgroundFloating">@color/tv_dialog_bg</item>
         <item name="android:textColorPrimary">@color/tv_dialog_text</item>
-        <item name="android:textColorSecondary">@color/tv_dialog_text_secondary</item>
-        <item name="android:textColorHint">@color/tv_dialog_text_hint</item>
+        <item name="android:textColorSecondary">@color/tv_dialog_text</item>
+        <item name="android:textColorHint">@color/tv_dialog_text</item>
         <item name="colorSurface">@color/tv_dialog_bg</item>
         <item name="colorSurfaceContainerHigh">@color/tv_dialog_bg</item>
         <item name="colorOnSurface">@color/tv_dialog_text</item>
-        <item name="colorOnSurfaceVariant">@color/tv_dialog_text_secondary</item>
+        <item name="colorOnSurfaceVariant">@color/tv_dialog_text</item>
         <item name="colorOutline">@color/tv_dialog_outline</item>
         <item name="colorOutlineVariant">@color/tv_dialog_outline</item>
         <item name="colorPrimary">@color/lab_panel_accent</item>
@@ -145,10 +145,10 @@
         <item name="colorSurface">@color/tv_dialog_bg</item>
         <item name="colorSurfaceContainerHigh">@color/tv_dialog_bg</item>
         <item name="colorOnSurface">@color/tv_dialog_text</item>
-        <item name="colorOnSurfaceVariant">@color/tv_dialog_text_secondary</item>
+        <item name="colorOnSurfaceVariant">@color/tv_dialog_text</item>
         <item name="android:textColorPrimary">@color/tv_dialog_text</item>
-        <item name="android:textColorSecondary">@color/tv_dialog_text_secondary</item>
-        <item name="android:textColorHint">@color/tv_dialog_text_hint</item>
+        <item name="android:textColorSecondary">@color/tv_dialog_text</item>
+        <item name="android:textColorHint">@color/tv_dialog_text</item>
         <item name="colorPrimary">@color/lab_panel_accent</item>
         <item name="colorOnPrimary">@color/tv_dialog_bg</item>
         <item name="colorControlNormal">@color/tv_dialog_text_secondary</item>
@@ -156,6 +156,12 @@
         <item name="colorOutline">@color/tv_dialog_outline</item>
         <item name="colorOutlineVariant">@color/tv_dialog_outline</item>
         <item name="isLightTheme">true</item>
+    </style>
+
+
+    <!-- 弹窗内标题 / 说明文字统一近黑：原来 Helper 取 onSurfaceVariant（灰），电视上不显眼 -->
+    <style name="Widget.WebHTV.LightDialog.Helper" parent="Widget.WebHTV.Helper">
+        <item name="android:textColor">@color/tv_dialog_text</item>
     </style>
 
 </resources>
