@@ -143,6 +143,17 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
         else mService.setNavigationCallback(getNavigationCallback(), activePlaybackKey());
     }
 
+    /** 系统/通知栏点了停止：视频停播后画中画小窗必须一起关，否则留下一个空壳。 */
+    private void onPlaybackStoppedByHost() {
+        runOnUiThread(() -> {
+            if (isDestroyed() || isFinishing()) return;
+            if (!isInPictureInPictureMode() || isChangingConfigurations() || isAudioOnly()) return;
+            finish();
+        });
+    }
+
+    private final Runnable playbackStoppedHook = this::onPlaybackStoppedByHost;
+
     /** 由播放页进入小窗时调用，供 onDestroy 判断「这次销毁是不是小窗被关掉」。 */
     protected void markPipShown() {
         this.pipWasVisible = true;
@@ -997,6 +1008,7 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
 
     private void releaseService(boolean owner) {
         mService.removePlayerCallback(mPlayerCallback);
+        mService.clearPlaybackStoppedHook(playbackStoppedHook);
         mService.clearNavigationCallback(getNavigationCallback());
         boolean hasConsumer = mService.hasExternalClient() || mService.hasPlayerCallback();
         switch (PlaybackServiceReleasePolicy.decide(owner, mService.isKeepAlive(), hasConsumer)) {
@@ -1351,6 +1363,7 @@ public void onPlayWhenReadyChanged(boolean playWhenReady, int reason) {
             pipTransferClosing = true;
             closePiP();
         });
+        mService.setPlaybackStoppedHook(playbackStoppedHook);
         mService.setSessionActivity(buildSessionIntent());
         mService.setPlaybackForeground(true);
         mService.setNavigationCallback(getNavigationCallback(), activePlaybackKey());

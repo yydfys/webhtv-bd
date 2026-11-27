@@ -82,6 +82,8 @@ public class PlaybackService extends MediaLibraryService implements MediaLibrary
 private AudioHistory.Record audioHistoryRecord;
     private DesktopLyricsWindow desktopLyrics;
     private Runnable onNewBinding;
+    /** 宿主（Activity）注册的「播放被系统/通知栏停掉」回调，用于关掉残留的画中画小窗。 */
+    private Runnable onPlaybackStopped;
     private String savedAudioHistoryTrack;
     private long lastAudioHistorySync;
     private boolean externalBound;
@@ -190,6 +192,14 @@ private AudioHistory.Record audioHistoryRecord;
         PlaybackService service = Server.get().getService();
         if (service != null) service.shutdown();
         context.stopService(new Intent(context, PlaybackService.class));
+    }
+
+    public void setPlaybackStoppedHook(Runnable hook) {
+        onPlaybackStopped = hook;
+    }
+
+    public void clearPlaybackStoppedHook(Runnable hook) {
+        if (onPlaybackStopped == hook) onPlaybackStopped = null;
     }
 
     public void replaceBinding(Runnable callback) {
@@ -710,6 +720,8 @@ private AudioHistory.Record audioHistoryRecord;
                 // close the playback screen.
                 if (!isPlayerAvailable() || player.getPlaybackState() == Player.STATE_IDLE) return;
                 stopAndClear();
+                Runnable hook = onPlaybackStopped;
+                if (hook != null) hook.run();
             }
 
             @NonNull
