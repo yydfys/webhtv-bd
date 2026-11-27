@@ -10359,6 +10359,7 @@ private void checkOrientation() {
     public void onPictureInPictureModeChanged(boolean isInPictureInPictureMode, @NonNull Configuration newConfig) {
         super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig);
         inPip = isInPictureInPictureMode;
+        if (isInPictureInPictureMode) markPipShown();
         // 判据已随形参翻转：本页只依赖 fullscreen 与 inPip，这里一次重算就够。
         notifyPluginFullscreen();
         updateFusionThemeButtonVisibility();

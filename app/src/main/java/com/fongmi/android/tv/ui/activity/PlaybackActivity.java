@@ -80,6 +80,10 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
     private boolean audioOnly;
     private boolean redirect;
     private boolean playbackExiting;
+    /** true 表示这次销毁是「新页面接管旧小窗」触发的清场，不能顺手停掉刚被接管的播放。 */
+    private boolean pipTransferClosing;
+    /** 本页进过画中画小窗：之后被销毁时（用户点 X），视频必须停播。 */
+    private boolean pipWasVisible;
     private String preparedPlaybackKey;
     private String pinnedPlaybackKey;
     private boolean nativeOutputPending;
@@ -137,6 +141,11 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
         if (mService == null) return;
         if (redirect) mService.clearNavigationCallback(getNavigationCallback());
         else mService.setNavigationCallback(getNavigationCallback(), activePlaybackKey());
+    }
+
+    /** 由播放页进入小窗时调用，供 onDestroy 判断「这次销毁是不是小窗被关掉」。 */
+    protected void markPipShown() {
+        this.pipWasVisible = true;
     }
 
     protected boolean isPlaybackExiting() {
@@ -1338,7 +1347,10 @@ public void onPlayWhenReadyChanged(boolean playWhenReady, int reason) {
         mService = connectedService;
         buildControllerAsync(mService.getSessionToken());
         if (shouldRejectPlaybackConnection()) return;
-        mService.replaceBinding(this::closePiP);
+        mService.replaceBinding(() -> {
+            pipTransferClosing = true;
+            closePiP();
+        });
         mService.setSessionActivity(buildSessionIntent());
         mService.setPlaybackForeground(true);
         mService.setNavigationCallback(getNavigationCallback(), activePlaybackKey());
@@ -1428,6 +1440,11 @@ public void onPlayWhenReadyChanged(boolean playWhenReady, int reason) {
             if (SpiderDebug.isEnabled()) SpiderDebug.log("playback-lifecycle", "activity destroy configuration change preserved service key=%s", getPlaybackKey());
             return;
         }
+        // 用户关小窗(X)/退出播放页：视频一律停播并撤掉前台通知；音频模式（听歌/听书）继续后台播放。
+        // 旧路径在归属令牌失配（换集/onNewIntent/TMDB 改写 id）时会落到 releaseService 的 DETACH 空分支，
+        // keepAlive（原源续播租约）时又落到 RESET_SESSION —— 两种都是「不停播、不撤通知」，
+        // 用户看到的就是「小窗关了、通知栏还在放、点也关不掉」。停播只能由服务自己做。
+        if (!pipTransferClosing && pipWasVisible && isFinishing() && !isAudioOnly() && mService != null) stopPlayback();
         releasePlaybackService();
         if (SpiderDebug.isEnabled()) SpiderDebug.log("playback-lifecycle", "activity destroy afterRelease activity=%s key=%s", getClass().getSimpleName(), getPlaybackKey());
     }
