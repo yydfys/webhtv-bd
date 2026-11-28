@@ -1,0 +1,195 @@
+{
+  "note": "本地补丁清单（相对上游的修复）。同步上游后必须逐条存在；缺一条即视为修复被覆盖，构建脚本会直接失败。每版发完请把新标记追加到这里。",
+  "updated": "2026-11-28",
+  "entries": [
+    {
+      "version": "v606",
+      "file": "app/src/main/java/com/fongmi/android/tv/lab/SystemVpnService.java",
+      "desc": "VPN 启停单线程串行 + epoch 代际号（防并发启动/状态错乱）",
+      "markers": [
+        {
+          "text": "private final AtomicLong epoch",
+          "min": 1
+        },
+        {
+          "text": "myEpoch == epoch.get()",
+          "min": 1
+        }
+      ]
+    },
+    {
+      "version": "v610",
+      "file": "app/src/main/java/com/fongmi/android/tv/plugin/PluginUiPresenter.java",
+      "desc": "多个面板插件合并成一颗入口（插件 N）+ 长按直达上次",
+      "markers": [
+        {
+          "text": "addPanelGroup",
+          "min": 2
+        }
+      ]
+    },
+    {
+      "version": "v620",
+      "file": "app/src/main/java/com/fongmi/android/tv/ui/activity/PlaybackActivity.java",
+      "desc": "系统/外部 STOP 或退出时关闭画中画小窗（playbackStoppedHook）",
+      "markers": [
+        {
+          "text": "playbackStoppedHook",
+          "min": 2
+        }
+      ]
+    },
+    {
+      "version": "v621",
+      "file": "app/src/main/java/com/fongmi/android/tv/ui/dialog/PluginPanelDialog.java",
+      "desc": "打开插件面板不再暂停父播放器",
+      "markers": [
+        {
+          "text": "resumeParent = false",
+          "min": 1
+        }
+      ]
+    },
+    {
+      "version": "v624",
+      "file": "app/src/main/java/com/fongmi/android/tv/service/PlaybackService.java",
+      "desc": "视频通知按实际可见状态判定：前台/小窗不发通知，真后台才发（音频照旧）",
+      "markers": [
+        {
+          "text": "suppressVideoNotification",
+          "min": 2
+        },
+        {
+          "text": "private boolean hostVisible = true;",
+          "min": 1
+        },
+        {
+          "text": "public void setHostState(boolean visible, boolean inPip)",
+          "min": 1
+        },
+        {
+          "text": "onUpdateNotificationAsync",
+          "min": 2
+        }
+      ]
+    },
+    {
+      "version": "v624",
+      "file": "app/src/main/java/com/fongmi/android/tv/ui/activity/PlaybackActivity.java",
+      "desc": "向播放服务上报宿主可见 / 画中画状态",
+      "markers": [
+        {
+          "text": "mService.setHostState(",
+          "min": 4
+        },
+        {
+          "text": "public void onPictureInPictureModeChanged(boolean isInPictureInPictureMode",
+          "min": 1
+        }
+      ]
+    },
+    {
+      "version": "v624",
+      "file": "app/src/main/java/com/fongmi/android/tv/setting/PlayerSetting.java",
+      "desc": "「视频自动小窗」开关（pip_auto_enter，默认开）",
+      "markers": [
+        {
+          "text": "PipAutoEnter",
+          "min": 2
+        },
+        {
+          "text": "pip_auto_enter",
+          "min": 1
+        }
+      ]
+    },
+    {
+      "version": "v624",
+      "file": "app/src/mobile/java/com/fongmi/android/tv/utils/PiP.java",
+      "desc": "自动进小窗=非音频且开关开；不再看「后台播放」开关",
+      "markers": [
+        {
+          "text": "PlayerSetting.isPipAutoEnter()",
+          "min": 2
+        }
+      ]
+    },
+    {
+      "version": "v624",
+      "file": "app/src/mobile/java/com/fongmi/android/tv/ui/fragment/SettingPlayerFragment.java",
+      "desc": "播放设置「视频自动小窗」行的事件绑定",
+      "markers": [
+        {
+          "text": "pipAuto",
+          "min": 2
+        }
+      ]
+    },
+    {
+      "version": "v624",
+      "file": "app/src/mobile/res/layout/fragment_setting_player.xml",
+      "desc": "播放设置「视频自动小窗」行布局",
+      "markers": [
+        {
+          "text": "pipAutoText",
+          "min": 1
+        }
+      ]
+    },
+    {
+      "version": "v624",
+      "file": "app/src/main/res/values/strings.xml",
+      "desc": "文案 Video auto picture-in-picture",
+      "markers": [
+        {
+          "text": "Video auto picture-in-picture",
+          "min": 1
+        }
+      ]
+    },
+    {
+      "version": "v624",
+      "file": "app/src/main/res/values-zh-rCN/strings.xml",
+      "desc": "文案 视频自动小窗",
+      "markers": [
+        {
+          "text": "视频自动小窗",
+          "min": 1
+        }
+      ]
+    },
+    {
+      "version": "v624",
+      "file": "app/src/main/res/values-zh-rTW/strings.xml",
+      "desc": "文案 影片自動小窗",
+      "markers": [
+        {
+          "text": "影片自動小窗",
+          "min": 1
+        }
+      ]
+    },
+    {
+      "version": "ci",
+      "file": ".github/workflows/debug-build.yml",
+      "desc": "打包并行度=2（规避 IncrementalSplitterRunnable 偶发失败）",
+      "markers": [
+        {
+          "text": "max-workers=2",
+          "min": 1
+        }
+      ]
+    },
+    {
+      "version": "ci",
+      "file": ".github/workflows/debug-build.yml",
+      "desc": "发版时刷新 update-channel 清单",
+      "markers": [
+        {
+          "text": "Publish update channel manifests",
+          "min": 1
+        }
+      ]
+    }
+  ]
+}
