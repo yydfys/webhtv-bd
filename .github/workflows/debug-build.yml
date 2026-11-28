@@ -142,7 +142,9 @@ jobs:
         run: |
           chmod +x ./gradlew
           rm -rf Release/apk dist
-          ./gradlew \
+          # 并发降到 2：4 个 flavor 全并行时，打包步骤（PackageAndroidArtifact$IncrementalSplitterRunnable）
+          # 偶发失败且不留原因，v621 两次 / v623 首跑都栽在这里；降到 2 是成本最低的稳定化手段。
+          ./gradlew --max-workers=2 \
             :app:assembleMobileArm64_v8aRelease \
             :app:assembleMobileArmeabi_v7aRelease \
             :app:assembleLeanbackArm64_v8aRelease \
