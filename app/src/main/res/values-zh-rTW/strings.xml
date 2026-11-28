@@ -1462,6 +1462,7 @@
     <string name="player_libass">字幕渲染</string>
     <string name="player_caption">字幕樣式</string>
     <string name="player_background">背景播放</string>
+    <string name="player_pip_auto">影片自動小窗</string>
     <string name="player_audio_decode">音訊軟解</string>
     <string name="player_audio_passthrough">音訊直通</string>
     <string name="player_video_decode">視訊軟解</string>

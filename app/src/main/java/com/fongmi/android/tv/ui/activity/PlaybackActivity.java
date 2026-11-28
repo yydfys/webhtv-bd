@@ -3,6 +3,7 @@ package com.fongmi.android.tv.ui.activity;
 import android.app.PendingIntent;
 import android.content.ComponentName;
 import android.content.Intent;
+import android.content.res.Configuration;
 import android.content.ServiceConnection;
 import android.graphics.Color;
 import android.os.Build;
@@ -1366,6 +1367,7 @@ public void onPlayWhenReadyChanged(boolean playWhenReady, int reason) {
         mService.setPlaybackStoppedHook(playbackStoppedHook);
         mService.setSessionActivity(buildSessionIntent());
         mService.setPlaybackForeground(true);
+        mService.setHostState(!isFinishing(), isInPictureInPictureMode());
         mService.setNavigationCallback(getNavigationCallback(), activePlaybackKey());
         mService.addPlayerCallback(mPlayerCallback);
         getSeekView().setProgressPlayer(player().getPlayer());
@@ -1399,6 +1401,7 @@ public void onPlayWhenReadyChanged(boolean playWhenReady, int reason) {
         super.onResume();
         if (mService != null) {
             mService.setPlaybackForeground(true);
+            mService.setHostState(true, isInPictureInPictureMode());   // v624：视频可见时不挂通知栏
             if (isOwner()) player().setDanmakuForeground(true);
         }
         if (SpiderDebug.isEnabled()) SpiderDebug.log("playback-lifecycle", "activity resume %s", lifecycleState());
@@ -1425,12 +1428,21 @@ public void onPlayWhenReadyChanged(boolean playWhenReady, int reason) {
     protected void onStop() {
         if (mService != null) {
             mService.setPlaybackForeground(false);
+            // v624：真正退到后台（未进小窗）才允许挂通知栏；进小窗时 onStop 不会触发，状态由 PiP 回调接管
+            mService.setHostState(false, isInPictureInPictureMode());
             if (isOwner()) player().setDanmakuForeground(false);
         }
         restoreExoOutputMode();
         if (SpiderDebug.isEnabled()) SpiderDebug.log("playback-lifecycle", "activity stop backgroundOff=%s %s", PlayerSetting.isBackgroundOff(), lifecycleState());
         super.onStop();
         if (isOwner() && !isAudioOnly() && shouldPauseOnBackground() && mController != null) mController.pause();
+    }
+
+    @Override
+    public void onPictureInPictureModeChanged(boolean isInPictureInPictureMode, @NonNull Configuration newConfig) {
+        super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig);
+        // v624：小窗里也算「可见」→ 视频不发通知栏；退出小窗回来继续抑制
+        if (mService != null) mService.setHostState(true, isInPictureInPictureMode);
     }
 
     @Override

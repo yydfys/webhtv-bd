@@ -111,7 +111,7 @@ public class PiP {
 
     public boolean enter(Activity activity, int width, int height, int scale, boolean force) {
         try {
-            if (noPiP() || activity.isInPictureInPictureMode() || (!force && audioMode)) return false;
+            if (noPiP() || activity.isInPictureInPictureMode() || (!force && (audioMode || !PlayerSetting.isPipAutoEnter()))) return false;
             setAspectRatio(activity, width, height, scale);
             setAutoEnter();
             return activity.enterPictureInPictureMode(builder.build());
@@ -131,7 +131,9 @@ public class PiP {
      */
     private void setAutoEnter() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            builder.setAutoEnterEnabled(!audioMode);
+            // v624：自动小窗多一个用户开关（播放设置里的「视频自动小窗」）。
+            // 关掉它就完全不自动进小窗，退后台按「后台播放」开关走（开=后台播+通知栏，关=暂停）。
+            builder.setAutoEnterEnabled(!audioMode && PlayerSetting.isPipAutoEnter());
         }
     }
 

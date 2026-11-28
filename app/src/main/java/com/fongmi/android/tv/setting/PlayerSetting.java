@@ -494,6 +494,15 @@ public class PlayerSetting {
         Prefers.put("audio_book_notification", notification);
     }
 
+    /** v624：「视频自动小窗」开关。开=离开播放页自动进画中画小窗；关=完全不进小窗，按「后台播放」开关走。 */
+    public static boolean isPipAutoEnter() {
+        return Prefers.getBoolean("pip_auto_enter", true);
+    }
+
+    public static void putPipAutoEnter(boolean autoEnter) {
+        Prefers.put("pip_auto_enter", autoEnter);
+    }
+
     public static boolean isBackgroundOff() {
         return !isBackgroundOn();
     }

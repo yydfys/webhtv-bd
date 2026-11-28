@@ -97,6 +97,7 @@ public class SettingPlayerFragment extends BaseFragment implements UaListener, B
         mBinding.failureFallbackText.setText((failureFallback = ResUtil.getStringArray(R.array.select_player_failure_fallback))[PlayerSetting.getFailureFallback()]);
         mBinding.musicNotificationText.setText(getSwitch(PlayerSetting.isMusicNotification()));
         mBinding.audioBookNotificationText.setText(getSwitch(PlayerSetting.isAudioBookNotification()));
+        mBinding.pipAutoText.setText(getSwitch(PlayerSetting.isPipAutoEnter()));
         mBinding.audioDecodeText.setText(getSwitch(PlayerSetting.isAudioPrefer()));
         mBinding.audioPassThroughText.setText(getSwitch(PlayerSetting.isAudioPassThrough()));
         mBinding.videoDecodeText.setText(getSwitch(PlayerSetting.isVideoPrefer()));
@@ -158,6 +159,10 @@ public class SettingPlayerFragment extends BaseFragment implements UaListener, B
         mBinding.caption.setOnClickListener(this::setCaption);
         mBinding.caption.setOnLongClickListener(this::onCaption);
         mBinding.background.setOnClickListener(this::onBackground);
+        mBinding.pipAuto.setOnClickListener(view -> {
+            PlayerSetting.putPipAutoEnter(!PlayerSetting.isPipAutoEnter());
+            mBinding.pipAutoText.setText(getSwitch(PlayerSetting.isPipAutoEnter()));
+        });
         mBinding.musicNotification.setOnClickListener(this::setMusicNotification);
         mBinding.audioBookNotification.setOnClickListener(this::setAudioBookNotification);
         mBinding.audioDecode.setOnClickListener(this::setAudioDecode);

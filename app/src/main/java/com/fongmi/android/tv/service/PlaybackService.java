@@ -1,12 +1,9 @@
 package com.fongmi.android.tv.service;
 
-import android.app.AppOpsManager;
 import android.app.PendingIntent;
 import android.content.Context;
 import android.content.Intent;
-import android.content.pm.PackageManager;
 import android.os.Binder;
-import android.os.Build;
 import android.os.Bundle;
 import android.os.IBinder;
 import android.text.TextUtils;
@@ -92,6 +89,9 @@ private AudioHistory.Record audioHistoryRecord;
     private long lastAudioHistorySync;
     private boolean externalBound;
     private boolean keepAlive;
+    /** v624：宿主页面此刻是否可见（前台全屏/窗口，或已在小窗）。服务据此决定视频挂不挂通知栏。 */
+    private boolean hostVisible = true;
+    private boolean hostInPiP;
     private PlayerManager player;
     private String navigationKey;
     private Player exoPlayer;
@@ -202,6 +202,22 @@ private AudioHistory.Record audioHistoryRecord;
         onPlaybackStopped = hook;
     }
 
+    /**
+     * v624：宿主上报「视频此刻是否可见」，服务据此决定要不要发通知栏。
+     *
+     * @param visible 前台可见（全屏或窗口）
+     * @param inPip   已进入画中画小窗
+     */
+    public void setHostState(boolean visible, boolean inPip) {
+        if (hostVisible == visible && hostInPiP == inPip) return;
+        hostVisible = visible;
+        hostInPiP = inPip;
+        try {
+            triggerNotificationUpdate();
+        } catch (Throwable ignored) {
+        }
+    }
+
     public void clearPlaybackStoppedHook(Runnable hook) {
         if (onPlaybackStopped == hook) onPlaybackStopped = null;
     }
@@ -288,7 +304,7 @@ private AudioHistory.Record audioHistoryRecord;
      */
     @Override
     public ListenableFuture<Void> onUpdateNotificationAsync(@NonNull MediaSession session, boolean startInForegroundRequired) {
-        if (!isAudioContentPlaying() && prefersPiPOverNotification()) {
+        if (suppressVideoNotification()) {
             stopForeground(STOP_FOREGROUND_REMOVE);
             return Futures.<Void>immediateFuture(null);
         }
@@ -296,40 +312,23 @@ private AudioHistory.Record audioHistoryRecord;
     }
 
     /**
-     * 手机端：系统画中画真的可用时，视频用「自动小窗」代替「后台播 + 通知栏」。
+     * 视频要不要「不发通知栏」。
      *
-     * <p>分档规则（2026-11-28 老大定）：
+     * <p>v624 起判据改成<b>实际状态</b>，不再猜系统权限（画中画开关在部分 ROM 上根本不暴露，
+     * 靠 AppOps 查会永远判成「可用」，于是永远小窗、永远不发通知、也永远不停播）：
      * <ul>
-     *   <li>画中画可用 → 忽略「后台播放」开关，视频一律自动进小窗，并且不发通知栏卡片；</li>
-     *   <li>画中画不可用（Android 8 以下 / 设备不支持 / 系统里关掉了本 App 的画中画权限）
-     *       → 回退原兜底：「后台播放」开关开=后台继续播且保留通知栏卡片，关=退后台暂停；</li>
-     *   <li>音频型内容与 TV 端一律返回 false，行为保持原样（音频走音符/有声书通知设置，TV 仍发通知）。</li>
+     *   <li>视频在<b>前台</b>（全屏或窗口）→ 不发通知栏；</li>
+     *   <li>视频<b>已在小窗</b>（画中画）→ 不发通知栏；</li>
+     *   <li>真正退到后台且<b>实际没进小窗</b>（权限被拦、老机器、ROM 不支持，或用户关掉了
+     *       「视频自动小窗」开关）→ 才发通知栏：此时「后台播放」开关开=后台继续播并保留通知卡，
+     *       关=页面 onStop 里已经暂停；</li>
+     *   <li>音频型内容不走这条（照旧有通知）；TV 端 {@link Util#isLeanback()} 恒 false，行为零改动。</li>
      * </ul>
      */
-    private boolean prefersPiPOverNotification() {
+    private boolean suppressVideoNotification() {
         if (Util.isLeanback()) return false;
-        return pictureInPictureAvailable();
-    }
-
-    /**
-     * 系统是否允许本 App 使用画中画。
-     *
-     * <p>三个条件缺一不可：API ≥ 26、设备声明了画中画特性、AppOps 的 {@code PICTURE_IN_PICTURE}
-     * 未被用户关掉（系统设置里关掉会变成 {@code MODE_IGNORED}）。
-     * 任何一项查不出来都按「不可用」处理：宁可退回通知栏兜底，也不让视频在后台无声无息地播。
-     */
-    private boolean pictureInPictureAvailable() {
-        try {
-            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return false;
-            Context context = getApplicationContext();
-            if (!context.getPackageManager().hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE)) return false;
-            AppOpsManager ops = (AppOpsManager) context.getSystemService(Context.APP_OPS_SERVICE);
-            if (ops == null) return false;
-            int mode = ops.checkOpNoThrow(AppOpsManager.OPSTR_PICTURE_IN_PICTURE, android.os.Process.myUid(), context.getPackageName());
-            return mode != AppOpsManager.MODE_IGNORED && mode != AppOpsManager.MODE_ERRORED;
-        } catch (Throwable t) {
-            return false;
-        }
+        if (isAudioContentPlaying()) return false;
+        return hostVisible || hostInPiP;
     }
 
     private CommandButton buildStopButton() {
