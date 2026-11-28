@@ -16,6 +16,7 @@ import androidx.fragment.app.FragmentActivity;
 import androidx.viewbinding.ViewBinding;
 
 import com.fongmi.android.tv.R;
+import com.fongmi.android.tv.setting.PluginPanelSetting;
 import com.fongmi.android.tv.databinding.DialogPluginPanelBinding;
 import com.fongmi.android.tv.ui.activity.PlaybackActivity;
 import com.fongmi.android.tv.utils.ResUtil;
@@ -325,6 +326,17 @@ public final class PluginPanelDialog extends BaseSideSheetDialog {
     protected ViewBinding getBinding(@NonNull LayoutInflater inflater, @Nullable ViewGroup container) {
         binding = DialogPluginPanelBinding.inflate(inflater, container, false);
         return binding;
+    }
+
+    /**
+     * 手机端默认改成从底部向上滑出（「设置 → 增强功能 → 插件管理」里可切回右侧）。
+     * 手机竖屏窄，右侧面板只有屏幕 2/3 宽，插件里的视频会被挤成窄条；底部弹层左右铺满，
+     * 宽度直接翻倍。电视端保持右侧滑出——控制条在屏幕下缘，底部弹层会盖住刚点的 chip，
+     * 关闭后焦点也没有落点。
+     */
+    @Override
+    protected boolean isBottomSheet() {
+        return Util.isMobile() && PluginPanelSetting.isBottomSheet();
     }
 
     @Override

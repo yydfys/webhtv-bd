@@ -47,6 +47,7 @@ import com.fongmi.android.tv.plugin.PluginEnvironmentStore;
 import com.fongmi.android.tv.plugin.PluginPackageImporter;
 import com.fongmi.android.tv.plugin.PluginRemoteSource;
 import com.fongmi.android.tv.plugin.PluginSourceConfig;
+import com.fongmi.android.tv.setting.PluginPanelSetting;
 import com.fongmi.android.tv.theme.ThemeController;
 import com.fongmi.android.tv.theme.ThemeTokens;
 import com.fongmi.android.tv.theme.WebHtvAlertDialogBuilder;
@@ -58,6 +59,7 @@ import com.fongmi.android.tv.utils.PermissionUtil;
 import com.fongmi.android.tv.utils.Util;
 import com.github.catvod.utils.Path;
 import com.google.android.material.button.MaterialButton;
+import com.google.android.material.switchmaterial.SwitchMaterial;
 import com.google.android.material.textfield.TextInputEditText;
 import com.google.android.material.textfield.TextInputLayout;
 import com.google.gson.JsonElement;
@@ -128,6 +130,7 @@ public class PluginManagerActivity extends BaseActivity {
             ViewCompat.requestApplyInsets(root);
         }
         mBinding.toolbar.setNavigationOnClickListener(view -> finish());
+        bindPanelSheetSwitch();
         mAdapter = new EntryAdapter(new EntryAdapter.Listener() {
             @Override
             public void onToggle(PluginSourceConfig.Entry entry, boolean enabled) {
@@ -147,6 +150,19 @@ public class PluginManagerActivity extends BaseActivity {
         mBinding.pluginList.setLayoutManager(new LinearLayoutManager(this));
         mBinding.pluginList.setAdapter(mAdapter);
         refreshEntries();
+    }
+
+    /**
+     * 插件面板弹出方式开关：只在手机端显示（电视端恒为右侧滑出，写死不做）。
+     * 用 findViewById 而不是 mBinding：只有手机版布局有这个控件，电视版取不到就是 null。
+     */
+    private void bindPanelSheetSwitch() {
+        View switchView = findViewById(R.id.pluginPanelBottomSwitch);
+        if (!(switchView instanceof SwitchMaterial)) return;
+        SwitchMaterial item = (SwitchMaterial) switchView;
+        item.setVisibility(Util.isMobile() ? View.VISIBLE : View.GONE);
+        item.setChecked(PluginPanelSetting.isBottomSheet());
+        item.setOnCheckedChangeListener((button, checked) -> PluginPanelSetting.putBottomSheet(checked));
     }
 
     @Override

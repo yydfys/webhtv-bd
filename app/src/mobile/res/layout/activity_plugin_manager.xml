@@ -18,6 +18,15 @@
         app:title="@string/setting_plugin_manager"
         app:titleTextAppearance="@style/ToolbarTextAppearance" />
 
+    <com.google.android.material.switchmaterial.SwitchMaterial
+        android:id="@+id/pluginPanelBottomSwitch"
+        android:layout_width="match_parent"
+        android:layout_height="48dp"
+        android:layout_marginTop="4dp"
+        android:text="@string/plugin_panel_bottom"
+        android:textColor="?attr/webhtvColorOnWallpaper"
+        android:textSize="15sp" />
+
     <androidx.appcompat.widget.LinearLayoutCompat
         android:layout_width="match_parent"
         android:layout_height="wrap_content"

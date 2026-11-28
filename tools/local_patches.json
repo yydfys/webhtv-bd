@@ -190,6 +190,129 @@
           "min": 1
         }
       ]
+    },
+    {
+      "version": "v625",
+      "file": "app/src/main/java/com/fongmi/android/tv/setting/PluginPanelSetting.java",
+      "desc": "插件面板弹出方式设置项（手机端底部/右侧，默认底部）",
+      "markers": [
+        {
+          "text": "plugin_panel_bottom_sheet",
+          "min": 1
+        },
+        {
+          "text": "isBottomSheet()",
+          "min": 1
+        }
+      ]
+    },
+    {
+      "version": "v625",
+      "file": "app/src/main/java/com/fongmi/android/tv/ui/dialog/BaseSideSheetDialog.java",
+      "desc": "面板容器支持底部向上滑出（贴底、铺满宽、屏高 66%）",
+      "markers": [
+        {
+          "text": "protected boolean isBottomSheet()",
+          "min": 1
+        },
+        {
+          "text": "private void applyBottomSheet()",
+          "min": 1
+        },
+        {
+          "text": "BottomSheetDialog",
+          "min": 2
+        }
+      ]
+    },
+    {
+      "version": "v625",
+      "file": "app/src/main/java/com/fongmi/android/tv/ui/dialog/PluginPanelDialog.java",
+      "desc": "插件面板手机端按设置走底部滑出，电视端保持右侧",
+      "markers": [
+        {
+          "text": "isBottomSheet()",
+          "min": 1
+        },
+        {
+          "text": "PluginPanelSetting",
+          "min": 2
+        }
+      ]
+    },
+    {
+      "version": "v625",
+      "file": "app/src/main/java/com/fongmi/android/tv/ui/activity/PluginManagerActivity.java",
+      "desc": "插件管理页加「面板从底部弹出」开关（仅手机可见）",
+      "markers": [
+        {
+          "text": "pluginPanelBottomSwitch",
+          "min": 1
+        },
+        {
+          "text": "PluginPanelSetting",
+          "min": 2
+        },
+        {
+          "text": "bindPanelSheetSwitch",
+          "min": 2
+        }
+      ]
+    },
+    {
+      "version": "v625",
+      "file": "app/src/mobile/res/layout/activity_plugin_manager.xml",
+      "desc": "手机版插件管理页的开关控件",
+      "markers": [
+        {
+          "text": "pluginPanelBottomSwitch",
+          "min": 1
+        }
+      ]
+    },
+    {
+      "version": "v625",
+      "file": "app/src/main/res/values/ids.xml",
+      "desc": "声明 pluginPanelBottomSwitch id（电视版布局没有该控件，靠它保证 Java 编译）",
+      "markers": [
+        {
+          "text": "pluginPanelBottomSwitch",
+          "min": 1
+        }
+      ]
+    },
+    {
+      "version": "v625",
+      "file": "app/src/main/res/values/strings.xml",
+      "desc": "plugin_panel_bottom 文案（英文）",
+      "markers": [
+        {
+          "text": "plugin_panel_bottom",
+          "min": 1
+        }
+      ]
+    },
+    {
+      "version": "v625",
+      "file": "app/src/main/res/values-zh-rCN/strings.xml",
+      "desc": "plugin_panel_bottom 文案（简体）",
+      "markers": [
+        {
+          "text": "plugin_panel_bottom",
+          "min": 1
+        }
+      ]
+    },
+    {
+      "version": "v625",
+      "file": "app/src/main/res/values-zh-rTW/strings.xml",
+      "desc": "plugin_panel_bottom 文案（繁体）",
+      "markers": [
+        {
+          "text": "plugin_panel_bottom",
+          "min": 1
+        }
+      ]
     }
   ]
 }
