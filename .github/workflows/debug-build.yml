@@ -133,6 +133,11 @@ jobs:
           fi
           echo "tag=$RT" >> "$GITHUB_OUTPUT"
 
+      - name: Verify local patches survived upstream sync
+        # 同步上游后如果我们的修复被覆盖，这里直接失败，避免发出版本里悄悄丢功能。
+        # 清单在 tools/local_patches.json，每版发完请追加新标记。
+        run: python3 tools/check_local_patches.py
+
       - name: Build four APKs (debug-signed fallback, unless release signing above)
         env:
           WEBHTV_APK_SUFFIX: ""
