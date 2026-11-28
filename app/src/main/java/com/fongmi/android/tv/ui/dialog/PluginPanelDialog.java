@@ -123,7 +123,9 @@ public final class PluginPanelDialog extends BaseSideSheetDialog {
         }
         if (activity.getSupportFragmentManager().isStateSaved()) return null;
         PlaybackActivity playback = activity instanceof PlaybackActivity ? (PlaybackActivity) activity : null;
-        boolean resumeParent = playback != null && playback.pauseForOverlayPlayback();
+        // v621：插件面板只是叠加层，打开它不再暂停父播放器（原来这里会 pause，用户会以为"点插件就把播放停了"）。
+        // 仍然保留 resumeParent 变量与 Bundle 通道，取值恒为 false，关闭面板时自然不会误恢复。
+        boolean resumeParent = false;
         PluginPanelDialog dialog = new PluginPanelDialog().bind(title, null, onClosed);
         dialog.token = token;
         Bundle args = new Bundle();
@@ -258,7 +260,9 @@ public final class PluginPanelDialog extends BaseSideSheetDialog {
         if (activity == null || activity.isFinishing()) return;
         if (activity.getSupportFragmentManager().isStateSaved()) return;
         PlaybackActivity playback = activity instanceof PlaybackActivity ? (PlaybackActivity) activity : null;
-        boolean resumeParent = playback != null && playback.pauseForOverlayPlayback();
+        // v621：插件面板只是叠加层，打开它不再暂停父播放器（原来这里会 pause，用户会以为"点插件就把播放停了"）。
+        // 仍然保留 resumeParent 变量与 Bundle 通道，取值恒为 false，关闭面板时自然不会误恢复。
+        boolean resumeParent = false;
         PluginPanelDialog dialog = new PluginPanelDialog().bind(title, html, onClosed);
         Bundle args = new Bundle();
         args.putBoolean(ARG_RESUME_PARENT, resumeParent);
