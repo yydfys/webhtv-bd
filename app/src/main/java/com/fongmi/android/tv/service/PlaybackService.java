@@ -271,6 +271,26 @@ private AudioHistory.Record audioHistoryRecord;
         setMediaNotificationProvider(provider);
     }
 
+    /**
+     * v622：媒体通知与前台服务只给音频型内容。
+     *
+     * <p>视频不再走系统通知栏：视频只有「全屏」和「画中画小窗」两种形态，离开界面由小窗接管，
+     * 不存在「后台只剩声音、靠通知栏控制」的场景，因此既不需要媒体通知，也不需要把服务提到前台。
+     * 音频（音乐 / 有声书）保持原样：通知栏常驻 + 按设置后台继续播放。
+     *
+     * <p>通知与 {@code startForeground} 只发生在 {@code super} 的默认实现里
+     * （media3 {@code MediaSessionService.onUpdateNotificationAsync} → {@code MediaNotificationManager}），
+     * 不调 super 就完全不发通知、也不会把服务提到前台。
+     */
+    @Override
+    public ListenableFuture<Void> onUpdateNotificationAsync(@NonNull MediaSession session, boolean startInForegroundRequired) {
+        if (!isAudioContentPlaying()) {
+            stopForeground(STOP_FOREGROUND_REMOVE);
+            return Futures.<Void>immediateFuture(null);
+        }
+        return super.onUpdateNotificationAsync(session, startInForegroundRequired);
+    }
+
     private CommandButton buildStopButton() {
         return new CommandButton.Builder(CommandButton.ICON_STOP).setPlayerCommand(Player.COMMAND_STOP).setDisplayName(getString(R.string.play_stop)).build();
     }

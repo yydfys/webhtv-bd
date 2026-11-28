@@ -20,7 +20,6 @@ import com.fongmi.android.tv.App;
 import com.fongmi.android.tv.event.ActionEvent;
 import com.fongmi.android.tv.player.VideoAspectMode;
 import com.fongmi.android.tv.receiver.ActionReceiver;
-import com.fongmi.android.tv.setting.BackgroundPlaybackPolicy;
 import com.fongmi.android.tv.setting.PlayerSetting;
 
 import java.util.ArrayList;
@@ -112,7 +111,7 @@ public class PiP {
 
     public boolean enter(Activity activity, int width, int height, int scale, boolean force) {
         try {
-            if (noPiP() || activity.isInPictureInPictureMode() || (!force && !shouldUsePictureInPicture())) return false;
+            if (noPiP() || activity.isInPictureInPictureMode() || (!force && audioMode)) return false;
             setAspectRatio(activity, width, height, scale);
             setAutoEnter();
             return activity.enterPictureInPictureMode(builder.build());
@@ -122,14 +121,18 @@ public class PiP {
         }
     }
 
+    /**
+     * v622：视频（非音频模式）切后台一律自动进画中画小窗，不再受「后台播放」开关约束。
+     *
+     * <p>旧逻辑把「后台播放开关」同时当作音频背景播放与视频小窗的总闸：
+     * 开关关着时自动进小窗被禁，视频退到后台就只剩「暂停」一条路。
+     * 现在两者拆开——视频只允许「全屏」与「画中画小窗」两种形态，
+     * 离开界面就交给小窗；音频模式（音乐 / 有声书）不进小窗，仍按开关决定是否后台播放。
+     */
     private void setAutoEnter() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            builder.setAutoEnterEnabled(shouldUsePictureInPicture());
+            builder.setAutoEnterEnabled(!audioMode);
         }
-    }
-
-    private boolean shouldUsePictureInPicture() {
-        return BackgroundPlaybackPolicy.shouldUsePictureInPicture(PlayerSetting.getBackground(), audioMode);
     }
 
     @SuppressLint("NewApi")
