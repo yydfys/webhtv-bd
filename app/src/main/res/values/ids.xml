@@ -4,4 +4,6 @@
     <item name="update_fullscreen_inset" type="id" />
     <item name="loadHost" type="id" />
     <item name="pluginPanelBottomSwitch" type="id" />
+    <item name="pluginPanelHeightRow" type="id" />
+    <item name="pluginPanelHeightValue" type="id" />
 </resources>

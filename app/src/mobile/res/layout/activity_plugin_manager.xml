@@ -28,6 +28,31 @@
         android:textSize="15sp" />
 
     <androidx.appcompat.widget.LinearLayoutCompat
+        android:id="@+id/pluginPanelHeightRow"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="?attr/selectableItemBackground"
+        android:gravity="center_vertical"
+        android:minHeight="48dp"
+        android:orientation="horizontal">
+
+        <com.google.android.material.textview.MaterialTextView
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="@string/plugin_panel_height"
+            android:textColor="?attr/webhtvColorOnWallpaper"
+            android:textSize="15sp" />
+
+        <com.google.android.material.textview.MaterialTextView
+            android:id="@+id/pluginPanelHeightValue"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textColor="?attr/webhtvColorOnWallpaper"
+            android:textSize="15sp" />
+    </androidx.appcompat.widget.LinearLayoutCompat>
+
+    <androidx.appcompat.widget.LinearLayoutCompat
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginTop="8dp"

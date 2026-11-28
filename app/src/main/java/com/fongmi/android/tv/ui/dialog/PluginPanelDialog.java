@@ -339,6 +339,12 @@ public final class PluginPanelDialog extends BaseSideSheetDialog {
         return Util.isMobile() && PluginPanelSetting.isBottomSheet();
     }
 
+    /** 高度比例也走设置：「设置 → 增强功能 → 插件管理」里可实时调（40%~90%，默认 66%）。 */
+    @Override
+    protected float getBottomSheetHeightRatio() {
+        return PluginPanelSetting.bottomSheetRatio();
+    }
+
     @Override
     protected int getWidth() {
         int width = Math.min(ResUtil.dp2px(480), ResUtil.getScreenWidth(requireContext()) * 2 / 3);

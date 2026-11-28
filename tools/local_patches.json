@@ -203,6 +203,14 @@
         {
           "text": "isBottomSheet()",
           "min": 1
+        },
+        {
+          "text": "plugin_panel_bottom_sheet_percent",
+          "min": 1
+        },
+        {
+          "text": "bottomSheetRatio",
+          "min": 2
         }
       ]
     },
@@ -241,6 +249,10 @@
         {
           "text": "PluginPanelSetting",
           "min": 2
+        },
+        {
+          "text": "getBottomSheetHeightRatio",
+          "min": 2
         }
       ]
     },
@@ -260,6 +272,14 @@
         {
           "text": "bindPanelSheetSwitch",
           "min": 2
+        },
+        {
+          "text": "pluginPanelHeightRow",
+          "min": 1
+        },
+        {
+          "text": "showPanelHeightDialog",
+          "min": 2
         }
       ]
     },
@@ -270,6 +290,10 @@
       "markers": [
         {
           "text": "pluginPanelBottomSwitch",
+          "min": 1
+        },
+        {
+          "text": "pluginPanelHeightRow",
           "min": 1
         }
       ]
@@ -282,6 +306,10 @@
         {
           "text": "pluginPanelBottomSwitch",
           "min": 1
+        },
+        {
+          "text": "pluginPanelHeightValue",
+          "min": 1
         }
       ]
     },
@@ -292,6 +320,10 @@
       "markers": [
         {
           "text": "plugin_panel_bottom",
+          "min": 1
+        },
+        {
+          "text": "plugin_panel_height",
           "min": 1
         }
       ]
@@ -304,6 +336,10 @@
         {
           "text": "plugin_panel_bottom",
           "min": 1
+        },
+        {
+          "text": "plugin_panel_height",
+          "min": 1
         }
       ]
     },
@@ -314,6 +350,10 @@
       "markers": [
         {
           "text": "plugin_panel_bottom",
+          "min": 1
+        },
+        {
+          "text": "plugin_panel_height",
           "min": 1
         }
       ]

@@ -22,6 +22,8 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.widget.Button;
 import android.widget.LinearLayout;
+import android.widget.SeekBar;
+import android.widget.TextView;
 
 import androidx.activity.result.ActivityResult;
 import androidx.activity.result.ActivityResultLauncher;
@@ -131,6 +133,7 @@ public class PluginManagerActivity extends BaseActivity {
         }
         mBinding.toolbar.setNavigationOnClickListener(view -> finish());
         bindPanelSheetSwitch();
+        bindPanelHeightRow();
         mAdapter = new EntryAdapter(new EntryAdapter.Listener() {
             @Override
             public void onToggle(PluginSourceConfig.Entry entry, boolean enabled) {
@@ -163,6 +166,77 @@ public class PluginManagerActivity extends BaseActivity {
         item.setVisibility(Util.isMobile() ? View.VISIBLE : View.GONE);
         item.setChecked(PluginPanelSetting.isBottomSheet());
         item.setOnCheckedChangeListener((button, checked) -> PluginPanelSetting.putBottomSheet(checked));
+    }
+
+    /**
+     * 「面板高度」行：手机端可见，点一下弹滑杆（40%~90%），确认后立即生效——
+     * 每次打开面板都会重新读设置，不需要重启 App。
+     */
+    private void bindPanelHeightRow() {
+        View row = findViewById(R.id.pluginPanelHeightRow);
+        if (row == null) return;
+        row.setVisibility(Util.isMobile() ? View.VISIBLE : View.GONE);
+        if (!Util.isMobile()) return;
+        row.setOnClickListener(view -> showPanelHeightDialog());
+        refreshPanelHeightValue();
+    }
+
+    private void refreshPanelHeightValue() {
+        TextView value = findViewById(R.id.pluginPanelHeightValue);
+        if (value != null) {
+            value.setText(getString(R.string.plugin_panel_height_value, PluginPanelSetting.getBottomSheetPercent()));
+        }
+    }
+
+    private void showPanelHeightDialog() {
+        int current = PluginPanelSetting.getBottomSheetPercent();
+        ThemeTokens tokens = ThemeController.current();
+
+        LinearLayout container = new LinearLayout(this);
+        container.setOrientation(LinearLayout.VERTICAL);
+        int horizontal = dp(20);
+        container.setPadding(horizontal, dp(8), horizontal, 0);
+
+        TextView label = new TextView(this);
+        label.setTextSize(15);
+        label.setTextColor(tokens.colorOnSurfaceVariant());
+        container.addView(label, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT));
+
+        SeekBar seek = new SeekBar(this);
+        seek.setMax(PluginPanelSetting.MAX_PERCENT - PluginPanelSetting.MIN_PERCENT);
+        seek.setProgress(current - PluginPanelSetting.MIN_PERCENT);
+        seek.setProgressTintList(ColorStateList.valueOf(tokens.colorPrimary()));
+        seek.setThumbTintList(ColorStateList.valueOf(tokens.colorPrimary()));
+        container.addView(seek, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(48)));
+        label.setText(getString(R.string.plugin_panel_height_value, current));
+        seek.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            @Override
+            public void onProgressChanged(SeekBar bar, int progress, boolean fromUser) {
+                label.setText(getString(R.string.plugin_panel_height_value,
+                        PluginPanelSetting.MIN_PERCENT + progress));
+            }
+
+            @Override
+            public void onStartTrackingTouch(SeekBar bar) {
+            }
+
+            @Override
+            public void onStopTrackingTouch(SeekBar bar) {
+            }
+        });
+
+        androidx.appcompat.app.AlertDialog dialog = new WebHtvAlertDialogBuilder(this, R.style.Theme_WebHTV_Dialog)
+                .setTitle(R.string.plugin_panel_height_title)
+                .setView(container)
+                .setNegativeButton(R.string.dialog_cancel, null)
+                .setPositiveButton(R.string.dialog_confirm, (d, which) -> {
+                    PluginPanelSetting.putBottomSheetPercent(PluginPanelSetting.MIN_PERCENT + seek.getProgress());
+                    refreshPanelHeightValue();
+                })
+                .create();
+        dialog.show();
+        LightDialog.apply(dialog);
     }
 
     @Override

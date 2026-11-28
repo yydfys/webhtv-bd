@@ -3105,6 +3105,9 @@
     </string-array>
     <string name="setting_plugin_manager">Plugin manager</string>
     <string name="plugin_panel_bottom">Open plugin panel from bottom (phone only)</string>
+    <string name="plugin_panel_height">Panel height</string>
+    <string name="plugin_panel_height_value">%1$d%% of screen</string>
+    <string name="plugin_panel_height_title">Panel height (40%~90%)</string>
     <string name="plugin_manager_entry_count">%1$d plugin(s)</string>
     <string name="plugin_manager_import">Import package</string>
     <string name="plugin_manager_reload">Reload</string>

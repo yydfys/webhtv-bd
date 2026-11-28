@@ -12,6 +12,12 @@ import com.github.catvod.utils.Prefers;
 public final class PluginPanelSetting {
 
     private static final String KEY_BOTTOM_SHEET = "plugin_panel_bottom_sheet";
+    private static final String KEY_BOTTOM_SHEET_PERCENT = "plugin_panel_bottom_sheet_percent";
+
+    /** 底部面板高度百分比的可调范围与默认值（插件管理页里可实时调）。 */
+    public static final int MIN_PERCENT = 40;
+    public static final int MAX_PERCENT = 90;
+    public static final int DEFAULT_PERCENT = 66;
 
     public static boolean isBottomSheet() {
         return Prefers.getBoolean(KEY_BOTTOM_SHEET, true);
@@ -19,6 +25,21 @@ public final class PluginPanelSetting {
 
     public static void putBottomSheet(boolean bottom) {
         Prefers.put(KEY_BOTTOM_SHEET, bottom);
+    }
+
+    /** 底部面板占屏幕高度的百分比（40~90，默认 66）。 */
+    public static int getBottomSheetPercent() {
+        int percent = Prefers.getInt(KEY_BOTTOM_SHEET_PERCENT, DEFAULT_PERCENT);
+        return Math.min(Math.max(percent, MIN_PERCENT), MAX_PERCENT);
+    }
+
+    public static void putBottomSheetPercent(int percent) {
+        Prefers.put(KEY_BOTTOM_SHEET_PERCENT, Math.min(Math.max(percent, MIN_PERCENT), MAX_PERCENT));
+    }
+
+    /** 给容器用的比例值。 */
+    public static float bottomSheetRatio() {
+        return getBottomSheetPercent() / 100f;
     }
 
     private PluginPanelSetting() {
