@@ -13,7 +13,10 @@ import android.widget.FrameLayout;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.appcompat.app.AppCompatDialogFragment;
+import androidx.core.graphics.Insets;
+import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowCompat;
+import androidx.core.view.WindowInsetsCompat;
 import androidx.viewbinding.ViewBinding;
 
 import com.fongmi.android.tv.utils.ResUtil;
@@ -141,6 +144,27 @@ public abstract class BaseSideSheetDialog extends AppCompatDialogFragment {
         if (group.getParent() instanceof ViewGroup) {
             ((ViewGroup) group.getParent()).setPadding(0, 0, 0, 0);
         }
+        applySystemBarPadding(group);
+    }
+
+    /**
+     * 给底部弹层让出系统栏：底部留出导航栏高度（手势条/三键条都不压字），横屏三键导航时左右各让一截。
+     *
+     * <p><b>为什么用 inset 而不是写死一个 dp。</b>导航栏高度随机型/横竖屏/手势或三键而变，
+     * 写死必然在某些机器上要么贴住、要么空一截。这里取的是系统给的 inset：窗口若已由框架让位，
+     * 收到的 inset 就是 0，不会重复留白；只有真的压在导航栏上才会补上。
+     *
+     * <p>内边距加在 sheet 容器上，与插件 html 自己的 padding 叠加，不影响内容滚动。
+     */
+    private void applySystemBarPadding(@NonNull ViewGroup group) {
+        ViewCompat.setOnApplyWindowInsetsListener(group, (view, windowInsets) -> {
+            Insets bars = windowInsets.getInsets(WindowInsetsCompat.Type.navigationBars()
+                    | WindowInsetsCompat.Type.displayCutout());
+            // 底部至少留 8dp 呼吸位：手势导航 inset 很小，纯按 inset 会让最后一行贴着圆角边缘
+            view.setPadding(bars.left, 0, bars.right, Math.max(bars.bottom, ResUtil.dp2px(8)));
+            return windowInsets;
+        });
+        ViewCompat.requestApplyInsets(group);
     }
 
     private int bottomSheetHeight() {

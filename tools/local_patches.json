@@ -222,6 +222,10 @@
         {
           "text": "BottomSheetDialog",
           "min": 2
+        },
+        {
+          "text": "applySystemBarPadding",
+          "min": 2
         }
       ]
     },
