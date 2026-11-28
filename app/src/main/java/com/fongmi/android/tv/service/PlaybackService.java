@@ -1,9 +1,12 @@
 package com.fongmi.android.tv.service;
 
+import android.app.AppOpsManager;
 import android.app.PendingIntent;
 import android.content.Context;
 import android.content.Intent;
+import android.content.pm.PackageManager;
 import android.os.Binder;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.IBinder;
 import android.text.TextUtils;
@@ -45,6 +48,7 @@ import com.fongmi.android.tv.player.lyrics.LyricsResult;
 import com.fongmi.android.tv.server.Server;
 import com.fongmi.android.tv.ui.audio.AudioHistory;
 import com.fongmi.android.tv.utils.Task;
+import com.fongmi.android.tv.utils.Util;
 import com.github.catvod.crawler.SpiderDebug;
 import com.google.common.collect.ImmutableList;
 import com.google.common.util.concurrent.Futures;
@@ -284,11 +288,48 @@ private AudioHistory.Record audioHistoryRecord;
      */
     @Override
     public ListenableFuture<Void> onUpdateNotificationAsync(@NonNull MediaSession session, boolean startInForegroundRequired) {
-        if (!isAudioContentPlaying()) {
+        if (!isAudioContentPlaying() && prefersPiPOverNotification()) {
             stopForeground(STOP_FOREGROUND_REMOVE);
             return Futures.<Void>immediateFuture(null);
         }
         return super.onUpdateNotificationAsync(session, startInForegroundRequired);
+    }
+
+    /**
+     * 手机端：系统画中画真的可用时，视频用「自动小窗」代替「后台播 + 通知栏」。
+     *
+     * <p>分档规则（2026-11-28 老大定）：
+     * <ul>
+     *   <li>画中画可用 → 忽略「后台播放」开关，视频一律自动进小窗，并且不发通知栏卡片；</li>
+     *   <li>画中画不可用（Android 8 以下 / 设备不支持 / 系统里关掉了本 App 的画中画权限）
+     *       → 回退原兜底：「后台播放」开关开=后台继续播且保留通知栏卡片，关=退后台暂停；</li>
+     *   <li>音频型内容与 TV 端一律返回 false，行为保持原样（音频走音符/有声书通知设置，TV 仍发通知）。</li>
+     * </ul>
+     */
+    private boolean prefersPiPOverNotification() {
+        if (Util.isLeanback()) return false;
+        return pictureInPictureAvailable();
+    }
+
+    /**
+     * 系统是否允许本 App 使用画中画。
+     *
+     * <p>三个条件缺一不可：API ≥ 26、设备声明了画中画特性、AppOps 的 {@code PICTURE_IN_PICTURE}
+     * 未被用户关掉（系统设置里关掉会变成 {@code MODE_IGNORED}）。
+     * 任何一项查不出来都按「不可用」处理：宁可退回通知栏兜底，也不让视频在后台无声无息地播。
+     */
+    private boolean pictureInPictureAvailable() {
+        try {
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return false;
+            Context context = getApplicationContext();
+            if (!context.getPackageManager().hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE)) return false;
+            AppOpsManager ops = (AppOpsManager) context.getSystemService(Context.APP_OPS_SERVICE);
+            if (ops == null) return false;
+            int mode = ops.checkOpNoThrow(AppOpsManager.OPSTR_PICTURE_IN_PICTURE, android.os.Process.myUid(), context.getPackageName());
+            return mode != AppOpsManager.MODE_IGNORED && mode != AppOpsManager.MODE_ERRORED;
+        } catch (Throwable t) {
+            return false;
+        }
     }
 
     private CommandButton buildStopButton() {
